@@ -1,0 +1,8 @@
+# Control-plane Python deps. Grows per phase; only what's actually imported.
+redis>=5.0          # Phase A: redis_store
+bcrypt>=4.0         # Phase B: auth (NFR-22)
+fastapi>=0.110      # Phase C: agent-API
+uvicorn>=0.29       # Phase C: ASGI server for the agent-API
+httpx>=0.27         # Phase C: agent HTTP client + Ollama calls
+python-docx>=1.1    # Phase D: report generation
+# Phase D/F: streamlit (ui) — added when the UI modules land.

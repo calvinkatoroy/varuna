@@ -1,0 +1,114 @@
+"""Tool argv + safe-profile + orchestration tests (SRS §4.4, NFR-17/18/19).
+
+The safety invariant that matters most: the Standard/safe profile can NEVER emit SQLMap's
+destructive flags, and the crawler always excludes destructive paths. Pure argv construction
++ orchestration with an injected runner, so it runs offline without the binaries.
+"""
+import os
+import sys
+
+HERE = os.path.dirname(__file__)
+sys.path.insert(0, os.path.join(HERE, "..", "..", "agent"))
+sys.path.insert(0, os.path.join(HERE, "..", "..", "agent", "tools"))
+
+import katana  # noqa: E402
+import nuclei  # noqa: E402
+import sqlmap  # noqa: E402
+import scan  # noqa: E402
+
+
+def test_katana_safe_denylist_and_no_form_submit():
+    cmd = katana.build("http://t.local", "/tmp/k.jsonl")
+    assert "-cos" in cmd and cmd[cmd.index("-cos") + 1] == katana.DENY_PATHS  # NFR-19
+    assert "-aff" not in cmd, "auto form-fill/submit must never be enabled (NFR-19)"
+    assert "-jsonl" in cmd
+
+
+def test_nuclei_rate_limited_and_dast():
+    cmd = nuclei.build("/tmp/k.jsonl", "/tmp/n.jsonl")
+    assert "-rate-limit" in cmd, "rate limiting must always be set (NFR-17)"
+    assert "-dast" in cmd
+    assert cmd[cmd.index("-l") + 1] == "/tmp/k.jsonl", "must scan Katana's list (REQ-21)"
+
+
+def test_sqlmap_safe_profile_is_detection_only():
+    cmd = sqlmap.build("/tmp/k.jsonl", "/tmp/out")   # aggressive defaults False
+    assert "--level" in cmd and cmd[cmd.index("--level") + 1] == "1"
+    assert "--risk" in cmd and cmd[cmd.index("--risk") + 1] == "1"
+    assert "--dump" not in cmd and "--os-shell" not in cmd, "safe profile must never be destructive (NFR-18)"
+
+
+def test_sqlmap_safe_ignores_destructive_flags_without_aggressive():
+    # Even if dump/os_shell are passed, they must be ignored unless aggressive is set.
+    cmd = sqlmap.build("/tmp/k.jsonl", "/tmp/out", aggressive=False, dump=True, os_shell=True)
+    assert "--dump" not in cmd and "--os-shell" not in cmd, "safe profile is locked (NFR-21)"
+
+
+def test_sqlmap_aggressive_is_pro_opt_in():
+    cmd = sqlmap.build("/tmp/k.jsonl", "/tmp/out", aggressive=True, dump=True, os_shell=True)
+    assert "--dump" in cmd and "--os-shell" in cmd
+    assert cmd[cmd.index("--risk") + 1] == "2"
+
+
+def test_cookie_passed_to_all_tools():
+    c = "session=abc"
+    assert "Cookie: session=abc" in katana.build("t", "o", cookie=c)
+    assert "Cookie: session=abc" in nuclei.build("u", "o", cookie=c)
+    assert sqlmap.build("u", "o", cookie=c)[-1] == c and "--cookie" in sqlmap.build("u", "o", cookie=c)
+
+
+def test_orchestration_katana_first_then_chained():
+    calls = []
+
+    def fake_run(argv):
+        calls.append(argv)
+        return f"output-of-{argv[0]}"
+
+    job = {"target": "http://t.local", "tools": ["katana", "nuclei", "sqlmap"], "opts": {}}
+    raw, status = scan.run_scan(job, run=fake_run)
+    assert calls[0][0] == "katana", "Katana must run first (REQ-20)"
+    # Nuclei + SQLMap chained to Katana's output file (OS-agnostic: match the filename)
+    assert any(a[0] == "nuclei" and any("katana.jsonl" in x for x in a) for a in calls)
+    assert any(a[0] == "sqlmap" and any("katana.jsonl" in x for x in a) for a in calls)
+    assert set(raw) == {"katana", "nuclei", "sqlmap"}
+    assert status == {"katana": "done", "nuclei": "done", "sqlmap": "done"}
+
+
+def test_orchestration_respects_scan_mode():
+    calls = []
+    job = {"target": "http://t.local", "tools": ["katana", "nuclei"], "opts": {}}  # VA Only
+    scan.run_scan(job, run=lambda a: calls.append(a[0]) or "")
+    assert "sqlmap" not in calls, "SQLMap must not run when not in the selected mode"
+
+
+def test_one_tool_failure_does_not_cancel_others():
+    # Nuclei blows up; SQLMap must still run and its findings must be kept (REQ-55, REQ-56).
+    def flaky_run(argv):
+        if argv[0] == "nuclei":
+            raise RuntimeError("nuclei crashed")
+        return f"out-{argv[0]}"
+
+    job = {"target": "http://t.local", "tools": ["katana", "nuclei", "sqlmap"], "opts": {}}
+    raw, status = scan.run_scan(job, run=flaky_run)
+    assert status == {"katana": "done", "nuclei": "failed", "sqlmap": "done"}
+    assert "sqlmap" in raw and "nuclei" not in raw, "successful tools' output preserved"
+
+
+def test_katana_failure_skips_dependent_tools():
+    def katana_fails(argv):
+        if argv[0] == "katana":
+            raise RuntimeError("katana crashed")
+        return "unexpected"
+
+    job = {"target": "http://t.local", "tools": ["katana", "nuclei", "sqlmap"], "opts": {}}
+    raw, status = scan.run_scan(job, run=katana_fails)
+    assert status == {"katana": "failed", "nuclei": "failed", "sqlmap": "failed"}
+    assert raw == {}, "no tool output when the discovery pre-step fails (§4.10)"
+
+
+if __name__ == "__main__":
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            fn()
+            print(f"{name} OK")
+    print("test_tools: all green")

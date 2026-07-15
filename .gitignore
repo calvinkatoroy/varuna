@@ -1,0 +1,33 @@
+# --- Project docs: sensitive business/design detail, not for a public repo ---
+docs/
+
+# --- Secrets / environment ---
+.env
+.env.local
+# (.env.example is intentionally NOT ignored: it is a safe template)
+
+# --- Generated reports & scan data (potential data leak) ---
+report_output/
+*.docx
+
+# --- Redis persistence ---
+dump.rdb
+*.rdb
+
+# --- Agent enrollment token, if ever written into the repo dir ---
+.varuna-agent-token
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

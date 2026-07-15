@@ -1,0 +1,53 @@
+"""Ingest: turn an agent's raw upload into stored, enriched, correlated findings.
+
+Runs as a FastAPI BackgroundTask off the findings-upload endpoint so the upload returns
+fast while enrichment (slow, per-finding) happens after. Parsing, enrichment, and
+correlation all happen centrally on the control plane (§4.5.1, §4.6, §4.6b).
+
+Order is dedup-BEFORE-enrich: correlate merges duplicates first, so enrichment runs once
+per real finding instead of once per raw hit (fewer LLM calls). Correlation's priority sort
+uses tool/severity, which are known pre-enrichment, so the ordering stays valid.
+"""
+from __future__ import annotations
+
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "pipeline"))
+
+import redis_store  # noqa: E402
+import models  # noqa: E402
+import parse  # noqa: E402
+import correlate  # noqa: E402
+import ollama  # noqa: E402
+
+
+def add_manual_finding(job_id: str, fields: dict) -> list[dict]:
+    """Append a Pro-entered finding to a job, then re-correlate + enrich (§4.6a, REQ-57 to 60).
+
+    Uses the same schema and pipeline as automated findings; tagged tool="manual" (REQ-58).
+    Correlation may dedup it against an existing automated finding on the same host/url.
+    """
+    job = redis_store.get_job(job_id)
+    if not job:
+        raise ValueError("no such job (it may have expired)")
+    manual = models.Finding(tool="manual", **fields).to_dict()
+    combined = redis_store.get_findings(job_id) + [manual]
+    combined = correlate.correlate(combined)          # dedup + tag + priority over the whole set
+    combined = ollama.enrich_missing(combined)         # enrich only the not-yet-enriched (REQ-59)
+    redis_store.set_findings(job_id, combined)
+    return combined
+
+
+def process_job(job_id: str, raw: dict) -> None:
+    job = redis_store.get_job(job_id)
+    if not job:
+        return  # job expired between upload and processing (24h TTL)
+    findings = parse.parse_all(raw, job)
+    findings = correlate.correlate(findings)   # dedup + OWASP/CWE tag + priority
+    findings = ollama.enrich_all(findings)     # graceful fallback per finding (REQ-36)
+    redis_store.set_findings(job_id, findings)
+    # ponytail: findings-ready is signalled by get_findings() being non-empty, not by job
+    # status (the agent owns status). If the tiny status=done-before-findings race ever
+    # matters to a UI, have ingest flip a findings_ready flag here.
