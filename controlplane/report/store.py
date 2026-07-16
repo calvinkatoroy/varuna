@@ -1,7 +1,7 @@
 """Generated-report store: save .docx to a volume, index metadata in Redis (DAT-2, REQ-50).
 
 Public-plane scope: a Standard user's own Executive Summaries (REQ-50a). The Pro full
-archive lives on the private plane (ui_private). Files persist on a volume; the Redis index
+archive lives on the private plane (private API). Files persist on a volume; the Redis index
 lets the Reports page list them without scanning the filesystem.
 """
 from __future__ import annotations

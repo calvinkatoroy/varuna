@@ -17,6 +17,10 @@ dump.rdb
 # --- Agent enrollment token, if ever written into the repo dir ---
 .varuna-agent-token
 
+# --- Node / frontend build ---
+node_modules/
+frontend/dist/
+
 # --- Python ---
 __pycache__/
 *.py[cod]

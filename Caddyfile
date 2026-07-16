@@ -2,12 +2,36 @@
 	email {$CADDY_EMAIL}
 }
 
-# On a real domain (VARUNA_DOMAIN set, TBD-4) Caddy auto-issues a Let's Encrypt cert.
-# On localhost it uses its internal CA, so HTTPS still works for local dev.
+# Public plane. On a real domain Caddy auto-issues a Let's Encrypt cert; on localhost it uses
+# its internal CA. Upstreams are Docker Compose service names (added to compose at deploy).
 {$VARUNA_DOMAIN} {
-	# Phase A placeholder. Wiring added when the services exist:
-	#   handle /agent/* { reverse_proxy api:8000 }        # FastAPI agent-API (Phase C)
-	#   handle          { reverse_proxy ui-public:8501 }  # Streamlit public plane (Phase D)
-	# The private plane (ui-private) is NOT proxied here — it binds to Tailscale only (NFR-24).
-	respond "Varuna control plane — up (Phase A skeleton)" 200
+	# Agent API (per-agent bearer token, agent-initiated polling)
+	handle /agent/* {
+		reverse_proxy api-agent:8001
+	}
+
+	# Public browser API (JWT, Pydantic-validated)
+	handle /api/* {
+		reverse_proxy api-public:8000
+	}
+
+	# React single-page app: fall back to index.html for client-side routing
+	handle {
+		root * /srv/frontend
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Security headers (defense in depth for the SPA + API)
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
 }
+
+# The private-plane API (findings, manual input, full reports) is NOT served here. It binds
+# only to the host's Tailscale interface (NFR-24, private_api.py) with no public listener,
+# reachable from tailnet devices at http://<tailscale-host>:8010.

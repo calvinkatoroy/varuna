@@ -1,9 +1,9 @@
 """Shared data models for Varuna's control plane.
 
 Plain dataclasses, stdlib only. Deliberately no pydantic here so this module stays
-importable from every container (api, ui_public, ui_private) without pulling a web
-framework into the shared layer; FastAPI can validate request bodies at its own edge
-in Phase C. Everything round-trips to JSON via to_dict / from_dict for Redis storage.
+importable from every control-plane service (browser API, agent API, private API) without
+pulling a web framework into the shared layer; FastAPI validates request bodies at its own
+edge. Everything round-trips to JSON via to_dict / from_dict for Redis storage.
 
 Finding fields follow SRS REQ-33; enrichment fields (REQ-35) and OWASP tag (REQ-62)
 are optional and filled by later pipeline stages (REQ-36 keeps a finding when

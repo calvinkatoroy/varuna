@@ -5,4 +5,5 @@ fastapi>=0.110      # Phase C: agent-API
 uvicorn>=0.29       # Phase C: ASGI server for the agent-API
 httpx>=0.27         # Phase C: agent HTTP client + Ollama calls
 python-docx>=1.1    # Phase D: report generation
-# Phase D/F: streamlit (ui) — added when the UI modules land.
+pyjwt>=2.8          # browser API JWT sessions (C-6)
+# UI is a separate React app under frontend/ (not a Python dep); Streamlit retired per C-6.
