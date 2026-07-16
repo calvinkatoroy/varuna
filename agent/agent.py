@@ -1,4 +1,4 @@
-"""Varuna agent — thin version (Phase C).
+"""Varuna agent, thin version (Phase C).
 
 Proves the enroll -> poll -> status/findings protocol against the control plane end to
 end. Real scan execution (Katana -> Nuclei/SQLMap) lands in Phase D; here `handle()`

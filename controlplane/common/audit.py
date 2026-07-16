@@ -1,7 +1,7 @@
 """Append-only audit log (SRS NFR-27, DAT-4).
 
-Records the accountability-relevant events — scan submissions, approval decisions,
-agent enrollment/revocation, and the offboarding wipe — to a Redis list with no TTL,
+Records the accountability-relevant events, scan submissions, approval decisions,
+agent enrollment/revocation, and the offboarding wipe, to a Redis list with no TTL,
 so the record survives the 24h expiry of the scan data it refers to. This is what
 makes the per-user agent model's accountability (§4.12) actually durable.
 """

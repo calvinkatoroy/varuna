@@ -7,6 +7,7 @@ the safe profile can be tested without the binaries installed.
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -18,20 +19,61 @@ import nuclei  # noqa: E402
 import sqlmap  # noqa: E402
 
 TOOL_TIMEOUT = 1800   # 30 min per tool (REQ-26)
+KATANA_TIMEOUT = 300  # the crawler is capped tightly by the agent: katana's own -ct is
+                      # unreliable on some targets, so a hard subprocess bound guarantees the
+                      # scan never hangs on discovery. On timeout we use partial output plus
+                      # the seed-fallback rather than failing the whole scan.
+
+
+def _target_list(katana_out: str, seed: str) -> list[str]:
+    """Plain URL list for Nuclei/SQLMap: URLs discovered by Katana PLUS the seed target.
+
+    Katana writes JSONL, but Nuclei `-l` and SQLMap `-m` want one plain URL per line, so we
+    extract here. The seed is always included, so a heavy or hard-to-crawl target (a JS SPA
+    where discovery underperforms, or a crawl that failed) is still scanned directly rather
+    than skipped. This is what keeps the scan robust on heavy targets.
+    """
+    urls: set[str] = set()
+    try:
+        with open(katana_out) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                    u = (obj.get("request") or {}).get("endpoint") or obj.get("endpoint")
+                except (json.JSONDecodeError, ValueError):
+                    u = line if line.startswith("http") else None
+                if u:
+                    urls.add(u)
+    except OSError:
+        pass
+    urls.add(seed)
+    return sorted(urls)
 
 
 def default_run(argv: list[str]) -> str:
     """Run a tool and return its raw output text. File-output tools (-o) return the file;
-    SQLMap returns stdout."""
-    proc = subprocess.run(argv, capture_output=True, text=True, timeout=TOOL_TIMEOUT)
-    if "-o" in argv:
-        outfile = argv[argv.index("-o") + 1]
+    SQLMap returns stdout. Katana is bounded by KATANA_TIMEOUT and its timeout is tolerated
+    (partial output is used); Nuclei/SQLMap timing out raises so partial-failure handling
+    marks that tool failed."""
+    is_katana = bool(argv) and argv[0] == "katana"
+    outfile = argv[argv.index("-o") + 1] if "-o" in argv else None
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True,
+                              timeout=KATANA_TIMEOUT if is_katana else TOOL_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        if not is_katana:
+            raise
+        proc = None   # katana cap hit: fall through to whatever it wrote; seed-fallback covers the rest
+    if outfile:
         try:
             with open(outfile) as f:
                 return f.read()
         except OSError:
             return ""
-    return proc.stdout
+    return proc.stdout if proc else ""
 
 
 def run_scan(job: dict, run=default_run, workdir: str | None = None):
@@ -47,24 +89,33 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None):
     opts = job.get("opts", {})
     cookie = opts.get("cookie") or None
     tools = job.get("tools", [])
+    seed = job["target"]
     raw: dict = {}
     status: dict = {}
 
     katana_out = os.path.join(workdir, "katana.jsonl")
     try:
-        raw["katana"] = run(katana.build(job["target"], katana_out, cookie=cookie))
+        raw["katana"] = run(katana.build(
+            seed, katana_out, cookie=cookie,
+            headless=opts.get("headless", False),
+            depth=opts.get("depth", katana.DEFAULT_DEPTH),
+            crawl_duration=opts.get("crawl_duration", katana.DEFAULT_CRAWL_DURATION),
+        ))
         status["katana"] = "done"
     except Exception:
         status["katana"] = "failed"
-        for t in ("nuclei", "sqlmap"):
-            if t in tools:
-                status[t] = "failed"   # depends on Katana's output (§4.10)
-        return raw, status
+        # Discovery failed, but do NOT give up: still scan the seed directly below (§4.10 is
+        # about dependency, and the seed is always a valid target). Robust on heavy targets.
+
+    # Nuclei/SQLMap scan the discovered URLs plus the seed (always at least the seed).
+    targets_file = os.path.join(workdir, "targets.txt")
+    with open(targets_file, "w") as f:
+        f.write("\n".join(_target_list(katana_out, seed)) + "\n")
 
     if "nuclei" in tools:
         try:
             raw["nuclei"] = run(nuclei.build(
-                katana_out, os.path.join(workdir, "nuclei.jsonl"),
+                targets_file, os.path.join(workdir, "nuclei.jsonl"),
                 interactsh=opts.get("interactsh"), cookie=cookie,
             ))
             status["nuclei"] = "done"
@@ -74,7 +125,7 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None):
     if "sqlmap" in tools:
         try:
             raw["sqlmap"] = run(sqlmap.build(
-                katana_out, os.path.join(workdir, "sqlmap"),
+                targets_file, os.path.join(workdir, "sqlmap"),
                 aggressive=bool(opts.get("aggressive", False)),
                 dump=bool(opts.get("dump", False)), os_shell=bool(opts.get("os_shell", False)),
                 tamper=opts.get("tamper"), cookie=cookie,

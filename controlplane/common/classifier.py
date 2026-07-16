@@ -3,7 +3,7 @@
 This is the single control the entire Approval Gate rests on. A `cloud` target
 misclassified as `local` silently skips approval (REQ-19a, BR-5), so the rule here
 is: resolve to an IP and classify on the *resolved address*, and **fail closed**
-(raise ClassifyRejected) on anything ambiguous, encoded, or unresolvable — never
+(raise ClassifyRejected) on anything ambiguous, encoded, or unresolvable, never
 guess `local`.
 
 Design (IMPLEMENTATION-PLAN D-3): don't regex-blocklist every IP encoding. Reject the
@@ -42,7 +42,7 @@ def _extract_host(target: str) -> str:
         t = "http://" + t  # let urlparse treat a bare host[:port] as an authority
     parsed = urlparse(t)
     # Embedded credentials (user[:pass]@host) are an evasion vector and are ambiguous
-    # across parsers — reject rather than trust our own parse (REQ-14).
+    # across parsers, reject rather than trust our own parse (REQ-14).
     if parsed.username is not None or parsed.password is not None:
         raise ClassifyRejected("embedded credentials in target")
     host = parsed.hostname

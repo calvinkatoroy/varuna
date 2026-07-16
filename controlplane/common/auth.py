@@ -2,7 +2,7 @@
 
 Passwords are bcrypt-hashed (NFR-22). The public-plane login is internet-facing in
 front of a tool that launches attacks, so failed logins are rate-limited per-account
-AND per-source-IP with a temporary lockout (NFR-25) — this is not optional hardening.
+AND per-source-IP with a temporary lockout (NFR-25), this is not optional hardening.
 
 `bcrypt` is imported lazily so the throttle logic stays testable without the package.
 """

@@ -50,7 +50,7 @@ export default function InstallAgent() {
           <div className="text-sm text-gray-400">Run this once on your machine, then refresh:</div>
           <pre className="overflow-x-auto rounded bg-bg p-3 text-sm text-green-400">python agent.py {token}</pre>
           <button className="btn-ghost" onClick={refresh}>
-            I've installed it — refresh
+            I've installed it, refresh
           </button>
         </div>
       )}

@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
-# Roles (SRS §4.11, REQ-66) — exactly two, no admin/reviewer.
+# Roles (SRS §4.11, REQ-66), exactly two, no admin/reviewer.
 ROLE_STANDARD = "standard"
 ROLE_PRO = "pro"
 ROLES = (ROLE_STANDARD, ROLE_PRO)

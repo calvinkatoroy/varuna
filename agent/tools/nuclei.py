@@ -6,17 +6,23 @@ OOB detection (REQ-21b). Higher rate is a Pro opt-in via `rate`.
 """
 from __future__ import annotations
 
-SAFE_RATE = 50   # conservative default requests/sec (NFR-17); Pro may raise it
+SAFE_RATE = 50    # conservative default requests/sec (NFR-17); Pro may raise it
+# A heavy or chatty app returns errors/timeouts on many template probes; nuclei's default
+# max-host-error (30) then gives up on the host entirely. Raise it so a heavy target is not
+# abandoned mid-scan.
+MAX_HOST_ERROR = 100
 
 
 def build(urls_file: str, outfile: str, severity: str = "critical,high,medium,low,info",
           dast: bool = True, interactsh: str | None = None,
-          rate: int = SAFE_RATE, cookie: str | None = None) -> list[str]:
+          rate: int = SAFE_RATE, cookie: str | None = None,
+          max_host_error: int = MAX_HOST_ERROR) -> list[str]:
     cmd = [
         "nuclei", "-l", urls_file,          # Katana's output (REQ-21)
         "-jsonl", "-o", outfile,
         "-severity", severity,
         "-rate-limit", str(rate),           # NFR-17 always set
+        "-mhe", str(max_host_error),        # tolerate a heavy app's errors before skipping it
     ]
     if dast:
         cmd.append("-dast")                 # reflected/DOM fuzzing (REQ-21b)

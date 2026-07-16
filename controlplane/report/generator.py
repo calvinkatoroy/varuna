@@ -81,7 +81,7 @@ def _executive_summary(job: dict, findings: list[dict]) -> Document:
     safe = sanitize.sanitize_findings(findings)   # technical fields never cross (REQ-49)
 
     doc = Document()
-    doc.add_heading("Executive Summary — Web VAPT", level=0)
+    doc.add_heading("Executive Summary, Web VAPT", level=0)
     _add_meta(doc, job)
 
     doc.add_heading("Business Risk Summary", level=2)
@@ -135,7 +135,7 @@ def _add_finding_detail(doc: Document, f: dict, level: int = 3) -> None:
 
 def _full_technical(job: dict, findings: list[dict]) -> Document:
     doc = Document()
-    doc.add_heading("Full Technical Report — Web VAPT", level=0)
+    doc.add_heading("Full Technical Report, Web VAPT", level=0)
     _add_meta(doc, job)
     _add_coverage(doc)
     _add_severity_table(doc, findings)
@@ -147,7 +147,7 @@ def _full_technical(job: dict, findings: list[dict]) -> Document:
 
 def _owasp_web_app(job: dict, findings: list[dict]) -> Document:
     doc = Document()
-    doc.add_heading("OWASP Web Application Report — Web VAPT", level=0)
+    doc.add_heading("OWASP Web Application Report, Web VAPT", level=0)
     _add_meta(doc, job)
     _add_coverage(doc)
     _add_severity_table(doc, findings)
@@ -182,7 +182,7 @@ _SEV_ID = {"critical": "Kritis", "high": "Tinggi", "medium": "Sedang", "low": "R
 
 def _ilcs_internal(job: dict, findings: list[dict]) -> Document:
     doc = Document()
-    doc.add_heading("Laporan VAPT Aplikasi Web — ILCS", level=0)
+    doc.add_heading("Laporan VAPT Aplikasi Web, ILCS", level=0)
 
     meta = doc.add_table(rows=0, cols=2)
     for label, value in (("Target", job.get("target", "")),

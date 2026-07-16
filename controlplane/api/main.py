@@ -1,4 +1,4 @@
-"""FastAPI agent-API — the only interface any agent talks to (SRS §3.3, §4.12).
+"""FastAPI agent-API, the only interface any agent talks to (SRS §3.3, §4.12).
 
 Endpoints (all agent-initiated, outbound-only from the agent's side):
   POST /agent/enroll              consume an enrollment token, issue a bearer token

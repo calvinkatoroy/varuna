@@ -4,7 +4,7 @@ Two token kinds:
   - Enrollment token: one-time, short-TTL, binds an enrollment attempt to an account.
     Generated when a user starts Install Agent (Phase D UI); consumed by POST /agent/enroll.
   - Bearer (agent) token: persistent (no TTL, C-5/REQ-73). Stored server-side ONLY as a
-    SHA-256 hash — never the raw token — and reverse-indexed for O(1) verification.
+    SHA-256 hash, never the raw token, and reverse-indexed for O(1) verification.
     Revocable by a Pro user (NFR-26).
 
 Ownership (NFR-26): a job may only be read/written by the agent of the account that

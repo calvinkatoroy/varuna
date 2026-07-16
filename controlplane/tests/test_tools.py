@@ -24,10 +24,22 @@ def test_katana_safe_denylist_and_no_form_submit():
     assert "-jsonl" in cmd
 
 
+def test_katana_handles_heavy_targets():
+    # Robust on heavy targets: JS endpoint parsing + crawl-time cap + bounded depth + rate.
+    cmd = katana.build("http://t.local", "/tmp/k.jsonl")
+    assert "-jc" in cmd, "JS parsing pulls API routes out of a SPA bundle"
+    assert "-ct" in cmd, "a crawl-duration cap must bound heavy/slow targets (no hang)"
+    assert "-d" in cmd and "-rl" in cmd, "bounded depth + rate limit (NFR-17)"
+    # headless is environment-dependent (browser launch can hang), so it is opt-in, off by default.
+    assert "-headless" not in cmd
+    assert "-headless" in katana.build("http://t.local", "/tmp/k.jsonl", headless=True)
+
+
 def test_nuclei_rate_limited_and_dast():
     cmd = nuclei.build("/tmp/k.jsonl", "/tmp/n.jsonl")
     assert "-rate-limit" in cmd, "rate limiting must always be set (NFR-17)"
     assert "-dast" in cmd
+    assert "-mhe" in cmd, "must tolerate a heavy target's errors, not skip the host"
     assert cmd[cmd.index("-l") + 1] == "/tmp/k.jsonl", "must scan Katana's list (REQ-21)"
 
 
@@ -64,14 +76,19 @@ def test_orchestration_katana_first_then_chained():
         calls.append(argv)
         return f"output-of-{argv[0]}"
 
+    import tempfile
+    wd = tempfile.mkdtemp()
     job = {"target": "http://t.local", "tools": ["katana", "nuclei", "sqlmap"], "opts": {}}
-    raw, status = scan.run_scan(job, run=fake_run)
+    raw, status = scan.run_scan(job, run=fake_run, workdir=wd)
     assert calls[0][0] == "katana", "Katana must run first (REQ-20)"
-    # Nuclei + SQLMap chained to Katana's output file (OS-agnostic: match the filename)
-    assert any(a[0] == "nuclei" and any("katana.jsonl" in x for x in a) for a in calls)
-    assert any(a[0] == "sqlmap" and any("katana.jsonl" in x for x in a) for a in calls)
+    # Nuclei + SQLMap chained to the extracted plain target list (not Katana's raw JSONL)
+    assert any(a[0] == "nuclei" and any("targets.txt" in x for x in a) for a in calls)
+    assert any(a[0] == "sqlmap" and any("targets.txt" in x for x in a) for a in calls)
     assert set(raw) == {"katana", "nuclei", "sqlmap"}
     assert status == {"katana": "done", "nuclei": "done", "sqlmap": "done"}
+    # The seed target is always in the list, so a heavy target is scanned even if crawl finds nothing.
+    with open(os.path.join(wd, "targets.txt")) as f:
+        assert "http://t.local" in f.read(), "seed must always be a scan target"
 
 
 def test_orchestration_respects_scan_mode():
@@ -94,16 +111,18 @@ def test_one_tool_failure_does_not_cancel_others():
     assert "sqlmap" in raw and "nuclei" not in raw, "successful tools' output preserved"
 
 
-def test_katana_failure_skips_dependent_tools():
+def test_katana_failure_still_scans_seed():
+    # Robust: if discovery (Katana) fails, do NOT give up. Nuclei/SQLMap still scan the seed.
     def katana_fails(argv):
         if argv[0] == "katana":
             raise RuntimeError("katana crashed")
-        return "unexpected"
+        return f"out-{argv[0]}"
 
     job = {"target": "http://t.local", "tools": ["katana", "nuclei", "sqlmap"], "opts": {}}
     raw, status = scan.run_scan(job, run=katana_fails)
-    assert status == {"katana": "failed", "nuclei": "failed", "sqlmap": "failed"}
-    assert raw == {}, "no tool output when the discovery pre-step fails (§4.10)"
+    assert status["katana"] == "failed"
+    assert status["nuclei"] == "done" and status["sqlmap"] == "done", "downstream must still scan the seed"
+    assert "nuclei" in raw and "sqlmap" in raw
 
 
 if __name__ == "__main__":

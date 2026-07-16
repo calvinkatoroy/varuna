@@ -24,7 +24,7 @@ export default function Login() {
   return (
     <div className="flex min-h-screen items-center justify-center">
       <form onSubmit={submit} className="card w-80 space-y-4">
-        <h1 className="text-xl font-bold text-white">Varuna — Web VAPT</h1>
+        <h1 className="text-xl font-bold text-white">Varuna: Web VAPT</h1>
         <div>
           <label className="label">Username</label>
           <input className="input" value={u} onChange={(e) => setU(e.target.value)} autoFocus />
