@@ -1,0 +1,15 @@
+# Builds the React SPA and bakes it into a Caddy image that serves it and proxies the APIs.
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+# VITE_PRIVATE_API is the Tailscale-reachable URL of the private API (findings/reports),
+# baked at build time. Defaults to the local dev port; set it to the tailnet host in prod.
+ARG VITE_PRIVATE_API=http://localhost:8010
+ENV VITE_PRIVATE_API=${VITE_PRIVATE_API}
+RUN npm run build
+
+FROM caddy:2-alpine
+COPY Caddyfile /etc/caddy/Caddyfile
+COPY --from=build /app/dist /srv/frontend

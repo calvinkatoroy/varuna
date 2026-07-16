@@ -1,27 +1,83 @@
 name: varuna
 
-# Phase A skeleton: redis + ollama + caddy only. The api / ui-public / ui-private
-# services are added in later phases as their code lands (IMPLEMENTATION-PLAN §5).
-# Only Caddy publishes ports (NFR-11); redis and ollama stay internal to vapt-net (NFR-9).
+# Full control-plane stack. Only Caddy (:80/:443) and the private API (bound to the host's
+# Tailscale interface) are reachable from outside; redis, ollama, and the API services talk
+# over the internal vapt-net (NFR-9, NFR-11, NFR-24). The per-user agent is NOT here; it is a
+# native installer that runs on each user's own machine.
+
+x-controlplane: &controlplane
+  image: varuna/controlplane:latest
+  build:
+    context: .
+    dockerfile: controlplane/Dockerfile
+  working_dir: /app/controlplane/api
+  networks: [vapt-net]
+  depends_on: [redis]
+  restart: unless-stopped
 
 services:
   redis:
     image: redis:7-alpine
     command: redis-server --appendonly yes   # AOF: accounts/agents/audit persist (C-5, NFR-27)
-    volumes:
-      - redis_data:/data
+    volumes: [redis_data:/data]
     networks: [vapt-net]
     restart: unless-stopped
 
   ollama:
     image: ollama/ollama:latest
-    volumes:
-      - ollama_data:/root/.ollama
+    volumes: [ollama_data:/root/.ollama]
     networks: [vapt-net]
     restart: unless-stopped
 
+  # Public browser API (JWT). Fronted by Caddy on /api/*.
+  api-public:
+    <<: *controlplane
+    command: uvicorn browser:app --host 0.0.0.0 --port 8000
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
+      - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -hex 32)}
+      - VARUNA_CORS_ORIGINS=${VARUNA_CORS_ORIGINS:-https://localhost}
+      - SCAN_TTL_SECONDS=${SCAN_TTL_SECONDS:-86400}
+      - REPORTS_DIR=/data/reports
+    volumes: [report_output:/data/reports]
+
+  # Agent API (per-agent bearer token). Fronted by Caddy on /agent/*.
+  api-agent:
+    <<: *controlplane
+    command: uvicorn main:app --host 0.0.0.0 --port 8001
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
+      - SCAN_TTL_SECONDS=${SCAN_TTL_SECONDS:-86400}
+
+  # Private-plane API (findings/reports/manual). Bound ONLY to the host's Tailscale interface,
+  # no public listener (NFR-24). Set TAILSCALE_BIND to the VM's tailscale IP in .env; it
+  # defaults to loopback so local dev never exposes it.
+  api-private:
+    <<: *controlplane
+    command: uvicorn private_api:app --host 0.0.0.0 --port 8010
+    ports:
+      - "${TAILSCALE_BIND:-127.0.0.1}:8010:8010"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
+      - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -hex 32)}
+      - VARUNA_CORS_ORIGINS=${VARUNA_CORS_ORIGINS:-https://localhost}
+      - SCAN_TTL_SECONDS=${SCAN_TTL_SECONDS:-86400}
+      - REPORTS_DIR=/data/reports
+    volumes: [report_output:/data/reports]
+
+  # Serves the React SPA and reverse-proxies /api -> api-public, /agent -> api-agent.
   caddy:
-    image: caddy:2-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
+      args:
+        VITE_PRIVATE_API: "${VITE_PRIVATE_API:-http://localhost:8010}"
     ports:
       - "80:80"
       - "443:443"
@@ -29,10 +85,10 @@ services:
       - VARUNA_DOMAIN=${VARUNA_DOMAIN:-localhost}
       - CADDY_EMAIL=${CADDY_EMAIL:-admin@example.com}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     networks: [vapt-net]
+    depends_on: [api-public, api-agent]
     restart: unless-stopped
 
 networks:
@@ -44,3 +100,4 @@ volumes:
   ollama_data:
   caddy_data:
   caddy_config:
+  report_output:
