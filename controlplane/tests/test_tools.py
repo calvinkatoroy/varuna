@@ -11,6 +11,7 @@ HERE = os.path.dirname(__file__)
 sys.path.insert(0, os.path.join(HERE, "..", "..", "agent"))
 sys.path.insert(0, os.path.join(HERE, "..", "..", "agent", "tools"))
 
+import discover  # noqa: E402
 import katana  # noqa: E402
 import nuclei  # noqa: E402
 import sqlmap  # noqa: E402
@@ -33,6 +34,35 @@ def test_katana_handles_heavy_targets():
     # headless is environment-dependent (browser launch can hang), so it is opt-in, off by default.
     assert "-headless" not in cmd
     assert "-headless" in katana.build("http://t.local", "/tmp/k.jsonl", headless=True)
+
+
+def test_js_endpoint_discovery():
+    # SPA discovery: pull API routes out of the JS bundle (the robust replacement for the
+    # unreliable headless crawl). Fetch is faked so this runs offline.
+    def fake_fetch(url):
+        if url.endswith(".js"):
+            return '"api/Products" "/rest/user/login" "rest/products/search"'
+        return '<script src="main.js"></script>'
+
+    eps = discover.js_endpoints("http://t.local", fetch=fake_fetch)
+    assert "http://t.local/api/Products" in eps
+    assert "http://t.local/rest/user/login" in eps
+    assert any("rest/products" in e for e in eps)
+
+
+def test_scan_merges_js_endpoints_into_targets():
+    import tempfile
+    wd = tempfile.mkdtemp()
+
+    def fake_fetch(url):
+        return '"rest/products"' if url.endswith(".js") else '<script src="main.js"></script>'
+
+    job = {"target": "http://t.local", "tools": ["nuclei"], "opts": {}}
+    scan.run_scan(job, run=lambda a: "", workdir=wd, fetch=fake_fetch)
+    with open(os.path.join(wd, "targets.txt")) as f:
+        content = f.read()
+    assert "http://t.local/rest/products" in content, "discovered SPA endpoints must be scanned"
+    assert "http://t.local" in content, "seed still present"
 
 
 def test_nuclei_rate_limited_and_dast():
@@ -79,7 +109,7 @@ def test_orchestration_katana_first_then_chained():
     import tempfile
     wd = tempfile.mkdtemp()
     job = {"target": "http://t.local", "tools": ["katana", "nuclei", "sqlmap"], "opts": {}}
-    raw, status = scan.run_scan(job, run=fake_run, workdir=wd)
+    raw, status = scan.run_scan(job, run=fake_run, workdir=wd, fetch=lambda u: "")
     assert calls[0][0] == "katana", "Katana must run first (REQ-20)"
     # Nuclei + SQLMap chained to the extracted plain target list (not Katana's raw JSONL)
     assert any(a[0] == "nuclei" and any("targets.txt" in x for x in a) for a in calls)
@@ -94,7 +124,7 @@ def test_orchestration_katana_first_then_chained():
 def test_orchestration_respects_scan_mode():
     calls = []
     job = {"target": "http://t.local", "tools": ["katana", "nuclei"], "opts": {}}  # VA Only
-    scan.run_scan(job, run=lambda a: calls.append(a[0]) or "")
+    scan.run_scan(job, run=lambda a: calls.append(a[0]) or "", fetch=lambda u: "")
     assert "sqlmap" not in calls, "SQLMap must not run when not in the selected mode"
 
 
@@ -106,7 +136,7 @@ def test_one_tool_failure_does_not_cancel_others():
         return f"out-{argv[0]}"
 
     job = {"target": "http://t.local", "tools": ["katana", "nuclei", "sqlmap"], "opts": {}}
-    raw, status = scan.run_scan(job, run=flaky_run)
+    raw, status = scan.run_scan(job, run=flaky_run, fetch=lambda u: "")
     assert status == {"katana": "done", "nuclei": "failed", "sqlmap": "done"}
     assert "sqlmap" in raw and "nuclei" not in raw, "successful tools' output preserved"
 
@@ -119,7 +149,7 @@ def test_katana_failure_still_scans_seed():
         return f"out-{argv[0]}"
 
     job = {"target": "http://t.local", "tools": ["katana", "nuclei", "sqlmap"], "opts": {}}
-    raw, status = scan.run_scan(job, run=katana_fails)
+    raw, status = scan.run_scan(job, run=katana_fails, fetch=lambda u: "")
     assert status["katana"] == "failed"
     assert status["nuclei"] == "done" and status["sqlmap"] == "done", "downstream must still scan the seed"
     assert "nuclei" in raw and "sqlmap" in raw

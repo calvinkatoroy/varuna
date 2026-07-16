@@ -14,6 +14,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "tools"))
+import discover  # noqa: E402
 import katana  # noqa: E402
 import nuclei  # noqa: E402
 import sqlmap  # noqa: E402
@@ -76,7 +77,7 @@ def default_run(argv: list[str]) -> str:
     return proc.stdout if proc else ""
 
 
-def run_scan(job: dict, run=default_run, workdir: str | None = None):
+def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None):
     """Run the scan and return (raw, tool_status).
 
     Katana runs first; Nuclei/SQLMap chain off its output. Per-tool failures are isolated
@@ -107,10 +108,17 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None):
         # Discovery failed, but do NOT give up: still scan the seed directly below (§4.10 is
         # about dependency, and the seed is always a valid target). Robust on heavy targets.
 
-    # Nuclei/SQLMap scan the discovered URLs plus the seed (always at least the seed).
+    # Build the target list: Katana's crawl + the seed, plus API endpoints pulled from the
+    # target's JS bundles (SPA discovery, since Katana's headless crawl is unreliable). Always
+    # at least the seed, so a heavy target is never skipped.
+    targets = set(_target_list(katana_out, seed))
+    try:
+        targets.update(discover.js_endpoints(seed, fetch or discover.default_fetch))
+    except Exception:
+        pass
     targets_file = os.path.join(workdir, "targets.txt")
     with open(targets_file, "w") as f:
-        f.write("\n".join(_target_list(katana_out, seed)) + "\n")
+        f.write("\n".join(sorted(targets)) + "\n")
 
     if "nuclei" in tools:
         try:
