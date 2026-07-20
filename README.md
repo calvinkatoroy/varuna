@@ -63,6 +63,14 @@ cd frontend && npm install && npm run dev                     # React app on :51
 Open the app, log in, use the Install Agent page (it gives a one-line command), run the agent,
 then submit a scan.
 
+Ollama is also Compose-internal (`http://ollama:11434`). For local dev, either skip it (findings
+just come back unenriched, per REQ-36) or run it on the host and point at it:
+
+```bash
+ollama serve &
+export OLLAMA_URL=http://localhost:11434
+```
+
 ## Tests
 
 Offline suite, no live services needed:
