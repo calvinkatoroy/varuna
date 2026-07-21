@@ -37,12 +37,30 @@ docs/                SRS, PRD, MRD, architecture, plan (kept local)
 
 ## Development quickstart
 
-The Compose Redis is internal only, so for local dev run a throwaway Redis with a published
-port:
+Commands below are bash. On Windows PowerShell: `export VAR=value` -> `$env:VAR = "value"`,
+and `a && b` -> two separate lines (PowerShell 5.1 has no `&&`).
+
+`REDIS_URL`, `OLLAMA_URL`, and `VARUNA_URL` (agent.py) all default to Compose-internal
+hostnames or ports that don't line up with a host-run setup. Forgetting one fails with a
+DNS/connection error, not a silent no-op (the one exception is the Ollama enrichment call
+itself, which is allowed to fail per REQ-36). Every entrypoint below loads a repo-root `.env`
+automatically (python-dotenv), so set these **once** there instead of exporting them in every
+terminal:
 
 ```bash
-docker run --rm -p 6379:6379 redis:7-alpine
-export REDIS_URL=redis://localhost:6379/0
+cp .env.example .env
+```
+
+Then uncomment/set in `.env`: `REDIS_URL=redis://localhost:6379/0`,
+`OLLAMA_URL=http://localhost:11434` (if running Ollama locally), and `JWT_SECRET` to anything
+(a dev default exists but a real one avoids surprises).
+
+The Compose Redis is internal only, so for local dev run a throwaway Redis with a published
+port, detached so it doesn't tie up the terminal (skip if `docker ps` already shows one on
+6379):
+
+```bash
+docker run --rm -d --name varuna-redis -p 6379:6379 redis:7-alpine
 ```
 
 Bootstrap an account (there is no self-registration):
@@ -51,13 +69,27 @@ Bootstrap an account (there is no self-registration):
 python controlplane/seed_account.py admin admin123 pro
 ```
 
-Run the services, each in its own terminal:
+Run the services, each in its own terminal (all start from the repo root):
 
 ```bash
-cd controlplane/api && uvicorn browser:app --port 8000        # public browser API
-cd controlplane/api && uvicorn main:app --port 8001           # agent API
-cd controlplane/api && uvicorn private_api:app --port 8010    # private (Tailscale) API
-cd frontend && npm install && npm run dev                     # React app on :5173
+cd controlplane/api
+uvicorn browser:app --port 8000        # public browser API
+```
+
+```bash
+cd controlplane/api
+uvicorn main:app --port 8001           # agent API
+```
+
+```bash
+cd controlplane/api
+uvicorn private_api:app --port 8010    # private (Tailscale) API
+```
+
+```bash
+cd frontend
+npm install
+npm run dev                            # React app on :5173
 ```
 
 Open the app, log in, use the Install Agent page (it gives a one-line command), run the agent,

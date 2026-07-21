@@ -12,7 +12,7 @@ import ManualInput from './pages/ManualInput'
 
 export default function App() {
   const { user, ready } = useAuth()
-  if (!ready) return <div className="p-8 text-gray-400">Loading…</div>
+  if (!ready) return <div className="p-sm text-ink-faint">Loading…</div>
   if (!user) return <Login />
   const isPro = user.role === 'pro'
 

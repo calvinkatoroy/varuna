@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../auth'
+import Button from '../components/Button'
 
 const MODES: Record<string, string[]> = {
   'VA Only (Katana + Nuclei)': ['katana', 'nuclei'],
@@ -25,6 +26,7 @@ export default function NewScan() {
   const [ack, setAck] = useState(false)
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -32,6 +34,7 @@ export default function NewScan() {
     setMsg('')
     if (!target) return setErr('Target is required.')
     if (!ack) return setErr('You must confirm authorization.')
+    setBusy(true)
     try {
       const body: any = isPro
         ? { target, tools: MODES[mode], opts: { template, cookie, aggressive } }
@@ -47,13 +50,15 @@ export default function NewScan() {
         setErr(e.message + ' ')
         nav('/install')
       } else setErr(e.message)
+    } finally {
+      setBusy(false)
     }
   }
 
   return (
-    <form onSubmit={submit} className="max-w-2xl space-y-4">
-      <h1 className="text-2xl font-bold text-white">New Scan</h1>
-      <div className="card text-sm text-info">{WARN}</div>
+    <form onSubmit={submit} className="max-w-2xl space-y-md">
+      <h1 className="font-display text-display text-ink">New Scan</h1>
+      <div className="card border-l-2 border-l-info text-sm text-ink-muted">{WARN}</div>
 
       <div>
         <label className="label">Target {isPro ? '(URL, hostname, or IP)' : '(URL or hostname)'}</label>
@@ -87,23 +92,33 @@ export default function NewScan() {
           </div>
           <div>
             <label className="label">Session cookie (authenticated scan, optional)</label>
-            <input className="input" value={cookie} onChange={(e) => setCookie(e.target.value)} />
+            <input
+              type="password"
+              className="input"
+              value={cookie}
+              onChange={(e) => setCookie(e.target.value)}
+            />
           </div>
-          <label className="flex items-center gap-2 text-sm text-gray-300">
+          <label className="flex items-center gap-xs rounded-input border border-crit/40 bg-crit/5 px-xs py-2xs text-sm text-ink">
             <input type="checkbox" checked={aggressive} onChange={(e) => setAggressive(e.target.checked)} />
-            Enable aggressive SQLMap (--dump / --os-shell). Pro only, off by default.
+            <span>
+              <span className="font-medium text-high">Enable aggressive SQLMap</span> (--dump / --os-shell).
+              Pro only, off by default.
+            </span>
           </label>
         </>
       )}
 
-      <label className="flex items-center gap-2 text-sm text-gray-300">
+      <label className="flex items-center gap-xs text-sm text-ink-muted">
         <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
         I confirm I am authorized to scan this target.
       </label>
 
       {err && <div className="text-sm text-crit">{err}</div>}
       {msg && <div className="text-sm text-low">{msg}</div>}
-      <button className="btn">{isPro ? 'Launch' : 'Submit'}</button>
+      <Button busy={busy} busyLabel={isPro ? 'Launching…' : 'Submitting…'}>
+        {isPro ? 'Launch' : 'Submit'}
+      </Button>
     </form>
   )
 }

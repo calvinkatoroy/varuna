@@ -50,6 +50,19 @@ def test_js_endpoint_discovery():
     assert any("rest/products" in e for e in eps)
 
 
+def test_js_endpoint_discovery_captures_query_param():
+    # Template literals (`rest/products/search?q=${term}`) compile to a string literal
+    # ending in "?q=" - that must survive so SQLMap has a parameter to test, not just a
+    # bare path (this is what previously required a manually-supplied ?q=).
+    def fake_fetch(url):
+        if url.endswith(".js"):
+            return '"rest/products/search?q=" + encodeURIComponent(criteria)'
+        return '<script src="main.js"></script>'
+
+    eps = discover.js_endpoints("http://t.local", fetch=fake_fetch)
+    assert "http://t.local/rest/products/search?q=" in eps
+
+
 def test_scan_merges_js_endpoints_into_targets():
     import tempfile
     wd = tempfile.mkdtemp()

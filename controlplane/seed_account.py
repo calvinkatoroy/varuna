@@ -7,6 +7,10 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "common"))
+
+from dotenv import load_dotenv  # noqa: E402
+load_dotenv()  # repo-root .env, for host-run dev (REDIS_URL, ...)
+
 import auth  # noqa: E402
 
 if __name__ == "__main__":

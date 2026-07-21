@@ -1,6 +1,7 @@
 import { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../auth'
+import Button from './Button'
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth()
@@ -21,34 +22,44 @@ export default function Layout({ children }: { children: ReactNode }) {
   ]
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="flex w-56 flex-col border-r border-border bg-card p-4">
-        <div className="mb-6 text-lg font-bold text-white">Varuna</div>
-        <nav className="space-y-1">
+    <div className="flex min-h-screen flex-col md:flex-row">
+      <aside
+        className="flex items-center gap-xs overflow-x-auto border-b border-rule bg-paper-2 px-sm py-2xs
+                   md:h-screen md:w-56 md:shrink-0 md:flex-col md:items-stretch md:gap-0 md:overflow-visible
+                   md:border-b-0 md:border-r md:px-sm md:py-sm"
+      >
+        <div className="font-display shrink-0 text-lg font-semibold text-ink md:mb-lg">Varuna</div>
+
+        <nav className="flex shrink-0 gap-3xs md:mt-0 md:flex-col">
           {links.map(([to, label]) => (
             <NavLink
               key={to}
               to={to}
               className={({ isActive }) =>
-                `block rounded px-3 py-2 text-sm ${
-                  isActive ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-bg'
-                }`
+                [
+                  'whitespace-nowrap rounded-input border-l-2 px-xs py-2xs text-sm transition-colors duration-short ease-out',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-paper-2',
+                  isActive
+                    ? 'border-accent bg-paper-3 font-medium text-ink'
+                    : 'border-transparent text-ink-muted hover:bg-paper-3 hover:text-ink',
+                ].join(' ')
               }
             >
               {label}
             </NavLink>
           ))}
         </nav>
-        <div className="mt-auto pt-6">
-          <div className="mb-2 text-xs text-gray-500">
-            {user!.username} · {user!.role}
+
+        <div className="ml-auto flex shrink-0 items-center gap-xs md:ml-0 md:mt-auto md:flex-col md:items-stretch md:gap-2xs md:pt-lg">
+          <div className="hidden text-xs text-ink-faint md:block">
+            {user!.username} <span className="mono">· {user!.role}</span>
           </div>
-          <button onClick={logout} className="btn-ghost w-full">
+          <Button variant="ghost" onClick={logout} className="w-full">
             Log out
-          </button>
+          </Button>
         </div>
       </aside>
-      <main className="flex-1 p-8">{children}</main>
+      <main className="flex-1 p-sm md:p-lg">{children}</main>
     </div>
   )
 }

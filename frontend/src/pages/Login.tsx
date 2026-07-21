@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '../auth'
+import Button from '../components/Button'
 
 export default function Login() {
   const { login } = useAuth()
@@ -22,9 +23,9 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center">
-      <form onSubmit={submit} className="card w-80 space-y-4">
-        <h1 className="text-xl font-bold text-white">Varuna: Web VAPT</h1>
+    <div className="flex min-h-screen items-center justify-center bg-paper px-sm">
+      <form onSubmit={submit} className="card w-full max-w-sm space-y-md">
+        <h1 className="font-display text-xl text-ink">Varuna: Web VAPT</h1>
         <div>
           <label className="label">Username</label>
           <input className="input" value={u} onChange={(e) => setU(e.target.value)} autoFocus />
@@ -39,9 +40,9 @@ export default function Login() {
           />
         </div>
         {err && <div className="text-sm text-crit">{err}</div>}
-        <button className="btn w-full" disabled={busy}>
-          {busy ? 'Signing in…' : 'Log in'}
-        </button>
+        <Button busy={busy} busyLabel="Signing in…" className="w-full">
+          Log in
+        </Button>
       </form>
     </div>
   )

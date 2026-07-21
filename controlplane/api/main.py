@@ -18,6 +18,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
 
+from dotenv import load_dotenv  # noqa: E402
+load_dotenv()  # repo-root .env, for host-run dev (REDIS_URL, JWT_SECRET, ...)
+
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 

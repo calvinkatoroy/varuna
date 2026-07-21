@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import Button from '../components/Button'
 
 export default function ApprovalQueue() {
   const [items, setItems] = useState<any[]>([])
   const [reasons, setReasons] = useState<Record<string, string>>({})
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [busyAction, setBusyAction] = useState<'approve' | 'reject' | null>(null)
   const [err, setErr] = useState('')
 
   async function load() {
@@ -18,49 +21,70 @@ export default function ApprovalQueue() {
   }, [])
 
   async function approve(id: string) {
+    setBusyId(id)
+    setBusyAction('approve')
     try {
       await api.post(`/api/approvals/${id}/approve`)
-      load()
+      await load()
     } catch (e: any) {
       setErr(e.message)
+    } finally {
+      setBusyId(null)
+      setBusyAction(null)
     }
   }
   async function reject(id: string) {
+    setBusyId(id)
+    setBusyAction('reject')
     try {
       await api.post(`/api/approvals/${id}/reject`, { reason: reasons[id] || 'no reason given' })
-      load()
+      await load()
     } catch (e: any) {
       setErr(e.message)
+    } finally {
+      setBusyId(null)
+      setBusyAction(null)
     }
   }
 
   return (
-    <div className="max-w-3xl space-y-4">
-      <h1 className="text-2xl font-bold text-white">Approval Queue</h1>
+    <div className="max-w-3xl space-y-md">
+      <h1 className="font-display text-display text-ink">Approval Queue</h1>
       {err && <div className="text-sm text-crit">{err}</div>}
-      {items.length === 0 && <div className="text-gray-400">No pending requests.</div>}
+      {items.length === 0 && <div className="text-ink-faint">No pending requests.</div>}
       {items.map((r) => (
-        <div key={r.job_id} className="card space-y-2">
+        <div key={r.job_id} className="card space-y-2xs">
           <div className="text-sm">
-            <span className="font-semibold text-white">{r.submitter}</span>{' '}
-            <span className="text-gray-400">({r.division})</span> →{' '}
-            <span className="text-gray-200">{r.target}</span>{' '}
+            <span className="font-semibold text-ink">{r.submitter}</span>{' '}
+            <span className="text-ink-muted">({r.division})</span> →{' '}
+            <span className="text-ink">{r.target}</span>{' '}
             <span className="text-med">[{r.target_class}]</span>
           </div>
-          <div className="text-xs text-gray-500">{r.timestamp}</div>
-          <div className="flex gap-2">
+          <div className="mono text-xs text-ink-faint">{r.timestamp}</div>
+          <div className="flex gap-xs">
             <input
               className="input flex-1"
               placeholder="Reject reason"
               value={reasons[r.job_id] || ''}
               onChange={(e) => setReasons({ ...reasons, [r.job_id]: e.target.value })}
             />
-            <button className="btn" onClick={() => approve(r.job_id)}>
+            <Button
+              busy={busyId === r.job_id && busyAction === 'approve'}
+              busyLabel="Approving…"
+              disabled={busyId === r.job_id && busyAction === 'reject'}
+              onClick={() => approve(r.job_id)}
+            >
               Approve
-            </button>
-            <button className="btn-ghost" onClick={() => reject(r.job_id)}>
+            </Button>
+            <Button
+              variant="danger"
+              busy={busyId === r.job_id && busyAction === 'reject'}
+              busyLabel="Rejecting…"
+              disabled={busyId === r.job_id && busyAction === 'approve'}
+              onClick={() => reject(r.job_id)}
+            >
               Reject
-            </button>
+            </Button>
           </div>
         </div>
       ))}

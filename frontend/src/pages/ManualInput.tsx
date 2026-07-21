@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api } from '../api'
+import Button from '../components/Button'
 
 export default function ManualInput() {
   const [f, setF] = useState({
@@ -13,6 +14,7 @@ export default function ManualInput() {
   })
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
 
   function upd(k: string, v: string) {
     setF({ ...f, [k]: v })
@@ -23,6 +25,7 @@ export default function ManualInput() {
     setErr('')
     setMsg('')
     if (!f.job_id || !f.name || !f.host) return setErr('Job ID, finding name, and host are required.')
+    setBusy(true)
     try {
       await api.ppost(`/api/findings/${f.job_id}/manual`, {
         name: f.name,
@@ -35,13 +38,15 @@ export default function ManualInput() {
       setMsg('Finding added, correlated, and enriched into the job.')
     } catch (e: any) {
       setErr(e.message)
+    } finally {
+      setBusy(false)
     }
   }
 
   return (
-    <form onSubmit={submit} className="max-w-2xl space-y-4">
-      <h1 className="text-2xl font-bold text-white">Manual Findings Input</h1>
-      <p className="text-gray-400">
+    <form onSubmit={submit} className="max-w-2xl space-y-md">
+      <h1 className="font-display text-display text-ink">Manual Findings Input</h1>
+      <p className="text-ink-muted">
         Add findings from manual testing (business logic, access control, auth) into a job.
       </p>
       <div>
@@ -74,11 +79,11 @@ export default function ManualInput() {
       </div>
       <div>
         <label className="label">Evidence / reproduction steps (optional)</label>
-        <textarea className="input" rows={3} value={f.evidence} onChange={(e) => upd('evidence', e.target.value)} />
+        <textarea className="input mono" rows={3} value={f.evidence} onChange={(e) => upd('evidence', e.target.value)} />
       </div>
       {err && <div className="text-sm text-crit">{err}</div>}
       {msg && <div className="text-sm text-low">{msg}</div>}
-      <button className="btn">Add finding</button>
+      <Button busy={busy} busyLabel="Adding…">Add finding</Button>
     </form>
   )
 }

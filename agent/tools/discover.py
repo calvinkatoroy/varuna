@@ -16,7 +16,13 @@ from urllib.parse import urljoin
 
 _SCRIPT_RE = re.compile(r'<script[^>]+src=["\']([^"\']+\.js)["\']', re.I)
 # API-ish paths embedded as string literals: "api/Products", '/rest/user', `rest/products`...
-_ENDPOINT_RE = re.compile(r'["\'/](?:api|rest)/[A-Za-z0-9][A-Za-z0-9_/-]*', re.I)
+# Template-literal query strings (`rest/products/search?q=${term}`) compile down to a plain
+# string literal ending in "?q=", so the trailing query key is captured too when present -
+# that's what lets SQLMap test a real parameter instead of just a bare path.
+_ENDPOINT_RE = re.compile(
+    r'["\'/](?:api|rest)/[A-Za-z0-9][A-Za-z0-9_/-]*(?:\?[A-Za-z0-9_]+=(?:&[A-Za-z0-9_]+=)*)?',
+    re.I,
+)
 
 
 def js_endpoints(seed: str, fetch, max_bundles: int = 12) -> list[str]:

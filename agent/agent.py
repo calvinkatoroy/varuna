@@ -17,10 +17,12 @@ import sys
 import time
 
 import httpx
+from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(__file__))
 import scan  # noqa: E402
 
+load_dotenv()  # repo-root .env, if present (local dev convenience; not required)
 BASE = os.environ.get("VARUNA_URL", "http://localhost:8000")
 TOKEN_FILE = os.path.expanduser("~/.varuna-agent-token")
 POLL_INTERVAL = 5

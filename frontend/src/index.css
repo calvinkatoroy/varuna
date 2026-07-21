@@ -1,29 +1,133 @@
+/* Hallmark · genre: modern-minimal · macrostructure: Workbench · theme: Cobalt (dark) · design-system: design.md · designed-as-app
+ * pre-emit critique: P5 H4 E4 S5 R5 V4
+ */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --color-paper: oklch(14% 0.012 250);
+  --color-paper-2: oklch(18% 0.014 250);
+  --color-paper-3: oklch(22% 0.016 250);
+  --color-ink: oklch(94% 0.006 250);
+  --color-ink-muted: oklch(72% 0.02 250);
+  --color-ink-faint: oklch(50% 0.015 250);
+  --color-rule: oklch(30% 0.01 250);
+  --color-accent: oklch(62% 0.16 250);
+  --color-accent-ink: oklch(14% 0.012 250);
+  --color-focus: oklch(72% 0.17 250);
+
+  --color-crit: oklch(64% 0.19 25);
+  --color-high: oklch(66% 0.18 45);
+  --color-med: oklch(75% 0.15 75);
+  --color-low: oklch(72% 0.15 145);
+  --color-info: oklch(70% 0.12 250);
+
+  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Geist', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --text-display: clamp(1.75rem, 2vw + 1.25rem, 2.5rem);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-short: 150ms;
+  --dur-med: 220ms;
+
+  --radius-input: 6px;
+  --radius-card: 8px;
+  --radius-pill: 999px;
+}
+
+html,
 body {
-  @apply bg-bg text-gray-200;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow-x: clip;
+}
+
+body {
+  @apply bg-paper text-ink;
+  font-family: var(--font-body);
+  font-weight: 350;
+}
+
+h1,
+h2,
+h3,
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+::selection {
+  background: color-mix(in oklch, var(--color-accent) 35%, transparent);
+}
+
+/* Native checkboxes get the accent instead of browser default blue */
+input[type='checkbox'] {
+  accent-color: var(--color-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.status-pulse {
+  animation: status-pulse 1.6s var(--ease-out) infinite;
 }
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center rounded-md bg-blue-600 px-4 py-2
-           text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-input bg-accent px-md py-2xs
+           text-sm font-medium text-accent-ink transition-colors duration-short ease-out
+           hover:bg-[oklch(68%_0.17_250)] active:translate-y-px
+           disabled:cursor-not-allowed disabled:opacity-50 disabled:active:translate-y-0
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2
+           focus-visible:ring-offset-paper;
   }
   .btn-ghost {
-    @apply inline-flex items-center justify-center rounded-md border border-border px-3 py-1.5
-           text-sm text-gray-300 hover:bg-card;
+    @apply inline-flex items-center justify-center gap-2 rounded-input border border-rule px-xs py-2xs
+           text-sm text-ink-muted transition-colors duration-short ease-out
+           hover:bg-paper-3 hover:text-ink active:translate-y-px
+           disabled:cursor-not-allowed disabled:opacity-50 disabled:active:translate-y-0
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2
+           focus-visible:ring-offset-paper;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-input border border-crit bg-transparent px-xs py-2xs
+           text-sm text-crit transition-colors duration-short ease-out
+           hover:bg-[color-mix(in_oklch,var(--color-crit)_12%,transparent)] active:translate-y-px
+           disabled:cursor-not-allowed disabled:opacity-50 disabled:active:translate-y-0
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crit focus-visible:ring-offset-2
+           focus-visible:ring-offset-paper;
   }
   .input {
-    @apply w-full rounded-md border border-border bg-card px-3 py-2 text-sm
-           text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none;
+    @apply w-full rounded-input border border-rule bg-paper-2 px-xs py-2xs text-sm
+           text-ink placeholder-ink-faint transition-colors duration-short ease-out
+           hover:border-[oklch(38%_0.01_250)]
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:border-transparent
+           disabled:cursor-not-allowed disabled:opacity-50;
   }
   .card {
-    @apply rounded-lg border border-border bg-card p-4;
+    @apply rounded-card border border-rule bg-paper-2 p-sm;
   }
   .label {
-    @apply mb-1 block text-sm text-gray-400;
+    @apply mb-2xs block text-sm text-ink-muted;
+  }
+  .mono {
+    font-family: var(--font-mono);
   }
 }

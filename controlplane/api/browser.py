@@ -18,6 +18,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "report"))
 
+from dotenv import load_dotenv  # noqa: E402
+load_dotenv()  # repo-root .env, for host-run dev (REDIS_URL, JWT_SECRET, ...)
+
 from fastapi import Depends, FastAPI, Header, HTTPException, Response  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
