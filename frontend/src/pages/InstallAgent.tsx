@@ -56,8 +56,8 @@ export default function InstallAgent() {
       </Button>
       {token && (
         <div className="card space-y-xs">
-          <div className="text-sm text-ink-muted">Run this once on your machine, then refresh:</div>
-          <pre className="mono overflow-x-auto rounded-input bg-paper p-xs text-sm text-low">VARUNA_URL={window.location.origin} python agent.py {token}</pre>
+          <div className="text-sm text-ink-muted">On your Windows machine, open PowerShell and paste:</div>
+          <pre className="mono overflow-x-auto rounded-input bg-paper p-xs text-sm text-low">{`$env:VARUNA_URL='${window.location.origin}'; $env:VARUNA_TOKEN='${token}'; irm ${window.location.origin}/dist/install.ps1 | iex`}</pre>
           <Button variant="ghost" busy={refreshing} busyLabel="Refreshing…" onClick={() => refresh(true)}>
             I’ve installed it, refresh
           </Button>
