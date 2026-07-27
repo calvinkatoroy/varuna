@@ -43,3 +43,4 @@ agent-dist/*
 # Any .env variant/backup (keep only the example)
 .env.*
 !.env.example
+.admin-credentials.txt
