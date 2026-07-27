@@ -39,3 +39,7 @@ Thumbs.db
 # Agent installer bundle (staged by setup.sh; artifacts not tracked)
 agent-dist/*
 !agent-dist/.gitkeep
+
+# Any .env variant/backup (keep only the example)
+.env.*
+!.env.example
