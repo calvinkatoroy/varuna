@@ -44,3 +44,4 @@ agent-dist/*
 .env.*
 !.env.example
 .admin-credentials.txt
+.enroll-token.txt

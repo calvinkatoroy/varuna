@@ -71,6 +71,7 @@ docker compose exec api-public python /app/controlplane/wipe_data.py --confirm
 Then tear down the agent on each user's Windows machine:
 
 ```powershell
-Unregister-ScheduledTask -TaskName VarunaAgent -Confirm:$false
+Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name VarunaAgent -ErrorAction SilentlyContinue
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.ExecutablePath -like "*\Varuna\.venv\*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Varuna"
 ```

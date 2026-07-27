@@ -65,27 +65,32 @@ $agentZip = Join-Path $Root 'agent-bundle.zip'
 Invoke-WebRequest "$BaseUrl/dist/agent-bundle.zip" -OutFile $agentZip -UseBasicParsing
 Expand-Archive -Path $agentZip -DestinationPath $Root -Force
 
-# --- 5. launch shim: PATH so scan.py's bare nuclei/katana/sqlmap resolve ---
+# --- 5. launch shim: PATH so scan.py's bare nuclei/katana/sqlmap resolve; self-restart loop
+#        keeps the agent up after a crash/network blip (mechanism-independent resilience) ---
 $runShim = Join-Path $Root 'run-agent.ps1'
 @"
 `$env:VARUNA_URL = '$BaseUrl'
 `$env:PATH = '$Bin;$(Join-Path $Venv 'Scripts');' + `$env:PATH
-& '$(Join-Path $Venv 'Scripts\python.exe')' '$(Join-Path $Root 'agent.py')'
+while (`$true) {
+  & '$(Join-Path $Venv 'Scripts\python.exe')' '$(Join-Path $Root 'agent.py')'
+  Start-Sleep -Seconds 5
+}
 "@ | Set-Content -Path $runShim -Encoding UTF8
 
-# --- 6. enroll once (saves the bearer token via agent.py's own flow) ---
+# --- 6. enroll once and EXIT (--enroll: no poll loop here; the task below does the polling) ---
 $env:VARUNA_URL = $BaseUrl
 $env:PATH = "$Bin;$(Join-Path $Venv 'Scripts');$env:PATH"
-& (Join-Path $Venv 'Scripts\python.exe') (Join-Path $Root 'agent.py') $Token
+& (Join-Path $Venv 'Scripts\python.exe') (Join-Path $Root 'agent.py') --enroll $Token
 
-# --- 7. background Scheduled Task: logon, hidden, restart on failure ---
-$action  = New-ScheduledTaskAction -Execute 'powershell.exe' `
-    -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runShim`""
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-    -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
-Register-ScheduledTask -TaskName 'VarunaAgent' -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
-Start-ScheduledTask -TaskName 'VarunaAgent'
+# --- 7. autostart at logon via the per-user Run key. This needs NO admin/UAC, unlike a
+#        Scheduled Task in the root folder (denied to standard users -> 0x80070005). The
+#        shim's own loop (step 5) provides the restart-on-crash that a task would give. ---
+$launch = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runShim`""
+New-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' `
+    -Name 'VarunaAgent' -Value $launch -PropertyType String -Force | Out-Null
+# start it now (don't wait for the next logon)
+Start-Process -WindowStyle Hidden powershell.exe `
+    -ArgumentList '-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',"`"$runShim`""
 
 # --- record resolved versions for debugging/reproducibility ---
 $versions.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" } | Set-Content (Join-Path $Root 'versions.txt')

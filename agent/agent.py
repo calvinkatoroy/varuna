@@ -106,11 +106,17 @@ def run(token: str) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) >= 2:
-        tok = enroll(sys.argv[1])   # explicit token arg always (re-)enrolls, even if one is cached
+    # --enroll enrolls then exits (no poll loop); the installer uses it to enroll before it
+    # registers the background task that actually does the polling.
+    enroll_only = "--enroll" in sys.argv[1:]
+    args = [a for a in sys.argv[1:] if a != "--enroll"]
+    if args:
+        tok = enroll(args[0])   # explicit token arg always (re-)enrolls, even if one is cached
     else:
         tok = _load_token()
         if not tok:
-            print("usage: python agent.py <enrollment_token>   (first run)")
+            print("usage: python agent.py [--enroll] <enrollment_token>   (first run)")
             sys.exit(1)
+    if enroll_only:
+        sys.exit(0)
     run(tok)
