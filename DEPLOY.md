@@ -58,5 +58,19 @@ docker compose exec api-public python /app/controlplane/seed_account.py admin '<
 
 - **Interactsh** self-hosted OOB server + NS delegation of a subdomain to the VM (§3.4), port
   53 open. Needed for blind SSRF/RCE/OOB detection (REQ-21b).
-- **Offboarding**: `docker compose exec api-public python /app/controlplane/wipe_data.py --confirm`
-  destroys findings/reports/scan-data/audit at engagement end (NFR-28).
+
+### Offboarding (engagement end, NFR-28)
+
+Destroys all findings, reports, scan data, and the audit log (accounts and agent bindings are
+kept; remove those separately if the engagement is fully ending):
+
+```bash
+docker compose exec api-public python /app/controlplane/wipe_data.py --confirm
+```
+
+Then tear down the agent on each user's Windows machine:
+
+```powershell
+Unregister-ScheduledTask -TaskName VarunaAgent -Confirm:$false
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Varuna"
+```
