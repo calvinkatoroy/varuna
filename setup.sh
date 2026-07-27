@@ -12,6 +12,12 @@ fi
 docker compose up -d --build
 ./init-ollama.sh
 
+# Stage the Windows agent installer bundle for Caddy to serve at /dist/.
+rm -rf agent-dist && mkdir -p agent-dist
+cp agent/install.ps1 agent-dist/install.ps1
+( cd agent && zip -qr ../agent-dist/agent-bundle.zip agent.py scan.py tools -x '*/__pycache__/*' )
+echo "Staged agent-dist/: install.ps1 + agent-bundle.zip"
+
 # shellcheck disable=SC1091
 source .env 2>/dev/null || true
 echo "Varuna control plane up. UI: https://${VARUNA_DOMAIN:-localhost}"

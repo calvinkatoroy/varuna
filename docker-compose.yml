@@ -87,6 +87,7 @@ services:
     volumes:
       - caddy_data:/data
       - caddy_config:/config
+      - ./agent-dist:/srv/dist:ro
     networks: [vapt-net]
     depends_on: [api-public, api-agent]
     restart: unless-stopped

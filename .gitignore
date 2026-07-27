@@ -35,3 +35,7 @@ env/
 Thumbs.db
 .idea/
 .vscode/
+
+# Agent installer bundle (staged by setup.sh; artifacts not tracked)
+agent-dist/*
+!agent-dist/.gitkeep
