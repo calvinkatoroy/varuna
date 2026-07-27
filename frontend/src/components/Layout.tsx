@@ -8,6 +8,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const isPro = user!.role === 'pro'
 
   const links: [string, string][] = [
+    ['/', 'Dashboard'],
     ['/new', 'New Scan'],
     ['/scans', 'Active Scans'],
     ...(isPro
@@ -35,6 +36,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <NavLink
               key={to}
               to={to}
+              end={to === '/'}
               className={({ isActive }) =>
                 [
                   'whitespace-nowrap rounded-input border-l-2 px-xs py-2xs text-sm transition-colors duration-short ease-out',

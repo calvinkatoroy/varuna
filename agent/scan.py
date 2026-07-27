@@ -36,7 +36,7 @@ def _target_list(katana_out: str, seed: str) -> list[str]:
     """
     urls: set[str] = set()
     try:
-        with open(katana_out) as f:
+        with open(katana_out, encoding="utf-8", errors="replace") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -63,6 +63,7 @@ def default_run(argv: list[str]) -> str:
     outfile = argv[argv.index("-o") + 1] if "-o" in argv else None
     try:
         proc = subprocess.run(argv, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace",
                               timeout=KATANA_TIMEOUT if is_katana else TOOL_TIMEOUT)
     except subprocess.TimeoutExpired:
         if not is_katana:
@@ -70,7 +71,7 @@ def default_run(argv: list[str]) -> str:
         proc = None   # katana cap hit: fall through to whatever it wrote; seed-fallback covers the rest
     if outfile:
         try:
-            with open(outfile) as f:
+            with open(outfile, encoding="utf-8", errors="replace") as f:
                 return f.read()
         except OSError:
             return ""
@@ -95,6 +96,7 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None)
     status: dict = {}
 
     katana_out = os.path.join(workdir, "katana.jsonl")
+    print(f"[{seed}] running katana (up to {KATANA_TIMEOUT}s)...")
     try:
         raw["katana"] = run(katana.build(
             seed, katana_out, cookie=cookie,
@@ -105,6 +107,7 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None)
         status["katana"] = "done"
     except Exception:
         status["katana"] = "failed"
+    print(f"[{seed}] katana {status['katana']}")
         # Discovery failed, but do NOT give up: still scan the seed directly below (§4.10 is
         # about dependency, and the seed is always a valid target). Robust on heavy targets.
 
@@ -121,6 +124,7 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None)
         f.write("\n".join(sorted(targets)) + "\n")
 
     if "nuclei" in tools:
+        print(f"[{seed}] running nuclei on {len(targets)} target(s) (up to {TOOL_TIMEOUT}s)...")
         try:
             raw["nuclei"] = run(nuclei.build(
                 targets_file, os.path.join(workdir, "nuclei.jsonl"),
@@ -129,8 +133,10 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None)
             status["nuclei"] = "done"
         except Exception:
             status["nuclei"] = "failed"   # REQ-55: does not cancel SQLMap below
+        print(f"[{seed}] nuclei {status['nuclei']}")
 
     if "sqlmap" in tools:
+        print(f"[{seed}] running sqlmap on {len(targets)} target(s) (up to {TOOL_TIMEOUT}s)...")
         try:
             raw["sqlmap"] = run(sqlmap.build(
                 targets_file, os.path.join(workdir, "sqlmap"),
@@ -141,5 +147,6 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None)
             status["sqlmap"] = "done"
         except Exception:
             status["sqlmap"] = "failed"
+        print(f"[{seed}] sqlmap {status['sqlmap']}")
 
     return raw, status

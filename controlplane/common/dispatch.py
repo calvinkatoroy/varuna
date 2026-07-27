@@ -53,6 +53,7 @@ def submit_scan(submitter: str, role: str, target: str, tools: list,
         status=models.STATUS_QUEUED, per_tool_status={},
     ).to_dict()
     redis_store.set_job(job)
+    redis_store.add_user_job(submitter, job["id"])
     audit.log(audit.SUBMIT, submitter=submitter, target=target,
               target_class=target_class, role=role, job=job["id"])
 
@@ -101,6 +102,19 @@ def reject_request(job_id: str, approver: str, reason: str) -> None:
     redis_store.set_approval(job_id, appr)
     redis_store.remove_pending_approval(job_id)
     audit.log(audit.REJECT, approver=approver, job=job_id, reason=reason)
+
+
+def list_jobs(username: str, limit: int = 20) -> list[dict]:
+    """Recent jobs submitted by this user, newest first (for a jobs table, REQ-24 context).
+
+    Skips job ids whose 24h TTL has already expired (redis_store.get_job returns None).
+    """
+    out = []
+    for jid in redis_store.list_user_jobs(username, limit):
+        job = redis_store.get_job(jid)
+        if job:
+            out.append(job)
+    return out
 
 
 def pending_approvals() -> list[dict]:

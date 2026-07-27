@@ -85,6 +85,20 @@ paper so it doesn't compete with the accent:
   reserved for the aggressive-SQLMap toggle label and the Reject button, the two
   controls that need to visually cost more than a routine click
 
+## Density variants (pilot)
+Two pages (Dashboard, Findings Review) use a denser sub-variant of Workbench:
+edge-to-edge panels instead of floating `.card` islands, a `.data-table` for
+tabular/list data (job lists, findings), and a master-detail split (table +
+detail pane) on Findings Review instead of stacked `<details>` accordions.
+Rationale: this is a practitioner tool (peers: Burp Suite, Wireshark, Splunk),
+not a marketing dashboard — simultaneous visibility of many rows beats
+generous whitespace around one thing at a time. Same tokens, same macrostructure
+family, same CTA voice — only the panel chrome and data density change.
+
+Still on the card-based single-column layout (pending the same treatment,
+not yet requested): New Scan, Active Scans, Approval Queue, Manual Input,
+Reports, Install Agent.
+
 ## Density knob (standard vs pro)
 Same shell, same tokens, same macrostructure. Standard-role screens show fewer
 fields, plain-language labels, single-path forms. Pro-role screens show denser
@@ -168,7 +182,42 @@ See `export-formats.md` for Tailwind `@theme` / DTCG / shadcn mappings — not
 generated here since this project consumes tokens directly via
 `tailwind.config.js`, not one of those export targets.
 
+## Pilot: warm/glass Dashboard variant
+Dashboard (`frontend/src/pages/Dashboard.tsx`) opts into a second, warmer token
+set via a `.dashboard-warm` wrapper class in `index.css` — **not yet
+system-wide**. Every other page stays on Cobalt dark above.
+
+- Light warm paper (`oklch(95% 0.014 65)`), soft warm ink, hairline rules at
+  ~88% L — same structural roles as Cobalt, retuned for a light surface.
+- Accent stays blue (`oklch(58% 0.12 235)`, calmer/softer than Cobalt's) —
+  deliberate: Apple's own UI language keeps blue as the trust/action colour
+  even in warm contexts, and this is still a security tool.
+- Severity palette (`--color-crit/high/med/low/info`) is re-darkened for
+  light-background contrast — the Cobalt values were tuned for a dark paper
+  and would fail contrast here unchanged.
+- `.glass`: translucent panel fill + `backdrop-filter: blur(20px)` + hairline
+  border + soft shadow. Used for every panel instead of the flat `.card`.
+  Restrained on purpose (Hallmark anti-pattern: glassmorphism-as-decoration) —
+  it sits behind real, dense data (tables, lists, a real status-count bar),
+  never as a decorative layer with nothing under it.
+- Panels are spaced apart (`gap-sm`/`gap-md`) rather than edge-to-edge —
+  density lives *inside* each panel (dense tables/lists), not in the gaps
+  between them.
+- `--radius-card` 20px / `--radius-input` 12px on this page only (vs 8px/6px
+  elsewhere) — rounder, softer, more iOS-like.
+
+This works because CSS custom properties cascade: every existing token-based
+class (`.btn`, `.card`, `.data-table`, severity text colours) picks up the
+warm values automatically inside `.dashboard-warm` — nothing else needed to
+change to reskin the page.
+
+**Open decision:** whether this becomes the system-wide direction (replacing
+Cobalt dark everywhere) or stays a Dashboard-only variant. Until decided, do
+not carry `.dashboard-warm` onto other pages without an explicit ask.
+
 ## Provenance
 Produced by `hallmark redesign` (whole-app, multi-page flow) on request from the
 project owner, replacing an unstyled default Tailwind build. No external DNA
-source — catalog theme (Cobalt) adapted to dark per project convention.
+source — catalog theme (Cobalt) adapted to dark per project convention. The
+warm/glass Dashboard pilot above was added later, scoped, pending a decision
+on whether it becomes the system default.

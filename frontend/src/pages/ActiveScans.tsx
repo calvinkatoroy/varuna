@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api, download } from '../api'
 import { useAuth } from '../auth'
 import Button from '../components/Button'
 
 export default function ActiveScans() {
   const { user } = useAuth()
-  const [jobId, setJobId] = useState('')
+  const [params] = useSearchParams()
+  const [jobId, setJobId] = useState(params.get('job') || '')
   const [job, setJob] = useState<any>(null)
   const [err, setErr] = useState('')
   const [looking, setLooking] = useState(false)
@@ -25,6 +27,12 @@ export default function ActiveScans() {
       if (showBusy) setLooking(false)
     }
   }
+
+  // Arriving from a Dashboard job link (?job=<id>): load it immediately.
+  useEffect(() => {
+    if (params.get('job')) load(params.get('job')!, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Auto-refresh every 5s while queued/running (REQ-24).
   useEffect(() => {

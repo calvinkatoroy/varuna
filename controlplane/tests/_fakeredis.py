@@ -58,3 +58,7 @@ class FakeRedis:
     def lrange(self, k, a, b):
         lst = self.lists.get(k, [])
         return lst[a:] if b == -1 else lst[a: b + 1]
+
+    def ltrim(self, k, a, b):
+        lst = self.lists.get(k, [])
+        self.lists[k] = lst[a:] if b == -1 else lst[a: b + 1]

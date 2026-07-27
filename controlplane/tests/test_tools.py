@@ -154,6 +154,15 @@ def test_one_tool_failure_does_not_cancel_others():
     assert "sqlmap" in raw and "nuclei" not in raw, "successful tools' output preserved"
 
 
+def test_default_run_survives_non_cp1252_output():
+    # Windows subprocess.run(text=True) with no explicit encoding decodes with the ANSI
+    # codepage (cp1252), which raises UnicodeDecodeError on bytes like 0x9d that real tool
+    # output can contain. default_run must pin encoding="utf-8", errors="replace".
+    argv = [sys.executable, "-c", "import sys; sys.stdout.buffer.write(bytes([0x9d]))"]
+    out = scan.default_run(argv)
+    assert out is not None
+
+
 def test_katana_failure_still_scans_seed():
     # Robust: if discovery (Katana) fails, do NOT give up. Nuclei/SQLMap still scan the seed.
     def katana_fails(argv):

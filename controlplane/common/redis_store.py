@@ -27,6 +27,7 @@ def agent_key(username: str) -> str: return f"agent:{username}"
 def agent_token_key(token_hash: str) -> str: return f"agent_token:{token_hash}"  # reverse index
 def enroll_token_key(token: str) -> str: return f"enroll:{token}"
 def agentqueue_key(username: str) -> str: return f"agentqueue:{username}"
+def user_jobs_key(username: str) -> str: return f"user_jobs:{username}"
 def login_fail_key(username: str) -> str: return f"login_fail:{username}"
 def login_fail_ip_key(ip: str) -> str: return f"login_fail_ip:{ip}"
 
@@ -96,6 +97,21 @@ def list_pending_approvals() -> list:
     return list(get_redis().smembers(APPROVAL_PENDING_KEY))
 
 
+# --- per-user recent-jobs index (so a jobs table can list without scanning all keys) ---
+USER_JOBS_MAX = 50
+
+
+def add_user_job(username: str, job_id: str) -> None:
+    r = get_redis()
+    key = user_jobs_key(username)
+    r.lpush(key, job_id)
+    r.ltrim(key, 0, USER_JOBS_MAX - 1)
+
+
+def list_user_jobs(username: str, limit: int = 20) -> list:
+    return get_redis().lrange(user_jobs_key(username), 0, limit - 1)
+
+
 # --- persistent data (no TTL) ---
 def set_account(acct: dict) -> None:
     get_redis().set(account_key(acct["username"]), json.dumps(acct))
@@ -160,5 +176,6 @@ if __name__ == "__main__":
     assert account_key("calvin") == "account:calvin"
     assert agent_key("calvin") == "agent:calvin"
     assert login_fail_key("calvin") == "login_fail:calvin"
+    assert user_jobs_key("calvin") == "user_jobs:calvin"
     assert AUDIT_KEY == "audit"
     print("redis_store.py key-builder self-check OK")

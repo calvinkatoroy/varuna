@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './auth'
 import Layout from './components/Layout'
 import Login from './pages/Login'
+import Dashboard from './pages/Dashboard'
 import InstallAgent from './pages/InstallAgent'
 import NewScan from './pages/NewScan'
 import ActiveScans from './pages/ActiveScans'
@@ -19,7 +20,7 @@ export default function App() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<Navigate to="/new" replace />} />
+        <Route path="/" element={<Dashboard />} />
         <Route path="/install" element={<InstallAgent />} />
         <Route path="/new" element={<NewScan />} />
         <Route path="/scans" element={<ActiveScans />} />
@@ -27,7 +28,7 @@ export default function App() {
         {isPro && <Route path="/approvals" element={<ApprovalQueue />} />}
         {isPro && <Route path="/findings" element={<FindingsReview />} />}
         {isPro && <Route path="/manual" element={<ManualInput />} />}
-        <Route path="*" element={<Navigate to="/new" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
   )

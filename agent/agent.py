@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 
 import httpx
@@ -26,6 +27,7 @@ load_dotenv()  # repo-root .env, if present (local dev convenience; not required
 BASE = os.environ.get("VARUNA_URL", "http://localhost:8000")
 TOKEN_FILE = os.path.expanduser("~/.varuna-agent-token")
 POLL_INTERVAL = 5
+HEARTBEAT_INTERVAL = 15   # well under the server's 30s online threshold (tokens.ONLINE_THRESHOLD)
 
 
 def _save_token(t: str) -> None:
@@ -70,6 +72,18 @@ def handle(job: dict, headers: dict) -> None:
     print("job", jid, "failed" if all_failed else "done")
 
 
+def _heartbeat_until(stop: threading.Event, headers: dict) -> None:
+    # /agent/poll only refreshes last_seen when the agent is free; a running scan blocks
+    # the poll loop for as long as run_scan() takes, so without this the dashboard shows
+    # the agent as offline for the entire scan. /agent/heartbeat just touches last_seen,
+    # it never touches the job queue.
+    while not stop.wait(HEARTBEAT_INTERVAL):
+        try:
+            httpx.post(f"{BASE}/agent/heartbeat", headers=headers)
+        except httpx.HTTPError:
+            pass
+
+
 def run(token: str) -> None:
     headers = {"Authorization": f"Bearer {token}"}
     print("agent polling", BASE, "every", POLL_INTERVAL, "s")
@@ -80,15 +94,23 @@ def run(token: str) -> None:
             return
         job = r.json().get("job")
         if job:
-            handle(job, headers)
+            stop = threading.Event()
+            hb = threading.Thread(target=_heartbeat_until, args=(stop, headers), daemon=True)
+            hb.start()
+            try:
+                handle(job, headers)
+            finally:
+                stop.set()
+                hb.join()
         time.sleep(POLL_INTERVAL)
 
 
 if __name__ == "__main__":
-    tok = _load_token()
-    if not tok:
-        if len(sys.argv) < 2:
+    if len(sys.argv) >= 2:
+        tok = enroll(sys.argv[1])   # explicit token arg always (re-)enrolls, even if one is cached
+    else:
+        tok = _load_token()
+        if not tok:
             print("usage: python agent.py <enrollment_token>   (first run)")
             sys.exit(1)
-        tok = enroll(sys.argv[1])
     run(tok)

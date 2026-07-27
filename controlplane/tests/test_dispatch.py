@@ -115,6 +115,15 @@ def test_offline_agent_rejected_not_queued():
     raise AssertionError("offline agent should raise OfflineAgent")
 
 
+def test_list_jobs_newest_first():
+    reset()
+    _agent_online("pentester")
+    r1 = dispatch.submit_scan("pentester", "pro", CLOUD, ["katana"])
+    r2 = dispatch.submit_scan("pentester", "pro", CLOUD, ["nuclei"])
+    jobs = dispatch.list_jobs("pentester")
+    assert [j["id"] for j in jobs] == [r2["job_id"], r1["job_id"]]
+
+
 def test_classify_rejected_propagates():
     reset()
     _agent_online("staff")

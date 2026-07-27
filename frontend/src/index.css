@@ -26,6 +26,10 @@
   --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
   --font-body: 'Geist', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  /* Borrowed from studying dennissnellenberg.com's DNA (Neue Montreal role) —
+     Plus Jakarta Sans substituted: Neue Montreal is a commercial font, not
+     ours to redistribute. Scoped to the warm-glass Dashboard pilot only. */
+  --font-display-warm: 'Plus Jakarta Sans', 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
 
   --text-display: clamp(1.75rem, 2vw + 1.25rem, 2.5rem);
 
@@ -130,4 +134,85 @@ input[type='checkbox'] {
   .mono {
     font-family: var(--font-mono);
   }
+  /* Dense master-detail / table pages (Dashboard, Findings Review): a deliberate
+     density variant of Workbench, edge-to-edge panels instead of floating cards.
+     See design.md § Density variants. */
+  .data-table {
+    @apply w-full border-collapse text-sm;
+  }
+  .data-table thead th {
+    @apply border-b border-rule py-2xs text-left text-xs font-medium uppercase tracking-wide text-ink-faint;
+  }
+  .data-table tbody td {
+    @apply border-b border-rule py-3xs align-top;
+  }
+  .data-table tbody tr {
+    @apply cursor-pointer transition-colors duration-short ease-out hover:bg-paper-3;
+  }
+}
+
+/* Pilot: warm/soft glass variant, scoped to Dashboard only (design.md: not yet
+   system-wide — see design.md "Pilot: warm/glass Dashboard variant"). Overriding
+   the tokens on this wrapper re-themes every existing token-based class (.btn,
+   .card, .data-table, severity colors) automatically via the CSS custom property
+   cascade — nothing else needed to change. */
+.dashboard-warm {
+  /* sage page wash (outer canvas) */
+  --color-paper: oklch(90% 0.035 150);
+  /* warm cream card surface */
+  --color-paper-2: oklch(97% 0.012 75);
+  --color-paper-3: oklch(93% 0.02 85);
+  --color-ink: oklch(24% 0.02 60);
+  --color-ink-muted: oklch(45% 0.018 60);
+  --color-ink-faint: oklch(62% 0.014 60);
+  --color-rule: oklch(88% 0.015 90);
+  /* primary CTA reads near-black, like the reference's pill buttons */
+  --color-accent: oklch(22% 0.02 60);
+  --color-accent-ink: oklch(97% 0.012 75);
+  --color-focus: oklch(32% 0.03 60);
+
+  --color-crit: oklch(50% 0.19 25);
+  --color-high: oklch(56% 0.17 45);
+  --color-med: oklch(50% 0.15 75);
+  --color-low: oklch(46% 0.13 145);
+  --color-info: oklch(50% 0.12 235);
+
+  --radius-card: 24px;
+  --radius-input: 14px;
+
+  --ease-expo: cubic-bezier(0.1, 0, 0.3, 1);
+
+  background: var(--color-paper);
+  color: var(--color-ink);
+  min-height: 100vh;
+  font-family: var(--font-display-warm), var(--font-body);
+}
+.dashboard-warm .glass {
+  background: color-mix(in oklch, var(--color-paper-2) 92%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid color-mix(in oklch, var(--color-ink) 5%, transparent);
+  border-radius: var(--radius-card);
+  box-shadow: 0 1px 2px color-mix(in oklch, var(--color-ink) 4%, transparent);
+}
+.dashboard-warm .banner {
+  background: var(--color-ink);
+  color: var(--color-paper-2);
+  border-radius: var(--radius-card);
+  /* inverted pill CTAs on the dark banner, same .btn class, cascaded tokens */
+  --color-accent: var(--color-paper-2);
+  --color-accent-ink: var(--color-ink);
+}
+.dashboard-warm .status-bar > div {
+  transition: width 600ms var(--ease-expo);
+}
+.dashboard-warm .font-display,
+.dashboard-warm h1,
+.dashboard-warm h2,
+.dashboard-warm h3 {
+  font-family: var(--font-display-warm);
+}
+.dashboard-warm .status-bar {
+  @apply flex h-2 w-full overflow-hidden rounded-pill;
+  background: var(--color-paper-3);
 }

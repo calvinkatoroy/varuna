@@ -92,6 +92,11 @@ def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
         raise HTTPException(status_code=409, detail=str(e))
 
 
+@app.get("/api/scans")
+def list_scans(user: dict = Depends(current_user)):
+    return dispatch.list_jobs(user["username"])
+
+
 @app.get("/api/scans/{job_id}")
 def scan_status(job_id: str, user: dict = Depends(current_user)):
     job = redis_store.get_job(job_id)
