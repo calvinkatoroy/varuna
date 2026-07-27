@@ -10,7 +10,8 @@ if [ ! -f .env ]; then
 fi
 
 docker compose up -d --build
-./init-ollama.sh
+# Ollama runs NATIVE on the host (GPU): pull the model with `ollama pull "$OLLAMA_MODEL"`
+# on the host, not into a container. (init-ollama.sh is only for the old in-compose Ollama.)
 
 # Stage the Windows agent installer bundle for Caddy to serve at /dist/.
 rm -rf agent-dist && mkdir -p agent-dist

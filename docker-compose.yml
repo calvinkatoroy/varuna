@@ -23,11 +23,8 @@ services:
     networks: [vapt-net]
     restart: unless-stopped
 
-  ollama:
-    image: ollama/ollama:latest
-    volumes: [ollama_data:/root/.ollama]
-    networks: [vapt-net]
-    restart: unless-stopped
+  # Ollama runs NATIVE on the host (GPU) for the PoC; the API services reach it via
+  # OLLAMA_URL (host.docker.internal). No ollama container here — see .env OLLAMA_URL.
 
   # Public browser API (JWT). Fronted by Caddy on /api/*.
   api-public:
@@ -35,7 +32,7 @@ services:
     command: uvicorn browser:app --host 0.0.0.0 --port 8000
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
       - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -hex 32)}
       - VARUNA_CORS_ORIGINS=${VARUNA_CORS_ORIGINS:-https://localhost}
@@ -49,7 +46,7 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8001
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
       - SCAN_TTL_SECONDS=${SCAN_TTL_SECONDS:-86400}
 
@@ -63,7 +60,7 @@ services:
       - "${TAILSCALE_BIND:-127.0.0.1}:8010:8010"
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
       - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -hex 32)}
       - VARUNA_CORS_ORIGINS=${VARUNA_CORS_ORIGINS:-https://localhost}
@@ -98,7 +95,6 @@ networks:
 
 volumes:
   redis_data:
-  ollama_data:
   caddy_data:
   caddy_config:
   report_output:
