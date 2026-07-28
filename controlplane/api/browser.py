@@ -188,6 +188,10 @@ def reject_proposal(pid: str, body: RejectBody, user: dict = Depends(require_lea
 
 @app.post("/api/scans")
 def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
+    # v2: clients never direct-submit; they file a proposal that the lead pentester approves.
+    # Direct submit is the security team's advanced path only.
+    if models.is_client(user["role"]):
+        raise HTTPException(status_code=403, detail="clients submit a scan proposal for approval")
     if not redis_store.get_agent(user["username"]):
         raise HTTPException(status_code=409, detail="no agent registered; install your agent first")
     # Standard is locked to the full safe-profile stack; Pro chooses (defaults to full).

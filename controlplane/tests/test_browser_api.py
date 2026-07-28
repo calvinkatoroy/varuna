@@ -142,16 +142,17 @@ def test_me_returns_identity():
     assert body == {"username": "calvin", "role": "pentester"}
 
 
-def test_standard_cloud_is_gated():
+def test_client_cannot_direct_submit_scan():
     reset()
     H = _token("staff", "client")
-    res = client.post("/api/scans", headers=H, json={"target": CLOUD}).json()
-    assert res["state"] == "pending_approval", "Standard cloud target must hit the Approval Gate"
+    # v2: clients must file a proposal; direct /api/scans is team-only
+    assert client.post("/api/scans", headers=H, json={"target": CLOUD}).status_code == 403
+    assert client.post("/api/scans", headers=H, json={"target": LOCAL}).status_code == 403
 
 
-def test_standard_local_dispatched():
+def test_team_can_direct_submit_scan():
     reset()
-    H = _token("staff", "client")
+    H = _token("staff", "pentester")
     res = client.post("/api/scans", headers=H, json={"target": LOCAL}).json()
     assert res["state"] == "dispatched"
 
@@ -185,15 +186,7 @@ def test_approvals_are_pro_only():
     assert client.get("/api/approvals", headers=H_std).status_code == 403   # require_pro
 
 
-def test_approval_flow_via_api():
-    reset()
-    H_std = _token("staff", "client")
-    H_pro = _token("ihsan", "pentester")
-    job_id = client.post("/api/scans", headers=H_std, json={"target": CLOUD}).json()["job_id"]
-    pending = client.get("/api/approvals", headers=H_pro).json()
-    assert any(p["job_id"] == job_id for p in pending)
-    assert client.post(f"/api/approvals/{job_id}/approve", headers=H_pro).status_code == 200
-    assert client.get("/api/approvals", headers=H_pro).json() == []   # left the queue
+# (legacy /api/approvals flow removed: v2 replaces it with proposal approve/reject, tested above)
 
 
 def test_report_generate_and_download():
