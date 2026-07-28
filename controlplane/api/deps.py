@@ -33,3 +33,10 @@ def require_team(user: dict = Depends(current_user)) -> dict:
 
 # Back-compat alias: v1 endpoints imported require_pro for team-only gating.
 require_pro = require_team
+
+
+def require_lead(user: dict = Depends(current_user)) -> dict:
+    """Only the lead pentester approves/rejects proposals (v2)."""
+    if not models.can_approve(user["role"]):
+        raise HTTPException(status_code=403, detail="lead pentester role required")
+    return user

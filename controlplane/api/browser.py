@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sys
+import uuid
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
@@ -25,6 +26,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Response  # noqa: E
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
+import audit  # noqa: E402
 import auth  # noqa: E402
 import classifier  # noqa: E402
 import db  # noqa: E402
@@ -36,7 +38,7 @@ import redis_store  # noqa: E402
 import store as report_store  # noqa: E402
 import tenancy  # noqa: E402
 import tokens  # noqa: E402
-from deps import current_user, require_pro  # noqa: E402
+from deps import current_user, require_lead, require_pro  # noqa: E402
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -65,6 +67,10 @@ class ScanBody(BaseModel):
     tools: list[str] | None = None       # ignored for Standard (locked to full stack, REQ-5)
     division: str = ""
     opts: dict = {}
+
+
+class RejectBody(BaseModel):
+    reason: str = ""
 
 
 class ProposalBody(BaseModel):
@@ -139,6 +145,47 @@ def get_proposal(pid: str, user: dict = Depends(current_user)):
     return p
 
 
+@app.post("/api/proposals/{pid}/approve")
+def approve_proposal(pid: str, user: dict = Depends(require_lead)):
+    p = db.get_proposal(pid)
+    if not p:
+        raise HTTPException(status_code=404, detail="no such proposal")
+    if p["status"] != models.PROPOSAL_PENDING:
+        raise HTTPException(status_code=409, detail="proposal is not pending")
+    try:
+        target_class = classifier.classify(p["target"])
+    except classifier.ClassifyRejected as e:
+        raise HTTPException(status_code=422, detail=f"target rejected: {e}")
+    # Safe-profile lock: standard (client) proposals run the fixed full stack, no custom opts.
+    standard = p["mode"] == "standard"
+    tools = FULL_STACK if standard else (p["tools"] or FULL_STACK)
+    opts = {} if standard else p["opts"]
+    job = models.Job(
+        id=str(uuid.uuid4()), target=p["target"], target_class=target_class,
+        submitter=p["submitter"], role=models.ROLE_CLIENT, tools=tools, opts=opts,
+        status=models.STATUS_QUEUED, per_tool_status={},
+    ).to_dict()
+    redis_store.set_job(job)
+    redis_store.add_user_job(p["submitter"], job["id"])
+    db.update_proposal(pid, status=models.PROPOSAL_APPROVED, job_id=job["id"])
+    audit.log(audit.APPROVE, approver=user["username"], proposal=pid, job=job["id"])
+    # Proposal is the gate; queue for the client's agent to pick up whenever it polls.
+    dispatch.dispatch_job(job, pre_approved=True)
+    return {"proposal_id": pid, "status": models.PROPOSAL_APPROVED, "job_id": job["id"]}
+
+
+@app.post("/api/proposals/{pid}/reject")
+def reject_proposal(pid: str, body: RejectBody, user: dict = Depends(require_lead)):
+    p = db.get_proposal(pid)
+    if not p:
+        raise HTTPException(status_code=404, detail="no such proposal")
+    if p["status"] != models.PROPOSAL_PENDING:
+        raise HTTPException(status_code=409, detail="proposal is not pending")
+    db.update_proposal(pid, status=models.PROPOSAL_REJECTED, reject_reason=body.reason)
+    audit.log(audit.REJECT, approver=user["username"], proposal=pid, reason=body.reason)
+    return {"proposal_id": pid, "status": models.PROPOSAL_REJECTED}
+
+
 @app.post("/api/scans")
 def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
     if not redis_store.get_agent(user["username"]):
@@ -188,11 +235,7 @@ def install_token(user: dict = Depends(current_user)):
     return {"enrollment_token": tokens.generate_enrollment_token(user["username"])}
 
 
-# --- approval queue (Pro only; §4.3) ---
-class RejectBody(BaseModel):
-    reason: str = ""
-
-
+# --- legacy v1 approval queue (team only; RejectBody defined above) ---
 @app.get("/api/approvals")
 def list_approvals(user: dict = Depends(require_pro)):
     return dispatch.pending_approvals()

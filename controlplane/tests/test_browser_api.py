@@ -99,6 +99,36 @@ def test_client_submits_and_proposals_are_scoped():
     assert client.get(f"/api/proposals/{pid}", headers=Ht).status_code == 200
 
 
+def test_lead_approves_proposal_and_dispatches():
+    reset()
+    Hc = _token("alice", "client")
+    Hlead = _token("riyan", "lead_pentester")
+    Hpen = _token("dodi", "pentester")
+    pid = client.post("/api/proposals",
+                      json={"target": CLOUD, "authorization_attested": True}, headers=Hc).json()["proposal_id"]
+    # only the lead may approve
+    assert client.post(f"/api/proposals/{pid}/approve", headers=Hpen).status_code == 403
+    r = client.post(f"/api/proposals/{pid}/approve", headers=Hlead)
+    assert r.status_code == 200, r.text
+    jid = r.json()["job_id"]
+    assert r.json()["status"] == "approved" and jid
+    p = client.get(f"/api/proposals/{pid}", headers=Hlead).json()
+    assert p["status"] == "approved" and p["job_id"] == jid
+    assert redis_store.dequeue_job("alice") == jid   # queued for the client's agent
+
+
+def test_lead_rejects_proposal():
+    reset()
+    Hc = _token("alice", "client")
+    Hlead = _token("riyan", "lead_pentester")
+    pid = client.post("/api/proposals",
+                      json={"target": CLOUD, "authorization_attested": True}, headers=Hc).json()["proposal_id"]
+    r = client.post(f"/api/proposals/{pid}/reject", json={"reason": "out of scope"}, headers=Hlead)
+    assert r.status_code == 200 and r.json()["status"] == "rejected"
+    p = client.get(f"/api/proposals/{pid}", headers=Hlead).json()
+    assert p["status"] == "rejected" and p["reject_reason"] == "out of scope"
+
+
 def test_protected_endpoint_needs_token():
     reset()
     assert client.get("/api/scans/x").status_code == 401

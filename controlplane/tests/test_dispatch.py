@@ -140,3 +140,14 @@ if __name__ == "__main__":
             fn()
             print(f"{name} OK")
     print("test_dispatch: all green")
+
+
+def test_pre_approved_enqueues_skipping_gate_and_online():
+    # v2: a lead-approved proposal queues the client's job even with no redis approval and an
+    # offline agent (client installs the agent after approval; the job waits in the queue).
+    reset()
+    _agent_offline("alice")
+    job = {"id": "pa1", "role": "client", "target_class": classifier.CLASS_CLOUD,
+           "submitter": "alice"}
+    dispatch.dispatch_job(job, pre_approved=True)
+    assert _queued("alice") == "pa1"

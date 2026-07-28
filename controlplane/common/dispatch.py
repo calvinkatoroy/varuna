@@ -69,8 +69,17 @@ def submit_scan(submitter: str, role: str, target: str, tools: list,
     return {"job_id": job["id"], "state": "dispatched"}
 
 
-def dispatch_job(job: dict) -> None:
-    """THE choke point. Re-check the gate + agent liveness, then enqueue. REQ-19a, REQ-76."""
+def dispatch_job(job: dict, pre_approved: bool = False) -> None:
+    """THE choke point. Re-check the gate + agent liveness, then enqueue. REQ-19a, REQ-76.
+
+    pre_approved (v2): a lead-pentester-approved proposal already gated this job. Skip the
+    legacy standard+cloud redis-approval check AND the online refusal, and queue it for the
+    client's agent to pick up whenever it next polls (the client installs the agent AFTER
+    approval, so it is normally offline at approve-time).
+    """
+    if pre_approved:
+        redis_store.enqueue_job(job["submitter"], job["id"])
+        return
     if _is_gated(job["role"], job["target_class"]):
         appr = redis_store.get_approval(job["id"])
         if not appr or appr.get("status") != APPROVED:
