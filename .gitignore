@@ -45,3 +45,6 @@ agent-dist/*
 !.env.example
 .admin-credentials.txt
 .enroll-token.txt
+
+# Repo context doc: local-only (auto-loads from disk, not committed)
+/CLAUDE.md
