@@ -49,6 +49,14 @@ def list_all_reports() -> list[dict]:
     return [json.loads(x) for x in r.lrange(GLOBAL_KEY, 0, -1)]
 
 
+def owner_of(fname: str) -> str | None:
+    """Owner (username) of a report file, from the global index; None if unknown (v2 tenancy)."""
+    for m in list_all_reports():
+        if m.get("file") == fname:
+            return m.get("user")
+    return None
+
+
 def read_report(fname: str) -> bytes:
     with open(os.path.join(REPORTS_DIR, fname), "rb") as f:
         return f.read()

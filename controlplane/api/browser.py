@@ -33,6 +33,7 @@ import jwt_auth  # noqa: E402
 import models  # noqa: E402
 import redis_store  # noqa: E402
 import store as report_store  # noqa: E402
+import tenancy  # noqa: E402
 import tokens  # noqa: E402
 from deps import current_user, require_pro  # noqa: E402
 
@@ -118,6 +119,8 @@ def scan_status(job_id: str, user: dict = Depends(current_user)):
     job = redis_store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="no such job")
+    if not tenancy.visible_to(user["role"], user["username"], job["submitter"]):
+        raise HTTPException(status_code=403, detail="not your scan")
     return {
         "id": job["id"],
         "status": job["status"],
@@ -172,6 +175,9 @@ def reject(job_id: str, body: RejectBody, user: dict = Depends(require_pro)):
 # --- reports (public plane: Standard's own sanitized Executive Summaries, REQ-50a) ---
 @app.get("/api/reports")
 def list_reports(user: dict = Depends(current_user)):
+    # team sees every client's reports; a client sees only their own (v2 tenancy)
+    if models.is_team(user["role"]):
+        return report_store.list_all_reports()
     return report_store.list_reports(user["username"])
 
 
@@ -188,6 +194,9 @@ def generate_report(job_id: str, user: dict = Depends(current_user)):
 
 @app.get("/api/reports/{fname}/download")
 def download_report(fname: str, user: dict = Depends(current_user)):
+    owner = report_store.owner_of(fname)
+    if not (models.is_team(user["role"]) or owner == user["username"]):
+        raise HTTPException(status_code=403, detail="not your report")
     try:
         data = report_store.read_report(fname)
     except OSError:

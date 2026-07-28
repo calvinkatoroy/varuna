@@ -54,6 +54,24 @@ def test_register_then_login():
     assert r2.status_code == 409
 
 
+def test_report_tenant_isolation():
+    reset()
+    Ha = _token("alice", "client")
+    Hb = _token("bob", "client")   # noqa: F841 (seeds bob's account for realism)
+    Ht = _token("riyan", "pentester")
+    fa = browser.report_store.save_report("alice", "job-a", "Executive Summary", b"A")["file"]
+    fb = browser.report_store.save_report("bob", "job-b", "Executive Summary", b"B")["file"]
+    # client alice: own-only list, cannot download bob's, can download own
+    ra = client.get("/api/reports", headers=Ha).json()
+    assert all(m["user"] == "alice" for m in ra) and any(m["file"] == fa for m in ra)
+    assert client.get(f"/api/reports/{fb}/download", headers=Ha).status_code == 403
+    assert client.get(f"/api/reports/{fa}/download", headers=Ha).status_code == 200
+    # team riyan: sees all clients, can download any
+    rt = client.get("/api/reports", headers=Ht).json()
+    assert {m["file"] for m in rt} >= {fa, fb}
+    assert client.get(f"/api/reports/{fa}/download", headers=Ht).status_code == 200
+
+
 def test_protected_endpoint_needs_token():
     reset()
     assert client.get("/api/scans/x").status_code == 401
