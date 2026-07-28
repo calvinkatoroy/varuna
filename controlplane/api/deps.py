@@ -24,7 +24,12 @@ def current_user(authorization: str = Header(default="")) -> dict:
         raise HTTPException(status_code=401, detail="invalid or expired token")
 
 
-def require_pro(user: dict = Depends(current_user)) -> dict:
-    if user["role"] != models.ROLE_PRO:
-        raise HTTPException(status_code=403, detail="pro role required")
+def require_team(user: dict = Depends(current_user)) -> dict:
+    """Any security-team role (v2: pentester/lead/reporter/governance/soc). Clients are denied."""
+    if not models.is_team(user["role"]):
+        raise HTTPException(status_code=403, detail="security team role required")
     return user
+
+
+# Back-compat alias: v1 endpoints imported require_pro for team-only gating.
+require_pro = require_team

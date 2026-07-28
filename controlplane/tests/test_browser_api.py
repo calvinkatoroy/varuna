@@ -45,6 +45,15 @@ def test_login_bad_credentials_rejected():
     assert client.post("/api/login", json={"username": "bob", "password": "wrong"}).status_code == 401
 
 
+def test_register_then_login():
+    reset()
+    r = client.post("/api/register", json={"username": "carol", "password": "pw12345"})
+    assert r.status_code == 200 and "token" in r.json(), r.text
+    # duplicate username is rejected
+    r2 = client.post("/api/register", json={"username": "carol", "password": "pw12345"})
+    assert r2.status_code == 409
+
+
 def test_protected_endpoint_needs_token():
     reset()
     assert client.get("/api/scans/x").status_code == 401

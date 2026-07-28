@@ -53,6 +53,11 @@ class LoginBody(BaseModel):
     password: str
 
 
+class RegisterBody(BaseModel):
+    username: str
+    password: str
+
+
 class ScanBody(BaseModel):
     target: str
     tools: list[str] | None = None       # ignored for Standard (locked to full stack, REQ-5)
@@ -71,6 +76,17 @@ def login(body: LoginBody, x_forwarded_for: str = Header(default="api")):
     return {"token": token}
 
 
+@app.post("/api/register")
+def register(body: RegisterBody):
+    """Self-service client registration (v2). Client-role only; grants nothing until a proposal
+    is approved, so this being public is inert. Team accounts are seeded, never self-registered."""
+    try:
+        auth.register_client(body.username, body.password)
+    except auth.AuthError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"token": jwt_auth.login(body.username, body.password, "api")}
+
+
 @app.get("/api/me")
 def me(user: dict = Depends(current_user)):
     return user
@@ -81,8 +97,8 @@ def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
     if not redis_store.get_agent(user["username"]):
         raise HTTPException(status_code=409, detail="no agent registered; install your agent first")
     # Standard is locked to the full safe-profile stack; Pro chooses (defaults to full).
-    tools = FULL_STACK if user["role"] == models.ROLE_STANDARD else (body.tools or FULL_STACK)
-    opts = {} if user["role"] == models.ROLE_STANDARD else body.opts
+    tools = FULL_STACK if models.is_client(user["role"]) else (body.tools or FULL_STACK)
+    opts = {} if models.is_client(user["role"]) else body.opts
     try:
         return dispatch.submit_scan(user["username"], user["role"], body.target,
                                     tools, opts=opts, division=body.division)
