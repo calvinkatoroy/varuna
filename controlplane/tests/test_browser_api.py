@@ -19,6 +19,8 @@ from _fakeredis import FakeRedis  # noqa: E402
 redis_store._client = FakeRedis()
 
 import auth  # noqa: E402
+import db  # noqa: E402
+import models  # noqa: E402
 import tokens  # noqa: E402
 import browser  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -209,3 +211,26 @@ if __name__ == "__main__":
             fn()
             print(f"{name} OK")
     print("test_browser_api: all green")
+
+
+def test_client_delivered_pdf_and_view_once_password():
+    reset()
+    Ha = _token("alice", "client")
+    Hb = _token("bob", "client")
+    rid = db.create_report(job_id="j1", owner="alice")
+    db.set_report(rid, stage=models.REPORT_DELIVERED, delivered_pdf=f"{rid}.pdf",
+                  pdf_password="pw123", password_viewed=0)
+    browser.report_store.save_report_file(f"{rid}.pdf", b"%PDF-1.4 fake")
+    assert client.get(f"/api/reports/{rid}/delivered", headers=Hb).status_code == 403  # not owner
+    r = client.get(f"/api/reports/{rid}/delivered", headers=Ha)
+    assert r.status_code == 200 and r.content == b"%PDF-1.4 fake"
+    p = client.get(f"/api/reports/{rid}/password", headers=Ha)
+    assert p.status_code == 200 and p.json()["password"] == "pw123"
+    assert client.get(f"/api/reports/{rid}/password", headers=Ha).status_code == 403  # view-once
+
+
+def test_client_cannot_access_undelivered_report():
+    reset()
+    Ha = _token("alice", "client")
+    rid = db.create_report(job_id="j2", owner="alice")   # still at reporter stage
+    assert client.get(f"/api/reports/{rid}/delivered", headers=Ha).status_code == 409

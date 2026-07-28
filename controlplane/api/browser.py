@@ -285,6 +285,42 @@ def generate_report(job_id: str, user: dict = Depends(current_user)):
     return report_store.save_report(user["username"], job_id, "Executive Summary", data)
 
 
+@app.get("/api/reports/{rid}/delivered")
+def download_delivered(rid: str, user: dict = Depends(current_user)):
+    """Client downloads their own DELIVERED report as a password-protected PDF (read-only)."""
+    r = db.get_report(rid)
+    if not r:
+        raise HTTPException(status_code=404, detail="no such report")
+    if not tenancy.visible_to(user["role"], user["username"], r["owner"]):
+        raise HTTPException(status_code=403, detail="not your report")
+    if r["stage"] != models.REPORT_DELIVERED or not r["delivered_pdf"]:
+        raise HTTPException(status_code=409, detail="report not delivered yet")
+    try:
+        data = report_store.read_report(r["delivered_pdf"])
+    except OSError:
+        raise HTTPException(status_code=404, detail="delivered file missing")
+    return Response(content=data, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{r["delivered_pdf"]}"'})
+
+
+@app.get("/api/reports/{rid}/password")
+def view_password(rid: str, user: dict = Depends(current_user)):
+    """View-once PDF password for the owning client. After one view, the client must ask
+    governance to re-issue it."""
+    r = db.get_report(rid)
+    if not r:
+        raise HTTPException(status_code=404, detail="no such report")
+    if not tenancy.visible_to(user["role"], user["username"], r["owner"]):
+        raise HTTPException(status_code=403, detail="not your report")
+    if r["stage"] != models.REPORT_DELIVERED or not r["pdf_password"]:
+        raise HTTPException(status_code=409, detail="report not delivered yet")
+    if r["password_viewed"]:
+        raise HTTPException(status_code=403,
+                            detail="password already viewed; request re-issue from governance")
+    db.set_report(rid, password_viewed=1)
+    return {"password": r["pdf_password"]}
+
+
 @app.get("/api/reports/{fname}/download")
 def download_report(fname: str, user: dict = Depends(current_user)):
     owner = report_store.owner_of(fname)

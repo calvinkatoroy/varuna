@@ -180,3 +180,16 @@ def test_governance_reissue_password():
     r = client.post(f"/api/pipeline/reports/{rid}/reissue-password", headers=Hgov)
     assert r.status_code == 200 and r.json()["password"]
     assert _db.get_report(rid)["password_viewed"] is False
+
+
+def test_pipeline_create_generates_v1_owned_by_client():
+    reset()
+    H = _hdr("dodi", "pentester")
+    redis_store.set_job({"id": "jc", "target": "http://t", "submitter": "alice",
+                         "status": "done", "per_tool_status": {}})
+    redis_store.set_findings("jc", [{"name": "X", "severity": "high", "host": "h"}])
+    r = client.post("/api/pipeline/reports", json={"job_id": "jc", "template": "Full Technical"}, headers=H)
+    assert r.status_code == 200 and r.json()["stage"] == models.REPORT_REPORTER, r.text
+    rid = r.json()["report_id"]
+    assert len(client.get(f"/api/pipeline/reports/{rid}/versions", headers=H).json()) == 1
+    assert _db.get_report(rid)["owner"] == "alice"

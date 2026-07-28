@@ -94,6 +94,30 @@ def download_report(fname: str, user: dict = Depends(require_pro)):
 
 
 # --- report review pipeline (v2): reporter -> lead -> governance -> delivered ---
+class PipelineCreateBody(BaseModel):
+    job_id: str
+    template: str = "Full Technical"
+
+
+@app.post("/api/pipeline/reports")
+def pipeline_create(body: PipelineCreateBody, user: dict = Depends(require_team)):
+    """Start the review pipeline: generate v1 of the report and place it at the reporter stage.
+    The report owner is the client who owns the job (tenancy)."""
+    job = redis_store.get_job(body.job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="no such job")
+    try:
+        data = generator.generate(job, redis_store.get_findings(body.job_id), body.template)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    rid = db.create_report(job_id=body.job_id, owner=job["submitter"], template=body.template)
+    fname = f"{rid}_v1.docx"
+    report_store.save_report_file(fname, data)
+    db.add_report_version(rid, filename=fname, editor=user["username"], note="auto-generated v1")
+    audit.log("report_created", actor=user["username"], report=rid, job=body.job_id)
+    return {"report_id": rid, "stage": models.REPORT_REPORTER}
+
+
 def _require_report(rid: str) -> dict:
     r = db.get_report(rid)
     if not r:
