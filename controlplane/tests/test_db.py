@@ -4,18 +4,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
 import db  # noqa: E402
 
-
-def setup_function(_):
-    # fresh in-file DB per test (WAL needs a real file, not :memory:)
-    db.reset_for_test(os.path.join(os.path.dirname(__file__), "_test.db"))
-
-
-def teardown_function(_):
-    db.close()
-    for suffix in ("", "-wal", "-shm"):
-        p = os.path.join(os.path.dirname(__file__), "_test.db" + suffix)
-        if os.path.exists(p):
-            os.remove(p)
+# db is reset per-test by the autouse _fresh_db fixture in conftest.py
 
 
 def test_account_round_trip():

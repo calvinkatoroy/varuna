@@ -8,6 +8,7 @@ AND per-source-IP with a temporary lockout (NFR-25), this is not optional harden
 """
 from __future__ import annotations
 
+import db
 import redis_store
 from models import Account, ROLES
 
@@ -45,7 +46,7 @@ def create_account(username: str, password: str, role: str) -> Account:
     if role not in ROLES:
         raise ValueError(f"invalid role: {role}")
     acct = Account(username=username, password_hash=hash_password(password), role=role)
-    redis_store.set_account(acct.to_dict())
+    db.upsert_account(acct.username, acct.password_hash, acct.role)
     return acct
 
 
@@ -73,7 +74,7 @@ def authenticate(username: str, password: str, ip: str) -> Account:
     """Return the Account on success; raise LockedOut or BadCredentials otherwise."""
     if _is_locked(username, ip):
         raise LockedOut("too many failed attempts; try again later")
-    acct = redis_store.get_account(username)
+    acct = db.get_account(username)
     if not acct or not check_password(password, acct["password_hash"]):
         _record_fail(username, ip)
         raise BadCredentials("invalid username or password")
@@ -96,6 +97,7 @@ if __name__ == "__main__":
         def expire(self, k, s): pass
 
     redis_store._client = FakeRedis()
+    db.reset_for_test(":memory:")
 
     # 5 failures against a missing account → 6th attempt is locked out.
     for _ in range(FAIL_LIMIT):
