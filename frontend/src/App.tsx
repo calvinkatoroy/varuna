@@ -1,35 +1,20 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './auth'
-import Layout from './components/Layout'
 import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
-import InstallAgent from './pages/InstallAgent'
-import NewScan from './pages/NewScan'
-import ActiveScans from './pages/ActiveScans'
-import ApprovalQueue from './pages/ApprovalQueue'
-import Reports from './pages/Reports'
-import FindingsReview from './pages/FindingsReview'
-import ManualInput from './pages/ManualInput'
+import ClientCockpit from './screens/ClientCockpit'
 
+// v2 shell: each screen owns its own chrome (the studied-DNA hero band), so there is no shared
+// sidebar Layout. Team/pipeline routes land in later frontend tasks. (v1 pages remain on disk,
+// unrouted, until fully replaced.)
 export default function App() {
   const { user, ready } = useAuth()
   if (!ready) return <div className="p-sm text-ink-faint">Loading…</div>
   if (!user) return <Login />
-  const isPro = user.role === 'pro'
 
   return (
-    <Layout>
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/install" element={<InstallAgent />} />
-        <Route path="/new" element={<NewScan />} />
-        <Route path="/scans" element={<ActiveScans />} />
-        <Route path="/reports" element={<Reports />} />
-        {isPro && <Route path="/approvals" element={<ApprovalQueue />} />}
-        {isPro && <Route path="/findings" element={<FindingsReview />} />}
-        {isPro && <Route path="/manual" element={<ManualInput />} />}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Layout>
+    <Routes>
+      <Route path="/" element={<ClientCockpit />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   )
 }
