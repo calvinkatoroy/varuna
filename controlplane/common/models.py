@@ -54,6 +54,24 @@ PROPOSAL_APPROVED = "approved"
 PROPOSAL_REJECTED = "rejected"
 PROPOSAL_STATUSES = (PROPOSAL_PENDING, PROPOSAL_APPROVED, PROPOSAL_REJECTED)
 
+# Report review pipeline stages (v2): reporter -> lead -> governance -> delivered.
+REPORT_REPORTER = "in_review_reporter"
+REPORT_LEAD = "in_review_lead"
+REPORT_GOVERNANCE = "in_review_governance"
+REPORT_DELIVERED = "delivered"
+REPORT_STAGES = (REPORT_REPORTER, REPORT_LEAD, REPORT_GOVERNANCE, REPORT_DELIVERED)
+
+
+def report_stage_owner(stage: str) -> frozenset:
+    """Roles allowed to edit/forward at a stage. Lead can also act at the reporter stage
+    (sees all, may edit). Governance forwarding delivers to the client."""
+    return {
+        REPORT_REPORTER: frozenset({ROLE_REPORTER, ROLE_LEAD}),
+        REPORT_LEAD: frozenset({ROLE_LEAD}),
+        REPORT_GOVERNANCE: frozenset({ROLE_GOVERNANCE}),
+    }.get(stage, frozenset())
+
+
 # Overall job status (REQ-23).
 STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"

@@ -55,6 +55,31 @@ CREATE TABLE IF NOT EXISTS proposals (
 );
 CREATE INDEX IF NOT EXISTS idx_proposals_submitter ON proposals(submitter);
 CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status);
+
+CREATE TABLE IF NOT EXISTS reports (
+    id              TEXT PRIMARY KEY,
+    job_id          TEXT NOT NULL,
+    owner           TEXT NOT NULL,
+    stage           TEXT NOT NULL DEFAULT 'in_review_reporter',
+    template        TEXT NOT NULL DEFAULT 'Full Technical',
+    delivered_pdf   TEXT,
+    pdf_password    TEXT,
+    password_viewed INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS report_versions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_id  TEXT NOT NULL,
+    version_no INTEGER NOT NULL,
+    filename   TEXT NOT NULL,
+    editor     TEXT NOT NULL,
+    note       TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_reports_owner ON reports(owner);
+CREATE INDEX IF NOT EXISTS idx_reports_stage ON reports(stage);
+CREATE INDEX IF NOT EXISTS idx_versions_report ON report_versions(report_id);
 """
 
 
@@ -177,6 +202,80 @@ def update_proposal(pid: str, **fields) -> None:
     args.append(pid)
     get_conn().execute(f"UPDATE proposals SET {', '.join(sets)} WHERE id=?", args)
     get_conn().commit()
+
+
+# --- reports + versions (v2 review pipeline) ---
+def create_report(job_id: str, owner: str, template: str = "Full Technical",
+                  stage: str = "in_review_reporter") -> str:
+    import uuid
+    rid = str(uuid.uuid4())
+    get_conn().execute(
+        "INSERT INTO reports (id, job_id, owner, stage, template) VALUES (?,?,?,?,?)",
+        (rid, job_id, owner, stage, template),
+    )
+    get_conn().commit()
+    return rid
+
+
+def get_report(rid: str) -> Optional[dict]:
+    row = get_conn().execute("SELECT * FROM reports WHERE id=?", (rid,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["password_viewed"] = bool(d["password_viewed"])
+    return d
+
+
+def list_reports(owner: Optional[str] = None, stage: Optional[str] = None) -> list[dict]:
+    q, args, where = "SELECT * FROM reports", [], []
+    if owner:
+        where.append("owner=?"); args.append(owner)
+    if stage:
+        where.append("stage=?"); args.append(stage)
+    if where:
+        q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY created_at DESC"
+    out = []
+    for row in get_conn().execute(q, args).fetchall():
+        d = dict(row); d["password_viewed"] = bool(d["password_viewed"]); out.append(d)
+    return out
+
+
+def set_report(rid: str, **fields) -> None:
+    if not fields:
+        return
+    sets, args = ["updated_at=datetime('now')"], []
+    for k, v in fields.items():
+        sets.append(f"{k}=?"); args.append(v)
+    args.append(rid)
+    get_conn().execute(f"UPDATE reports SET {', '.join(sets)} WHERE id=?", args)
+    get_conn().commit()
+
+
+def add_report_version(rid: str, filename: str, editor: str, note: str = "") -> int:
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT COALESCE(MAX(version_no), 0) AS mx FROM report_versions WHERE report_id=?", (rid,)
+    ).fetchone()
+    n = row["mx"] + 1
+    conn.execute(
+        "INSERT INTO report_versions (report_id, version_no, filename, editor, note) "
+        "VALUES (?,?,?,?,?)", (rid, n, filename, editor, note),
+    )
+    conn.commit()
+    return n
+
+
+def list_report_versions(rid: str) -> list[dict]:
+    return [dict(r) for r in get_conn().execute(
+        "SELECT * FROM report_versions WHERE report_id=? ORDER BY version_no", (rid,)).fetchall()]
+
+
+def latest_version(rid: str) -> Optional[dict]:
+    row = get_conn().execute(
+        "SELECT * FROM report_versions WHERE report_id=? ORDER BY version_no DESC LIMIT 1", (rid,)
+    ).fetchone()
+    return dict(row) if row else None
 
 
 if __name__ == "__main__":
