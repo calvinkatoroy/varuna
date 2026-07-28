@@ -20,11 +20,14 @@ from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile 
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
+import secrets  # noqa: E402
+
 import audit  # noqa: E402
 import db  # noqa: E402
 import generator  # noqa: E402
 import ingest  # noqa: E402
 import models  # noqa: E402
+import pdf_deliver  # noqa: E402
 import redis_store  # noqa: E402
 import report_pipeline  # noqa: E402
 import store as report_store  # noqa: E402
@@ -147,10 +150,39 @@ def pipeline_forward(rid: str, user: dict = Depends(require_team)):
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
-    # Delivery (governance -> delivered) produces the protected PDF; wired in Plan 3 Task 4.
-    db.set_report(rid, stage=new_stage)
+    if new_stage == models.REPORT_DELIVERED:
+        _deliver_report(rid)   # governance sign-off: produce the protected PDF + password
+    else:
+        db.set_report(rid, stage=new_stage)
     audit.log("report_forward", actor=user["username"], report=rid, stage=new_stage)
     return {"report_id": rid, "stage": new_stage}
+
+
+def _deliver_report(rid: str) -> None:
+    """Convert the latest review version to a password-protected PDF and mark DELIVERED."""
+    v = db.latest_version(rid)
+    if not v:
+        raise HTTPException(status_code=409, detail="no report version to deliver")
+    docx = report_store.read_report(v["filename"])
+    password = secrets.token_urlsafe(9)
+    pdf = pdf_deliver.deliver(docx, password)
+    fname = f"{rid}_delivered.pdf"
+    report_store.save_report_file(fname, pdf)
+    db.set_report(rid, stage=models.REPORT_DELIVERED, delivered_pdf=fname,
+                  pdf_password=password, password_viewed=0)
+
+
+@app.post("/api/pipeline/reports/{rid}/reissue-password")
+def pipeline_reissue_password(rid: str, user: dict = Depends(require_team)):
+    """Governance re-issues the view-once PDF password when the client lost it."""
+    if user["role"] != models.ROLE_GOVERNANCE:
+        raise HTTPException(status_code=403, detail="only governance re-issues the password")
+    r = _require_report(rid)
+    if r["stage"] != models.REPORT_DELIVERED or not r["pdf_password"]:
+        raise HTTPException(status_code=409, detail="report is not delivered")
+    db.set_report(rid, password_viewed=0)   # let the client view it once more
+    audit.log("password_reissue", actor=user["username"], report=rid)
+    return {"report_id": rid, "password": r["pdf_password"]}
 
 
 @app.post("/api/pipeline/reports/{rid}/sendback")

@@ -136,3 +136,47 @@ def test_review_pipeline_sendback():
     rid = _db.create_report(job_id="j2", owner="bob", stage=models.REPORT_GOVERNANCE)
     r = client.post(f"/api/pipeline/reports/{rid}/sendback", headers=Hgov)
     assert r.status_code == 200 and r.json()["stage"] == models.REPORT_LEAD
+
+
+# --- v2 protected-PDF delivery (fake the docx->pdf converter; keep real pypdf encryption) ---
+import io as _io  # noqa: E402
+import pdf_deliver  # noqa: E402
+from reportlab.pdfgen import canvas as _canvas  # noqa: E402
+from pypdf import PdfReader as _PdfReader  # noqa: E402
+
+
+def _fake_convert(_docx):
+    b = _io.BytesIO(); c = _canvas.Canvas(b); c.drawString(72, 720, "stub"); c.showPage(); c.save()
+    return b.getvalue()
+
+
+pdf_deliver.CONVERT = _fake_convert
+
+
+def test_governance_forward_delivers_protected_pdf():
+    reset()
+    Hgov = _hdr("hani", "governance")
+    rid = _db.create_report(job_id="j3", owner="carol", stage=models.REPORT_GOVERNANCE)
+    client.post(f"/api/pipeline/reports/{rid}/version",
+                files={"file": ("final.docx", b"PKfinal", DOCX_MIME)}, headers=Hgov)
+    r = client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hgov)
+    assert r.status_code == 200 and r.json()["stage"] == models.REPORT_DELIVERED, r.text
+    rep = _db.get_report(rid)
+    assert rep["delivered_pdf"] and rep["pdf_password"] and rep["password_viewed"] is False
+    data = report_store.read_report(rep["delivered_pdf"])
+    assert _PdfReader(_io.BytesIO(data)).is_encrypted
+
+
+def test_governance_reissue_password():
+    reset()
+    Hgov = _hdr("hani", "governance")
+    Hrep = _hdr("aisah", "reporter")
+    rid = _db.create_report(job_id="j4", owner="dan", stage=models.REPORT_GOVERNANCE)
+    client.post(f"/api/pipeline/reports/{rid}/version",
+                files={"file": ("f.docx", b"PK", DOCX_MIME)}, headers=Hgov)
+    client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hgov)   # -> delivered
+    _db.set_report(rid, password_viewed=1)                              # client already viewed
+    assert client.post(f"/api/pipeline/reports/{rid}/reissue-password", headers=Hrep).status_code == 403
+    r = client.post(f"/api/pipeline/reports/{rid}/reissue-password", headers=Hgov)
+    assert r.status_code == 200 and r.json()["password"]
+    assert _db.get_report(rid)["password_viewed"] is False
