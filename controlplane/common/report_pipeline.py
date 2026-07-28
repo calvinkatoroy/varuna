@@ -18,11 +18,11 @@ def can_act(stage: str, role: str) -> bool:
 
 def advance(stage: str, role: str) -> str:
     """Forward one stage. Raises PermissionError (wrong role) or ValueError (past delivered)."""
-    if not can_act(stage, role):
-        raise PermissionError(f"{role} may not act at {stage}")
     i = _ORDER.index(stage)
     if i >= len(_ORDER) - 1:
         raise ValueError("report is already delivered")
+    if not can_act(stage, role):
+        raise PermissionError(f"{role} may not act at {stage}")
     return _ORDER[i + 1]
 
 
