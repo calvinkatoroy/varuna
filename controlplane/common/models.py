@@ -14,10 +14,35 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
-# Roles (SRS §4.11, REQ-66), exactly two, no admin/reviewer.
-ROLE_STANDARD = "standard"
-ROLE_PRO = "pro"
-ROLES = (ROLE_STANDARD, ROLE_PRO)
+# Roles (SRS §4.11 v2): one client role + five security-team roles.
+ROLE_CLIENT = "client"
+ROLE_PENTESTER = "pentester"
+ROLE_LEAD = "lead_pentester"
+ROLE_REPORTER = "reporter"
+ROLE_GOVERNANCE = "governance"
+ROLE_SOC = "soc"
+ROLES = (ROLE_CLIENT, ROLE_PENTESTER, ROLE_LEAD, ROLE_REPORTER, ROLE_GOVERNANCE, ROLE_SOC)
+SECURITY_TEAM = frozenset({ROLE_PENTESTER, ROLE_LEAD, ROLE_REPORTER, ROLE_GOVERNANCE, ROLE_SOC})
+
+# Back-compat aliases (v1 used standard/pro); keep imports resolving during migration.
+ROLE_STANDARD = ROLE_CLIENT
+ROLE_PRO = ROLE_PENTESTER
+
+
+def is_team(role: str) -> bool:
+    return role in SECURITY_TEAM
+
+
+def is_client(role: str) -> bool:
+    return role == ROLE_CLIENT
+
+
+def can_approve(role: str) -> bool:
+    return role == ROLE_LEAD
+
+
+def can_review(role: str) -> bool:
+    return role in (ROLE_REPORTER, ROLE_LEAD, ROLE_GOVERNANCE)
 
 # Target classification (REQ-14).
 CLASS_LOCAL = "local"

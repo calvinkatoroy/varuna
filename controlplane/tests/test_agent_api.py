@@ -43,7 +43,7 @@ def test_roundtrip():
     assert client.get("/agent/poll", headers=H).json()["job"] is None  # empty queue
 
     job = {"id": "job1", "target": "http://t.local", "target_class": "local",
-           "submitter": "calvin", "role": "pro", "status": "queued", "per_tool_status": {}}
+           "submitter": "calvin", "role": "pentester", "status": "queued", "per_tool_status": {}}
     redis_store.set_job(job)
     redis_store.enqueue_job("calvin", "job1")
 
@@ -94,7 +94,7 @@ def test_ingest_pipeline_runs_on_upload():
 
     H = _enroll("calvin")
     job = {"id": "j9", "target": "http://t.local", "target_class": "local",
-           "submitter": "calvin", "role": "pro", "status": "running", "per_tool_status": {}}
+           "submitter": "calvin", "role": "pentester", "status": "running", "per_tool_status": {}}
     redis_store.set_job(job)
 
     nuclei = ('{"template-id":"CVE-2021-44228","info":{"name":"Log4j RCE","severity":"critical",'

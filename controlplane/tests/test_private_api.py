@@ -35,12 +35,12 @@ def reset():
 
 
 def _pro_header(username="ihsan"):
-    auth.create_account(username, "pw", "pro")
+    auth.create_account(username, "pw", "pentester")
     return {"Authorization": f"Bearer {jwt_auth.login(username, 'pw', 'ip')}"}
 
 
 def _std_header(username="staff"):
-    auth.create_account(username, "pw", "standard")
+    auth.create_account(username, "pw", "client")
     return {"Authorization": f"Bearer {jwt_auth.login(username, 'pw', 'ip')}"}
 
 

@@ -41,7 +41,7 @@ def _token(username, role):
 
 def test_login_bad_credentials_rejected():
     reset()
-    auth.create_account("bob", "right", "pro")
+    auth.create_account("bob", "right", "pentester")
     assert client.post("/api/login", json={"username": "bob", "password": "wrong"}).status_code == 401
 
 
@@ -53,28 +53,28 @@ def test_protected_endpoint_needs_token():
 
 def test_me_returns_identity():
     reset()
-    H = _token("calvin", "pro")
+    H = _token("calvin", "pentester")
     body = client.get("/api/me", headers=H).json()
-    assert body == {"username": "calvin", "role": "pro"}
+    assert body == {"username": "calvin", "role": "pentester"}
 
 
 def test_standard_cloud_is_gated():
     reset()
-    H = _token("staff", "standard")
+    H = _token("staff", "client")
     res = client.post("/api/scans", headers=H, json={"target": CLOUD}).json()
     assert res["state"] == "pending_approval", "Standard cloud target must hit the Approval Gate"
 
 
 def test_standard_local_dispatched():
     reset()
-    H = _token("staff", "standard")
+    H = _token("staff", "client")
     res = client.post("/api/scans", headers=H, json={"target": LOCAL}).json()
     assert res["state"] == "dispatched"
 
 
 def test_submit_without_agent_rejected():
     reset()
-    auth.create_account("noagent", "pw", "pro")
+    auth.create_account("noagent", "pw", "pentester")
     token = client.post("/api/login", json={"username": "noagent", "password": "pw"}).json()["token"]
     H = {"Authorization": f"Bearer {token}"}
     assert client.post("/api/scans", headers=H, json={"target": LOCAL}).status_code == 409
@@ -82,13 +82,13 @@ def test_submit_without_agent_rejected():
 
 def test_evasion_target_rejected():
     reset()
-    H = _token("staff", "pro")
+    H = _token("staff", "pentester")
     assert client.post("/api/scans", headers=H, json={"target": "http://0x7f000001"}).status_code == 422
 
 
 def test_agent_status_and_install_token():
     reset()
-    H = _token("calvin", "pro")   # _token registers an agent
+    H = _token("calvin", "pentester")   # _token registers an agent
     st = client.get("/api/agent", headers=H).json()
     assert st["registered"] and st["online"]
     tok = client.post("/api/agent/install-token", headers=H).json()
@@ -97,14 +97,14 @@ def test_agent_status_and_install_token():
 
 def test_approvals_are_pro_only():
     reset()
-    H_std = _token("staff", "standard")
+    H_std = _token("staff", "client")
     assert client.get("/api/approvals", headers=H_std).status_code == 403   # require_pro
 
 
 def test_approval_flow_via_api():
     reset()
-    H_std = _token("staff", "standard")
-    H_pro = _token("ihsan", "pro")
+    H_std = _token("staff", "client")
+    H_pro = _token("ihsan", "pentester")
     job_id = client.post("/api/scans", headers=H_std, json={"target": CLOUD}).json()["job_id"]
     pending = client.get("/api/approvals", headers=H_pro).json()
     assert any(p["job_id"] == job_id for p in pending)
@@ -114,7 +114,7 @@ def test_approval_flow_via_api():
 
 def test_report_generate_and_download():
     reset()
-    H = _token("staff", "standard")
+    H = _token("staff", "client")
     redis_store.set_job({"id": "jr", "target": "http://t.local", "submitter": "staff",
                          "status": "done", "per_tool_status": {}})
     redis_store.set_findings("jr", [{"name": "X", "severity": "high", "host": "h",

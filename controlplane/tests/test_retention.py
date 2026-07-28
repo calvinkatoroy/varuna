@@ -37,7 +37,7 @@ def test_retention_purges_old_keeps_recent():
 def test_wipe_all_clears_data_but_keeps_accounts():
     redis_store._client = FakeRedis()
     # seed data across every store
-    redis_store.set_account({"username": "ihsan", "password_hash": "x", "role": "pro"})
+    redis_store.set_account({"username": "ihsan", "password_hash": "x", "role": "pentester"})
     redis_store.set_job({"id": "j1", "target": "http://t", "submitter": "ihsan", "status": "done"})
     redis_store.set_findings("j1", [{"name": "SQLi", "severity": "critical"}])
     audit.log(audit.SUBMIT, submitter="ihsan", target="http://t")
