@@ -27,6 +27,7 @@ from pydantic import BaseModel  # noqa: E402
 
 import auth  # noqa: E402
 import classifier  # noqa: E402
+import db  # noqa: E402
 import dispatch  # noqa: E402
 import generator  # noqa: E402
 import jwt_auth  # noqa: E402
@@ -66,6 +67,22 @@ class ScanBody(BaseModel):
     opts: dict = {}
 
 
+class ProposalBody(BaseModel):
+    target: str
+    mode: str = "standard"
+    in_scope: str = ""
+    out_of_scope: str = ""
+    division: str = ""
+    purpose: str = ""                    # keperluan
+    environment: str = ""
+    test_window: str = ""
+    roe: dict = {}
+    authorization_attested: bool = False
+    emergency_contact: str = ""
+    tools: list[str] = []
+    opts: dict = {}
+
+
 @app.post("/api/login")
 def login(body: LoginBody, x_forwarded_for: str = Header(default="api")):
     try:
@@ -91,6 +108,35 @@ def register(body: RegisterBody):
 @app.get("/api/me")
 def me(user: dict = Depends(current_user)):
     return user
+
+
+# --- scan proposals (v2): client submits, lead pentester approves ---
+@app.post("/api/proposals")
+def submit_proposal(body: ProposalBody, user: dict = Depends(current_user)):
+    if not body.authorization_attested:
+        raise HTTPException(status_code=422,
+                            detail="authorization-to-test attestation is required")
+    p = {**body.model_dump(), "submitter": user["username"], "status": models.PROPOSAL_PENDING}
+    pid = db.create_proposal(p)
+    return {"proposal_id": pid, "status": models.PROPOSAL_PENDING}
+
+
+@app.get("/api/proposals")
+def list_proposals(user: dict = Depends(current_user)):
+    # team sees every client's proposals; a client sees only their own (v2 tenancy)
+    if models.is_team(user["role"]):
+        return db.list_proposals()
+    return db.list_proposals(submitter=user["username"])
+
+
+@app.get("/api/proposals/{pid}")
+def get_proposal(pid: str, user: dict = Depends(current_user)):
+    p = db.get_proposal(pid)
+    if not p:
+        raise HTTPException(status_code=404, detail="no such proposal")
+    if not tenancy.visible_to(user["role"], user["username"], p["submitter"]):
+        raise HTTPException(status_code=403, detail="not your proposal")
+    return p
 
 
 @app.post("/api/scans")

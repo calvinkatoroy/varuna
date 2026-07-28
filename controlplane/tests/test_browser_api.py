@@ -72,6 +72,33 @@ def test_report_tenant_isolation():
     assert client.get(f"/api/reports/{fa}/download", headers=Ht).status_code == 200
 
 
+def test_client_proposal_requires_attestation():
+    reset()
+    H = _token("alice", "client")
+    r = client.post("/api/proposals",
+                    json={"target": "http://t.example", "authorization_attested": False}, headers=H)
+    assert r.status_code == 422
+
+
+def test_client_submits_and_proposals_are_scoped():
+    reset()
+    Ha = _token("alice", "client")
+    Hb = _token("bob", "client")
+    Ht = _token("riyan", "pentester")
+    r = client.post("/api/proposals",
+                    json={"target": "http://t.example", "authorization_attested": True,
+                          "division": "IT", "purpose": "pre-release"}, headers=Ha)
+    assert r.status_code == 200 and r.json()["status"] == "pending", r.text
+    pid = r.json()["proposal_id"]
+    assert all(p["submitter"] == "alice" for p in client.get("/api/proposals", headers=Ha).json())
+    assert any(p["id"] == pid for p in client.get("/api/proposals", headers=Ha).json())
+    assert not any(p["id"] == pid for p in client.get("/api/proposals", headers=Hb).json())
+    assert any(p["id"] == pid for p in client.get("/api/proposals", headers=Ht).json())
+    assert client.get(f"/api/proposals/{pid}", headers=Hb).status_code == 403
+    assert client.get(f"/api/proposals/{pid}", headers=Ha).status_code == 200
+    assert client.get(f"/api/proposals/{pid}", headers=Ht).status_code == 200
+
+
 def test_protected_endpoint_needs_token():
     reset()
     assert client.get("/api/scans/x").status_code == 401
