@@ -2,6 +2,8 @@
 // Public defaults to same-origin ('' -> /api proxied by Vite/Caddy); private defaults to the
 // dev port and is set to the Tailscale host in production via VITE_PRIVATE_API.
 
+import { isMock, mockRequest } from './mock'
+
 const PUBLIC = (import.meta as any).env.VITE_PUBLIC_API || ''
 const PRIVATE = (import.meta as any).env.VITE_PRIVATE_API || 'http://localhost:8010'
 
@@ -23,6 +25,11 @@ export class ApiError extends Error {
 }
 
 async function req(base: string, path: string, opts: RequestInit = {}): Promise<any> {
+  // Mock-first: with VITE_MOCK=1 the whole app runs on fixtures, no backend needed.
+  if (isMock()) {
+    const body = opts.body ? JSON.parse(opts.body as string) : undefined
+    return mockRequest((opts.method as string) || 'GET', path, body)
+  }
   const headers: any = { ...(opts.headers || {}) }
   if (token) headers['Authorization'] = `Bearer ${token}`
   if (opts.body) headers['Content-Type'] = 'application/json'

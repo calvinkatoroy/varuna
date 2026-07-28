@@ -6,30 +6,40 @@
 @tailwind utilities;
 
 :root {
-  --color-paper: oklch(14% 0.012 250);
-  --color-paper-2: oklch(18% 0.014 250);
-  --color-paper-3: oklch(22% 0.016 250);
-  --color-ink: oklch(94% 0.006 250);
-  --color-ink-muted: oklch(72% 0.02 250);
-  --color-ink-faint: oklch(50% 0.015 250);
-  --color-rule: oklch(30% 0.01 250);
-  --color-accent: oklch(62% 0.16 250);
-  --color-accent-ink: oklch(14% 0.012 250);
-  --color-focus: oklch(72% 0.17 250);
+  /* Varuna v2 studied-DNA (Logivo). DARK is the default; light override below. */
+  color-scheme: dark;
+  --color-shell: #070908;
+  --color-paper: #070908;
+  --color-paper-2: #0E110C;
+  --color-paper-3: #161A12;
+  --color-panel: #0E110C;
+  --color-card: #161A12;
+  --color-card-2: #1C2117;
+  --color-ink: #E8ECE1;
+  --color-ink-muted: #959E8C;
+  --color-ink-faint: #6D7666;
+  --color-rule: #2A2F23;
+  --color-accent: #F26A43;
+  --color-accent-ink: #F79570;
+  --color-accent-soft: #3A231B;
+  --color-focus: #F79570;
+  --color-cta-bg: #E8ECE1;
+  --color-cta-fg: #12140F;
 
-  --color-crit: oklch(64% 0.19 25);
-  --color-high: oklch(66% 0.18 45);
-  --color-med: oklch(75% 0.15 75);
-  --color-low: oklch(72% 0.15 145);
-  --color-info: oklch(70% 0.12 250);
+  --color-crit: #F2565B;
+  --color-high: #EDA64A;
+  --color-med: #DCC646;
+  --color-low: #42C4A2;
+  --color-info: #7D97D8;
+  --color-crit-bg: #3A1D1F;
+  --color-high-bg: #352713;
+  --color-med-bg: #322D11;
+  --color-low-bg: #123029;
 
-  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
-  --font-body: 'Geist', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  /* Borrowed from studying dennissnellenberg.com's DNA (Neue Montreal role) —
-     Plus Jakarta Sans substituted: Neue Montreal is a commercial font, not
-     ours to redistribute. Scoped to the warm-glass Dashboard pilot only. */
-  --font-display-warm: 'Plus Jakarta Sans', 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-display-warm: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
 
   --text-display: clamp(1.75rem, 2vw + 1.25rem, 2.5rem);
 
@@ -37,9 +47,41 @@
   --dur-short: 150ms;
   --dur-med: 220ms;
 
-  --radius-input: 6px;
-  --radius-card: 8px;
+  --radius-input: 12px;
+  --radius-card: 16px;
+  --radius-md: 22px;
+  --radius-lg: 32px;
   --radius-pill: 999px;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-shell: #E7ECDF;
+  --color-paper: #E7ECDF;
+  --color-paper-2: #DFE4D6;
+  --color-paper-3: #FFFFFF;
+  --color-panel: #DFE4D6;
+  --color-card: #FFFFFF;
+  --color-card-2: #FBFCF9;
+  --color-ink: #161A18;
+  --color-ink-muted: #6B746C;
+  --color-ink-faint: #9AA298;
+  --color-rule: #DFE4D6;
+  --color-accent: #EE5A34;
+  --color-accent-ink: #B8431F;
+  --color-accent-soft: #FBE3D9;
+  --color-focus: #EE5A34;
+  --color-cta-bg: #101312;
+  --color-cta-fg: #FFFFFF;
+  --color-crit: #E23B3B;
+  --color-high: #E1972E;
+  --color-med: #CDAF23;
+  --color-low: #2FA98C;
+  --color-info: #4E71C4;
+  --color-crit-bg: #F7DEDE;
+  --color-high-bg: #F7E8D3;
+  --color-med-bg: #F5EFCF;
+  --color-low-bg: #D6EEE7;
 }
 
 html,

@@ -1,25 +1,54 @@
+import tailwindcssAnimate from 'tailwindcss-animate'
+
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ['./index.html', './src/**/*.{ts,tsx}'],
+  darkMode: ['selector', '[data-theme="dark"]'],
+  content: [
+    './index.html',
+    './src/**/*.{ts,tsx}',
+    './node_modules/@tremor/**/*.{js,ts,jsx,tsx}',
+  ],
   theme: {
     extend: {
       colors: {
-        // design.md · theme: Cobalt (dark execution) — values live in src/index.css :root
+        // --- Varuna studied-DNA tokens (values in src/index.css; dark default + light override) ---
+        shell: 'var(--color-shell)',
         paper: 'var(--color-paper)',
         'paper-2': 'var(--color-paper-2)',
         'paper-3': 'var(--color-paper-3)',
+        panel: 'var(--color-panel)',
+        'card-2': 'var(--color-card-2)',
         ink: 'var(--color-ink)',
         'ink-muted': 'var(--color-ink-muted)',
         'ink-faint': 'var(--color-ink-faint)',
         rule: 'var(--color-rule)',
-        accent: 'var(--color-accent)',
         'accent-ink': 'var(--color-accent-ink)',
+        'accent-soft': 'var(--color-accent-soft)',
+        'cta-bg': 'var(--color-cta-bg)',
+        'cta-fg': 'var(--color-cta-fg)',
         focus: 'var(--color-focus)',
         crit: 'var(--color-crit)',
         high: 'var(--color-high)',
         med: 'var(--color-med)',
         low: 'var(--color-low)',
         info: 'var(--color-info)',
+        'crit-bg': 'var(--color-crit-bg)',
+        'high-bg': 'var(--color-high-bg)',
+        'med-bg': 'var(--color-med-bg)',
+        'low-bg': 'var(--color-low-bg)',
+        // --- shadcn/ui color names mapped onto the same tokens ---
+        background: 'var(--color-shell)',
+        foreground: 'var(--color-ink)',
+        border: 'var(--color-rule)',
+        input: 'var(--color-rule)',
+        ring: 'var(--color-focus)',
+        card: { DEFAULT: 'var(--color-card)', foreground: 'var(--color-ink)' },
+        popover: { DEFAULT: 'var(--color-card)', foreground: 'var(--color-ink)' },
+        primary: { DEFAULT: 'var(--color-cta-bg)', foreground: 'var(--color-cta-fg)' },
+        secondary: { DEFAULT: 'var(--color-panel)', foreground: 'var(--color-ink)' },
+        muted: { DEFAULT: 'var(--color-panel)', foreground: 'var(--color-ink-muted)' },
+        accent: { DEFAULT: 'var(--color-accent)', foreground: '#ffffff' },
+        destructive: { DEFAULT: 'var(--color-crit)', foreground: '#ffffff' },
       },
       fontFamily: {
         display: ['var(--font-display)'],
@@ -30,28 +59,19 @@ export default {
         display: ['var(--text-display)', { lineHeight: '1.1', letterSpacing: '-0.02em' }],
       },
       spacing: {
-        '3xs': '0.25rem',
-        '2xs': '0.5rem',
-        xs: '0.75rem',
-        sm: '1rem',
-        md: '1.5rem',
-        lg: '2rem',
-        xl: '3rem',
-        '2xl': '4.5rem',
+        '3xs': '0.25rem', '2xs': '0.5rem', xs: '0.75rem', sm: '1rem',
+        md: '1.5rem', lg: '2rem', xl: '3rem', '2xl': '4.5rem',
       },
       borderRadius: {
         input: 'var(--radius-input)',
         card: 'var(--radius-card)',
+        bento: 'var(--radius-md)',
+        'bento-lg': 'var(--radius-lg)',
         pill: 'var(--radius-pill)',
       },
-      transitionTimingFunction: {
-        out: 'var(--ease-out)',
-      },
-      transitionDuration: {
-        short: '150ms',
-        med: '220ms',
-      },
+      transitionTimingFunction: { out: 'var(--ease-out)' },
+      transitionDuration: { short: '150ms', med: '220ms' },
     },
   },
-  plugins: [],
+  plugins: [tailwindcssAnimate],
 }
