@@ -48,6 +48,12 @@ def can_review(role: str) -> bool:
 CLASS_LOCAL = "local"
 CLASS_CLOUD = "cloud"
 
+# Proposal status (v2): a scan proposal awaits lead-pentester approval before any scan runs.
+PROPOSAL_PENDING = "pending"
+PROPOSAL_APPROVED = "approved"
+PROPOSAL_REJECTED = "rejected"
+PROPOSAL_STATUSES = (PROPOSAL_PENDING, PROPOSAL_APPROVED, PROPOSAL_REJECTED)
+
 # Overall job status (REQ-23).
 STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"
