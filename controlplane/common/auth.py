@@ -50,6 +50,20 @@ def create_account(username: str, password: str, role: str) -> Account:
     return acct
 
 
+def register_client(username: str, password: str) -> Account:
+    """Self-service registration. Always client-role and low-privilege: an account grants
+    nothing until a proposal is approved (v2). Team roles are seeded, never self-registered."""
+    from models import ROLE_CLIENT
+    username = (username or "").strip()
+    if not username or not password:
+        raise AuthError("username and password required")
+    if db.get_account(username):
+        raise AuthError("username already taken")
+    acct = Account(username=username, password_hash=hash_password(password), role=ROLE_CLIENT)
+    db.upsert_account(acct.username, acct.password_hash, acct.role)
+    return acct
+
+
 def _record_fail(username: str, ip: str) -> None:
     r = redis_store.get_redis()
     for key in (redis_store.login_fail_key(username), redis_store.login_fail_ip_key(ip)):
