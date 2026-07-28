@@ -90,3 +90,49 @@ if __name__ == "__main__":
             fn()
             print(f"{name} OK")
     print("test_private_api: all green")
+
+
+# --- v2 report review pipeline ---
+import db as _db  # noqa: E402
+import models  # noqa: E402
+
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+def _hdr(username, role):
+    auth.create_account(username, "pw", role)
+    return {"Authorization": f"Bearer {jwt_auth.login(username, 'pw', 'ip')}"}
+
+
+def test_review_pipeline_forward_and_versions():
+    reset()
+    Hrep = _hdr("aisah", "reporter")
+    Hlead = _hdr("riyan", "lead_pentester")
+    Hpen = _hdr("dodi", "pentester")
+    rid = _db.create_report(job_id="j1", owner="alice", template="Full Technical")
+    # reporter uploads a new version
+    r = client.post(f"/api/pipeline/reports/{rid}/version",
+                    files={"file": ("edit.docx", b"PKedited", DOCX_MIME)}, headers=Hrep)
+    assert r.status_code == 200 and r.json()["version_no"] == 1, r.text
+    # a pentester does not own the reporter stage -> cannot forward
+    assert client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hpen).status_code == 403
+    # reporter forwards -> lead
+    assert client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hrep).json()["stage"] \
+        == models.REPORT_LEAD
+    # lead uploads a version and forwards -> governance
+    client.post(f"/api/pipeline/reports/{rid}/version",
+                files={"file": ("lead.docx", b"PKlead", DOCX_MIME)}, headers=Hlead)
+    assert client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hlead).json()["stage"] \
+        == models.REPORT_GOVERNANCE
+    # lead sees all versions (history kept)
+    versions = client.get(f"/api/pipeline/reports/{rid}/versions", headers=Hlead).json()
+    assert [v["version_no"] for v in versions] == [1, 2]
+    assert client.get(f"/api/pipeline/reports/{rid}/versions/1/download", headers=Hlead).content == b"PKedited"
+
+
+def test_review_pipeline_sendback():
+    reset()
+    Hgov = _hdr("hani", "governance")
+    rid = _db.create_report(job_id="j2", owner="bob", stage=models.REPORT_GOVERNANCE)
+    r = client.post(f"/api/pipeline/reports/{rid}/sendback", headers=Hgov)
+    assert r.status_code == 200 and r.json()["stage"] == models.REPORT_LEAD
