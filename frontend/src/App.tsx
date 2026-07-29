@@ -4,6 +4,7 @@ import { useAuth } from './auth'
 import ClientCockpit from './screens/ClientCockpit'
 import { AuthGate } from './screens/AuthGate'
 import TeamBoard from './screens/TeamBoard'
+import { Splash } from './components/Splash'
 
 // Client view: dashboard is the blurred backdrop, locked behind the AuthGate until the account
 // is activated (register → proposal → lead approval → agent → unlock).
@@ -42,15 +43,19 @@ function PrototypeSwitcher() {
 
 export default function App() {
   const { ready } = useAuth()
-  if (!ready) return <div className="p-sm text-ink-faint">Loading…</div>
   return (
     <>
-      <Routes>
-        <Route path="/" element={<GatedClient />} />
-        <Route path="/team" element={<TeamBoard />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-      <PrototypeSwitcher />
+      <Splash />
+      {ready && (
+        <>
+          <Routes>
+            <Route path="/" element={<GatedClient />} />
+            <Route path="/team" element={<TeamBoard />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+          <PrototypeSwitcher />
+        </>
+      )}
     </>
   )
 }

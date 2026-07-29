@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react'
 import {
   Shield, Bell, Filter, Lock, Check, X as XIcon, ArrowRight, ArrowLeft, Download,
-  Upload, FileText, KeyRound, Activity,
+  Upload, FileText, KeyRound, Activity, Plus, Eye,
 } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { Drawer, DrawerContent, DrawerTitle, DrawerClose } from '@/components/ui/drawer'
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
+import { AdvancedScanDrawer } from './AdvancedScanDrawer'
 import { revealTiles } from '@/lib/motion'
 
 type Card = {
@@ -36,6 +41,7 @@ export default function TeamBoard() {
   const [cols, setCols] = useState<Col[] | null>(null)
   const [sel, setSel] = useState<Card | null>(null)
   const [open, setOpen] = useState(false)
+  const [scanOpen, setScanOpen] = useState(false)
 
   useEffect(() => {
     api.get('/api/pipeline/board').then(setCols)
@@ -70,6 +76,9 @@ export default function TeamBoard() {
           <h1 className="text-[22px] font-bold tracking-[-0.02em]">Review Pipeline</h1>
         </div>
         <div className="ml-auto flex items-center gap-2.5">
+          <button onClick={() => setScanOpen(true)} className="flex items-center gap-2 rounded-pill bg-[#F4F6F1] px-4 py-2.5 text-[13px] font-semibold text-[#12140F] transition-opacity hover:opacity-90">
+            <Plus size={15} /> New scan
+          </button>
           <button className="flex items-center gap-2 rounded-pill bg-white/10 px-4 py-2.5 text-[13px] font-medium backdrop-blur-md">
             <Filter size={15} /> All clients
           </button>
@@ -93,29 +102,49 @@ export default function TeamBoard() {
               </div>
               <div className="flex flex-col gap-2.5">
                 {col.cards.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => openCard(c)}
-                    style={{ opacity: 0 }}
-                    className="pcard rounded-bento border border-rule bg-card p-3.5 text-left shadow-sm transition-shadow hover:shadow-[0_10px_28px_rgba(0,0,0,.18)]"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[13.5px] font-semibold text-ink">{c.client}</span>
-                      <span className={`flex-none rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase ${c.mode === 'advanced' ? 'bg-accent-soft text-accent-ink' : 'bg-panel text-ink-muted'}`}>{c.mode}</span>
-                    </div>
-                    <div className="mt-0.5 truncate text-[12px] text-ink-muted">{c.target}</div>
-                    <div className="mt-2.5 flex items-center gap-1.5">
-                      {sevChip(c.sev.c, 'bg-crit-bg text-crit', 'C')}
-                      {sevChip(c.sev.h, 'bg-high-bg text-high', 'H')}
-                      {sevChip(c.sev.m, 'bg-med-bg text-med', 'M')}
-                      {sevChip(c.sev.l, 'bg-low-bg text-low', 'L')}
-                      {c.sev.c + c.sev.h + c.sev.m + c.sev.l === 0 && <span className="text-[11px] text-ink-faint">no findings yet</span>}
-                    </div>
-                    <div className="mt-2.5 flex items-center justify-between border-t border-rule pt-2.5">
-                      <span className="text-[11.5px] text-ink-faint">{c.meta}</span>
-                      {c.owner && <span className="grid h-6 w-6 place-items-center rounded-full text-[10.5px] font-bold text-white" style={{ background: 'linear-gradient(160deg,#f4996d,#F26A43)' }}>{c.owner[0]}</span>}
-                    </div>
-                  </button>
+                  <DropdownMenu key={c.id}>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        style={{ opacity: 0 }}
+                        className="pcard rounded-bento border border-rule bg-card p-3.5 text-left shadow-sm transition-shadow hover:shadow-[0_10px_28px_rgba(0,0,0,.18)] focus:outline-none focus-visible:ring-2 focus-visible:ring-focus data-[state=open]:shadow-[0_10px_28px_rgba(0,0,0,.18)]"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-[13.5px] font-semibold text-ink">{c.client}</span>
+                          <span className={`flex-none rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase ${c.mode === 'advanced' ? 'bg-accent-soft text-accent-ink' : 'bg-panel text-ink-muted'}`}>{c.mode}</span>
+                        </div>
+                        <div className="mt-0.5 truncate text-[12px] text-ink-muted">{c.target}</div>
+                        <div className="mt-2.5 flex items-center gap-1.5">
+                          {sevChip(c.sev.c, 'bg-crit-bg text-crit', 'C')}
+                          {sevChip(c.sev.h, 'bg-high-bg text-high', 'H')}
+                          {sevChip(c.sev.m, 'bg-med-bg text-med', 'M')}
+                          {sevChip(c.sev.l, 'bg-low-bg text-low', 'L')}
+                          {c.sev.c + c.sev.h + c.sev.m + c.sev.l === 0 && <span className="text-[11px] text-ink-faint">no findings yet</span>}
+                        </div>
+                        <div className="mt-2.5 flex items-center justify-between border-t border-rule pt-2.5">
+                          <span className="text-[11.5px] text-ink-faint">{c.meta}</span>
+                          {c.owner && <span className="grid h-6 w-6 place-items-center rounded-full text-[10.5px] font-bold text-white" style={{ background: 'linear-gradient(160deg,#f4996d,#F26A43)' }}>{c.owner[0]}</span>}
+                        </div>
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuLabel>{col.title}</DropdownMenuLabel>
+                      {detectStage(c) === 'pending' && (
+                        <>
+                          <DropdownMenuItem className="text-low focus:bg-low-bg"><Check size={15} /> Approve proposal</DropdownMenuItem>
+                          <DropdownMenuItem className="text-crit focus:bg-crit-bg"><XIcon size={15} /> Reject</DropdownMenuItem>
+                        </>
+                      )}
+                      {stageActions[detectStage(c)] === 'review' && (
+                        <>
+                          <DropdownMenuItem><ArrowRight size={15} /> Forward stage</DropdownMenuItem>
+                          <DropdownMenuItem><ArrowLeft size={15} /> Send back</DropdownMenuItem>
+                        </>
+                      )}
+                      {detectStage(c) === 'delivered' && <DropdownMenuItem><KeyRound size={15} /> Re-issue password</DropdownMenuItem>}
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => openCard(c)}><Eye size={15} /> View details</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 ))}
               </div>
             </div>
@@ -204,6 +233,7 @@ export default function TeamBoard() {
           </DrawerContent>
         )}
       </Drawer>
+      <AdvancedScanDrawer open={scanOpen} onOpenChange={setScanOpen} />
     </div>
   )
 }
