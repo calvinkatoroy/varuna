@@ -11,6 +11,7 @@ const routes: Record<string, any> = {
   'GET /api/agent': { registered: true, online: true },
   'GET /api/pipeline/board': fx.board,
   'GET /api/pipeline/detail/r1': fx.engagementDetail.r1,
+  'GET /api/findings': fx.findings,
 }
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))

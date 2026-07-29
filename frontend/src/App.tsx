@@ -4,6 +4,7 @@ import { useAuth } from './auth'
 import ClientCockpit from './screens/ClientCockpit'
 import { AuthGate } from './screens/AuthGate'
 import TeamBoard from './screens/TeamBoard'
+import FindingsReview from './screens/FindingsReview'
 import { Splash } from './components/Splash'
 
 // Client view: dashboard is the blurred backdrop, locked behind the AuthGate until the account
@@ -51,6 +52,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<GatedClient />} />
             <Route path="/team" element={<TeamBoard />} />
+            <Route path="/team/findings" element={<FindingsReview />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           <PrototypeSwitcher />

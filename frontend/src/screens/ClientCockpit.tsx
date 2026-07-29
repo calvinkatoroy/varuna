@@ -7,6 +7,7 @@ import {
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { NewProposalDrawer } from './NewProposalDrawer'
 import { revealTiles, tickNumber, press } from '@/lib/motion'
 
 const HERO_BG =
@@ -68,6 +69,7 @@ const avaBg = ['linear-gradient(160deg,#3fb98a,#268a63)', 'linear-gradient(160de
 
 export default function ClientCockpit() {
   const [d, setD] = useState<any>(null)
+  const [proposalOpen, setProposalOpen] = useState(false)
   useEffect(() => {
     api.get('/api/cockpit').then(setD)
   }, [])
@@ -116,7 +118,7 @@ export default function ClientCockpit() {
           </div>
           <div className="flex gap-[11px]">
             <Button variant="glass" size="pill"><Plus size={16} /> Install Agent</Button>
-            <Button variant="glass" size="pill">
+            <Button variant="glass" size="pill" onClick={() => setProposalOpen(true)}>
               <span className="-my-1.5 -ml-2 mr-0.5 grid h-[26px] w-[26px] place-items-center rounded-full bg-[#F2F5EF] text-[#12140F]"><Play size={12} className="fill-current" /></span>
               New Proposal
             </Button>
@@ -226,6 +228,7 @@ export default function ClientCockpit() {
           </ul>
         </section>
       </main>
+      <NewProposalDrawer open={proposalOpen} onOpenChange={setProposalOpen} />
     </div>
   )
 }

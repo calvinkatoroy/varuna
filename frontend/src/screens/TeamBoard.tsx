@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Shield, Bell, Filter, Lock, Check, X as XIcon, ArrowRight, ArrowLeft, Download,
   Upload, FileText, KeyRound, Activity, Plus, Eye,
@@ -69,6 +70,10 @@ export default function TeamBoard() {
           Varuna
         </div>
         <div className="hidden h-6 w-px bg-white/15 sm:block" />
+        <div className="flex items-center gap-1 rounded-pill bg-white/10 p-1 backdrop-blur-md">
+          <span className="rounded-pill bg-[#F4F6F1] px-3.5 py-1.5 text-[13px] font-semibold text-[#12140F]">Board</span>
+          <Link to="/team/findings" className="rounded-pill px-3.5 py-1.5 text-[13px] font-medium text-[#F2F5EF]/70">Findings</Link>
+        </div>
         <div>
           <div className="flex items-center gap-2 text-[12.5px] text-[#F2F5EF]/70">
             <Lock size={13} /> Private plane · Tailscale · Security team
