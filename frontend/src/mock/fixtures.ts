@@ -37,6 +37,15 @@ export const team = [
 // Convenience aggregate the cockpit reads in mock mode.
 export const cockpit = { me, engagements, posture, trend, assets, latestReport, team }
 
+// Client's scan proposals (distinct from the cockpit's engagements list).
+export const proposals = [
+  { id: 'pr1', target: 'api.acme.io', purpose: 'Pre-release', division: 'Engineering', status: 'in_review', when: '2h ago' },
+  { id: 'pr2', target: 'acme.io', purpose: 'Compliance', division: 'IT', status: 'delivered', when: 'Jun 18' },
+  { id: 'pr3', target: 'staging.acme.io', purpose: 'Periodic', division: 'Platform', status: 'scanning', when: 'now' },
+  { id: 'pr4', target: 'shop.acme.io', purpose: 'Pre-release', division: 'E-commerce', status: 'pending', when: '12m ago' },
+  { id: 'pr5', target: 'vpn.acme.io', purpose: 'Incident', division: 'SecOps', status: 'pending', when: '1d ago' },
+]
+
 // Client's delivered reports (download + view-once password).
 export const reports = [
   { id: 'rep1', engagement: 'acme.io, Standard VA', delivered: 'Jun 18, 2026', findings: 27, templates: ['Formal handover', 'Full technical', 'Executive summary', 'Raw (FP/TP)'], signed: true },

@@ -1,32 +1,35 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowUpRight, CheckCircle2, Loader, Plus, ScanLine } from 'lucide-react'
+import { ArrowUpRight, Plus } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ClientShell } from '@/components/ClientShell'
-import { StatRing } from '@/components/StatRing'
-import { revealTiles } from '@/lib/motion'
+import { Gauge } from '@/components/viz/Gauge'
+import { SegBar } from '@/components/viz/SegBar'
+import { rise } from '@/lib/motion'
 import { NewProposalDrawer } from './NewProposalDrawer'
 
-const badge: Record<string, string> = {
-  in_review: 'bg-accent-soft text-accent-ink', delivered: 'bg-low-bg text-low',
-  scanning: 'bg-[rgba(125,151,216,.16)] text-info', pending: 'bg-med-bg text-med',
+type P = { id: string; target: string; purpose: string; division: string; status: string; when: string }
+const meta: Record<string, { label: string; tone: string }> = {
+  pending: { label: 'Pending approval', tone: 'med' },
+  scanning: { label: 'Scanning', tone: 'info' },
+  in_review: { label: 'In review', tone: 'accent' },
+  delivered: { label: 'Delivered', tone: 'low' },
 }
-const badgeLabel: Record<string, string> = {
-  in_review: 'In review', delivered: 'Delivered', scanning: 'Scanning', pending: 'Pending approval',
-}
+const order = ['pending', 'scanning', 'in_review', 'delivered']
 
-// Client proposals: a compact activity ledger over engagement cards, the cockpit's tile
-// language, not a CRUD table.
 export default function ClientProposals() {
-  const [rows, setRows] = useState<any[] | null>(null)
+  const [rows, setRows] = useState<P[] | null>(null)
   const [open, setOpen] = useState(false)
   useEffect(() => { api.get('/api/proposals').then(setRows) }, [])
-  useEffect(() => { if (rows) revealTiles('.tile') }, [rows])
+  useEffect(() => { if (rows) rise('.entry', 45) }, [rows])
 
-  const n = useMemo(() => {
-    const r = rows ?? []
-    return { total: r.length, scanning: r.filter((x) => x.status === 'scanning').length, review: r.filter((x) => x.status === 'in_review').length, delivered: r.filter((x) => x.status === 'delivered').length }
-  }, [rows])
+  const list = useMemo(
+    () => (rows ?? []).slice().sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status)),
+    [rows],
+  )
+  const c = (s: string) => list.filter((p) => p.status === s).length
+  const maxCount = Math.max(1, ...order.map(c))
+  const cleared = list.length ? Math.round(((list.length - c('pending')) / list.length) * 100) : 0
 
   return (
     <ClientShell
@@ -35,38 +38,47 @@ export default function ClientProposals() {
       action={<Button variant="glass" size="pill" onClick={() => setOpen(true)}><Plus size={16} /> New Proposal</Button>}
     >
       {!rows ? (
-        <div className="p-10 text-ink-faint">Loading…</div>
+        <div className="p-10 text-ink-faint">Loading</div>
       ) : (
         <div className="flex flex-col gap-3">
-          {/* Activity ledger */}
-          <section className="tile rounded-bento border border-rule bg-card-2 p-5" style={{ opacity: 0 }}>
-            <div className="grid grid-cols-2 gap-x-5 gap-y-5 sm:grid-cols-4">
-              <StatRing tone="s" n={n.total} label="Total engagements" icon={<ScanLine size={20} />} />
-              <StatRing tone="o" n={n.scanning} label="Scanning now" icon={<Loader size={20} />} />
-              <StatRing tone="m" n={n.review} label="In review" icon={<ArrowUpRight size={20} />} />
-              <StatRing tone="l" n={n.delivered} label="Delivered" icon={<CheckCircle2 size={20} />} />
+          <section className="grid grid-cols-1 gap-6 rounded-bento border border-rule bg-card p-6 lg:grid-cols-[1fr_auto] lg:gap-10">
+            <div className="min-w-0">
+              <div className="flex items-baseline gap-2.5">
+                <span className="font-display text-[46px] font-bold leading-none tracking-[-0.03em] text-ink">{list.length}</span>
+                <span className="text-[14px] text-ink-muted">engagements</span>
+              </div>
+              <div className="mt-6 flex flex-col gap-3">
+                <SegBar label="Pending" count={c('pending')} max={maxCount} tone="med" />
+                <SegBar label="Scanning" count={c('scanning')} max={maxCount} tone="info" />
+                <SegBar label="In review" count={c('in_review')} max={maxCount} tone="accent" />
+                <SegBar label="Delivered" count={c('delivered')} max={maxCount} tone="low" />
+              </div>
+            </div>
+            <div className="flex items-center justify-center border-t border-rule pt-4 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">
+              <Gauge value={cleared} label="Approved" tone="accent" />
             </div>
           </section>
 
-          {/* Engagement cards */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {rows.map((r) => (
-              <article key={r.id} className="tile flex flex-col rounded-bento border border-rule bg-card p-5" style={{ opacity: 0 }}>
-                <div className="flex items-start justify-between gap-3">
-                  <span className={`rounded-pill px-[11px] py-1.5 text-[11.5px] font-semibold ${badge[r.status]}`}>{badgeLabel[r.status]}</span>
-                  <span className="text-[12px] text-ink-faint">{r.when}</span>
-                </div>
-                <h3 className="mt-3.5 text-[17px] font-bold tracking-[-0.02em] text-ink">{r.target}</h3>
-                <p className="mt-1 text-[13px] text-ink-muted">{r.detail}</p>
-                <div className="mt-4 flex items-center justify-between border-t border-rule pt-3.5">
-                  <span className="text-[12px] text-ink-faint">{r.status === 'delivered' ? 'Report available' : r.status === 'scanning' ? 'Live scan running' : 'Awaiting review'}</span>
-                  <button onClick={(e) => e.currentTarget.blur()} className="flex items-center gap-1 text-[12.5px] font-semibold text-accent-ink hover:text-accent">
-                    View <ArrowUpRight size={14} />
+          <section className="rounded-bento border border-rule bg-card">
+            <ul>
+              {list.map((p) => (
+                <li key={p.id} className="entry" style={{ opacity: 0 }}>
+                  <button className="group flex w-full items-center gap-4 border-b border-rule px-5 py-4 text-left transition-colors last:border-b-0 hover:bg-panel">
+                    <span className="flex w-[128px] flex-none items-center gap-2">
+                      <span className="h-2.5 w-2.5 flex-none rounded-full" style={{ background: `var(--color-${meta[p.status].tone})` }} />
+                      <span className="text-[12px] text-ink-muted">{meta[p.status].label}</span>
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[15.5px] font-medium text-ink">{p.target}</span>
+                      <span className="mt-0.5 block truncate text-[12px] text-ink-faint">{p.purpose}, {p.division}</span>
+                    </span>
+                    <span className="mono hidden flex-none text-[12px] text-ink-faint sm:block">{p.when}</span>
+                    <span className="grid h-8 w-8 flex-none place-items-center rounded-full border border-rule text-ink-faint opacity-0 transition-all duration-200 group-hover:text-ink group-hover:opacity-100"><ArrowUpRight size={15} /></span>
                   </button>
-                </div>
-              </article>
-            ))}
-          </div>
+                </li>
+              ))}
+            </ul>
+          </section>
         </div>
       )}
       <NewProposalDrawer open={open} onOpenChange={setOpen} />

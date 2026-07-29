@@ -21,7 +21,7 @@ function Drill({ label, to }: { label: string; to?: string }) {
   return (
     <button
       aria-label={label}
-      onClick={(e) => { press(e.currentTarget); if (to) nav(to) }}
+      onClick={(e) => { press(e.currentTarget); if (to) nav(to, { viewTransition: true }) }}
       className="grid h-9 w-9 flex-none place-items-center rounded-full border border-rule bg-panel text-ink transition-colors hover:border-ink hover:bg-ink hover:text-card"
     >
       <ArrowUpRight size={15} />

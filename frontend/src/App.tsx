@@ -44,8 +44,8 @@ function PrototypeSwitcher() {
   return (
     <div className="fixed bottom-4 left-1/2 z-[60] flex -translate-x-1/2 items-center gap-1 rounded-pill border border-rule bg-card/90 p-1 shadow-[0_12px_40px_rgba(0,0,0,.3)] backdrop-blur">
       <span className="px-2 text-[10.5px] font-semibold uppercase tracking-wide text-ink-faint">Preview</span>
-      <Link to="/" className={pill(!team)}>Client</Link>
-      <Link to="/team" className={pill(team)}>Team</Link>
+      <Link to="/" viewTransition className={pill(!team)}>Client</Link>
+      <Link to="/team" viewTransition className={pill(team)}>Team</Link>
       <button onClick={reset} className="rounded-pill px-3 py-1.5 text-[12.5px] font-medium text-ink-faint hover:text-ink">Reset</button>
     </div>
   )

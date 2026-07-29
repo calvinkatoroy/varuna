@@ -121,6 +121,23 @@ input[type='checkbox'] {
   }
 }
 
+/* Page transition on route change (the View Transitions API, driven by react-router).
+   Browsers without support just navigate instantly. Reduced-motion opts out. */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root) {
+    animation: vt-out 160ms var(--ease-out) both;
+  }
+  ::view-transition-new(root) {
+    animation: vt-in 340ms var(--ease-out) both;
+  }
+}
+@keyframes vt-out {
+  to { opacity: 0; transform: translateY(-6px); }
+}
+@keyframes vt-in {
+  from { opacity: 0; transform: translateY(12px); }
+}
+
 @keyframes status-pulse {
   0%,
   100% {
