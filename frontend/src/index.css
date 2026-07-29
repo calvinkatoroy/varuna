@@ -193,6 +193,14 @@ input[type='checkbox'] {
   .mono {
     font-family: var(--font-mono);
   }
+  /* Dressing for liquid-glass surfaces: the specular rim + depth shadow that sells the
+     refraction (the backdrop-filter itself is applied in JS by lib/liquidGlass). */
+  .liquid {
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.35),
+      inset 0 -1px 1px rgba(255, 255, 255, 0.06),
+      0 10px 34px rgba(0, 0, 0, 0.28);
+  }
   /* Dense master-detail / table pages (Dashboard, Findings Review): a deliberate
      density variant of Workbench, edge-to-edge panels instead of floating cards.
      See design.md § Density variants. */

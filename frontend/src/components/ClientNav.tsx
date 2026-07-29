@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
+import { useLiquidGlass } from '@/lib/useLiquidGlass'
 
 // The client pill nav, routes between the four client pages. Shared by the cockpit hero and
 // the sub-page shell so the active state is always correct.
@@ -11,8 +12,9 @@ const items: [string, string][] = [
 
 export function ClientNav() {
   const { pathname } = useLocation()
+  const glass = useLiquidGlass<HTMLElement>({ scale: -64, blur: 2, mapBlur: 8, radius: 999 })
   return (
-    <nav className="mx-auto flex gap-[3px] rounded-pill bg-white/[.08] p-[5px] backdrop-blur-md">
+    <nav ref={glass} className="liquid mx-auto flex gap-[3px] rounded-pill bg-white/[.06] p-[5px]">
       {items.map(([label, to]) => {
         const on = pathname === to
         return (

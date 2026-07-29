@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom'
 import { useAuth } from './auth'
 import ClientCockpit from './screens/ClientCockpit'
@@ -9,6 +9,8 @@ import { AuthGate } from './screens/AuthGate'
 import TeamBoard from './screens/TeamBoard'
 import FindingsReview from './screens/FindingsReview'
 import { Splash } from './components/Splash'
+
+const GradientBg = lazy(() => import('./components/viz/GradientBg'))
 
 const ACTIVATED = 'varuna-activated'
 
@@ -53,8 +55,10 @@ function PrototypeSwitcher() {
 
 export default function App() {
   const { ready } = useAuth()
+  const dark = typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') !== 'light'
   return (
     <>
+      {dark && <Suspense fallback={null}><GradientBg /></Suspense>}
       <Splash />
       {ready && (
         <>
