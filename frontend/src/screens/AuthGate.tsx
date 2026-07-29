@@ -44,6 +44,14 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
   const [u, setU] = useState('')
   const [p, setP] = useState('')
   const [target, setTarget] = useState('')
+  const [outScope, setOutScope] = useState('')
+  const [purpose, setPurpose] = useState('pre-release')
+  const [division, setDivision] = useState('')
+  const [environment, setEnvironment] = useState('production')
+  const [testWindow, setTestWindow] = useState('')
+  const [authed, setAuthed] = useState(false)
+  const [creds, setCreds] = useState('')
+  const [dos, setDos] = useState(false)
   const [attest, setAttest] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -79,7 +87,12 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
     e.preventDefault()
     if (!attest) return
     setBusy(true)
-    await api.post('/api/proposals', { target, authorization_attested: true })
+    await api.post('/api/proposals', {
+      target, in_scope: target, out_of_scope: outScope, purpose, division,
+      environment, test_window: testWindow,
+      roe: { authenticated: authed, credentials: creds, dos_allowed: dos },
+      authorization_attested: true,
+    })
     setBusy(false)
     setStep('pending')
   }
@@ -88,7 +101,7 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
     <div className="fixed inset-0 z-50 grid place-items-center bg-shell/55 px-4 backdrop-blur-[2px]">
       <div
         ref={cardRef}
-        className="w-full max-w-[440px] rounded-bento-lg border border-rule bg-card p-8 shadow-[0_30px_80px_-20px_rgba(0,0,0,.6)]"
+        className={`w-full ${step === 'proposal' ? 'max-w-[600px]' : 'max-w-[440px]'} rounded-bento-lg border border-rule bg-card p-8 shadow-[0_30px_80px_-20px_rgba(0,0,0,.6)]`}
       >
         {/* brand */}
         <div className="mb-6 flex items-center gap-2.5">
@@ -142,13 +155,61 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
           <>
             <Stepper step={step} />
             <h2 className="text-[19px] font-bold tracking-[-0.02em] text-ink">Submit a scan proposal</h2>
-            <p className="mb-5 mt-1 text-[13px] text-ink-muted">Your lead pentester approves this before any scan runs.</p>
-            <form onSubmit={submitProposal} className="space-y-4">
+            <p className="mb-4 mt-1 text-[13px] text-ink-muted">Your lead pentester verifies this before any scan runs.</p>
+            <form onSubmit={submitProposal} className="max-h-[58vh] space-y-4 overflow-y-auto pr-1">
               <div>
-                <label className={label}>Target (in scope)</label>
+                <label className={label}>In-scope target(s)</label>
                 <input className={field} value={target} onChange={(e) => setTarget(e.target.value)} placeholder="https://api.acme.io" required />
               </div>
-              <label className="flex cursor-pointer items-start gap-3 rounded-input border border-rule bg-panel p-3.5">
+              <div>
+                <label className={label}>Out of scope <span className="text-ink-faint">(optional)</span></label>
+                <input className={field} value={outScope} onChange={(e) => setOutScope(e.target.value)} placeholder="admin.acme.io, /billing" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={label}>Purpose (keperluan)</label>
+                  <select className={field} value={purpose} onChange={(e) => setPurpose(e.target.value)}>
+                    <option value="pre-release">Pre-release</option>
+                    <option value="compliance">Compliance (ISO/PCI)</option>
+                    <option value="periodic">Periodic</option>
+                    <option value="incident">Incident-driven</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={label}>Division</label>
+                  <input className={field} value={division} onChange={(e) => setDivision(e.target.value)} placeholder="IT · Engineering" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={label}>Environment</label>
+                  <select className={field} value={environment} onChange={(e) => setEnvironment(e.target.value)}>
+                    <option value="production">Production</option>
+                    <option value="staging">Staging</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={label}>Test window <span className="text-ink-faint">(optional)</span></label>
+                  <input className={field} value={testWindow} onChange={(e) => setTestWindow(e.target.value)} placeholder="Jun 20–25, 09–17" />
+                </div>
+              </div>
+              <div>
+                <label className={label}>Rules of engagement</label>
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-center gap-2.5 rounded-input border border-rule bg-panel px-3.5 py-2.5 text-[13px] text-ink">
+                    <input type="checkbox" checked={authed} onChange={(e) => setAuthed(e.target.checked)} className="h-4 w-4 accent-[var(--color-accent)]" />
+                    Authenticated test (provide test credentials)
+                  </label>
+                  {authed && (
+                    <input className={field} value={creds} onChange={(e) => setCreds(e.target.value)} placeholder="test-user / test-pass (or a link to how to obtain)" />
+                  )}
+                  <label className="flex items-center gap-2.5 rounded-input border border-rule bg-panel px-3.5 py-2.5 text-[13px] text-ink">
+                    <input type="checkbox" checked={dos} onChange={(e) => setDos(e.target.checked)} className="h-4 w-4 accent-[var(--color-accent)]" />
+                    Allow high-intensity / DoS-adjacent checks
+                  </label>
+                </div>
+              </div>
+              <label className="flex cursor-pointer items-start gap-3 rounded-input border border-accent-soft bg-accent-soft/40 p-3.5">
                 <input type="checkbox" checked={attest} onChange={(e) => setAttest(e.target.checked)} className="mt-0.5 h-4 w-4 flex-none accent-[var(--color-accent)]" />
                 <span className="text-[12.5px] leading-relaxed text-ink-muted">
                   I confirm I <b className="text-ink">own or am authorized</b> to test these assets. (Legally required — the lead verifies this.)
