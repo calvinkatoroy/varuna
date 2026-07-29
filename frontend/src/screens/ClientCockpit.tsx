@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AreaChart } from '@tremor/react'
 import {
@@ -11,6 +11,8 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 import { ClientNav } from '@/components/ClientNav'
 import { NewProposalDrawer } from './NewProposalDrawer'
 import { revealTiles, tickNumber, press } from '@/lib/motion'
+
+const Scanner = lazy(() => import('@/components/viz/ScannerCanvas'))
 
 const HERO_BG =
   'radial-gradient(130% 120% at 84% -10%, rgba(242,106,67,.32), transparent 45%),' +
@@ -90,7 +92,8 @@ export default function ClientCockpit() {
         className="relative isolate flex min-h-[340px] flex-col overflow-hidden rounded-bento-lg px-[clamp(18px,2.6vw,34px)] pb-[clamp(24px,3vw,38px)] pt-[clamp(16px,2vw,24px)] text-[#F2F5EF]"
         style={{ background: HERO_BG, borderRadius: '32px 32px 26px 26px' }}
       >
-        <div className="flex items-center gap-4">
+        <Suspense fallback={null}><Scanner /></Suspense>
+        <div className="relative z-10 flex items-center gap-4">
           <div className="flex items-center gap-[11px] text-[21px] font-bold tracking-[-0.02em]">
             <span className="grid h-8 w-8 place-items-center rounded-[10px]" style={{ background: 'conic-gradient(from 210deg,#F26A43,#f4996d,#F26A43)', boxShadow: 'inset 0 0 0 2px rgba(255,255,255,.16)' }}>
               <Shield size={18} className="fill-white text-white" />
@@ -105,7 +108,7 @@ export default function ClientCockpit() {
           </div>
         </div>
 
-        <div className="mt-auto flex flex-wrap items-end justify-between gap-5">
+        <div className="relative z-10 mt-auto flex flex-wrap items-end justify-between gap-5">
           <div>
             <div className="flex items-center gap-[9px] text-[13.5px] text-[#F2F5EF]/72">
               <span className="inline-flex items-center gap-1.5"><span className="h-[7px] w-[7px] rounded-full bg-low shadow-[0_0_0_3px_rgba(66,196,162,.28)]" /> Live</span>

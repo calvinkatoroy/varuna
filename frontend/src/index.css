@@ -125,17 +125,17 @@ input[type='checkbox'] {
    Browsers without support just navigate instantly. Reduced-motion opts out. */
 @media (prefers-reduced-motion: no-preference) {
   ::view-transition-old(root) {
-    animation: vt-out 160ms var(--ease-out) both;
+    animation: vt-out 260ms var(--ease-out) both;
   }
   ::view-transition-new(root) {
-    animation: vt-in 340ms var(--ease-out) both;
+    animation: vt-in 460ms var(--ease-out) both;
   }
 }
 @keyframes vt-out {
-  to { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 0; transform: scale(0.985) translateY(-10px); }
 }
 @keyframes vt-in {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0; transform: scale(1.012) translateY(16px); }
 }
 
 @keyframes status-pulse {
