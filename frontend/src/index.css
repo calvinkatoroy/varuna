@@ -5,6 +5,18 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Agrandir (titles): licensed (Pangram Pangram), not fetchable. Uses a locally-installed copy
+   first; drop Agrandir-Bold.woff2 in public/fonts/ to serve it to everyone. One weight range so
+   every display weight class renders in Agrandir. Body text uses the Helvetica Neue system stack
+   (mac; falls back to Arial elsewhere), no webfont needed. */
+@font-face {
+  font-family: 'Agrandir';
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  src: local('Agrandir Bold'), local('Agrandir-Bold'), local('Agrandir'), url('/fonts/Agrandir-Bold.woff2') format('woff2');
+}
+
 :root {
   /* Varuna v2 studied-DNA (Logivo). DARK is the default; light override below. */
   color-scheme: dark;
@@ -43,10 +55,10 @@
     radial-gradient(120% 120% at 12% 112%, rgba(21, 71, 57, 0.55), transparent 55%),
     linear-gradient(158deg, #0b1712 0%, #07100c 46%, #05070a 100%);
 
-  --font-display: 'Outfit', ui-sans-serif, system-ui, sans-serif;
-  --font-body: 'Outfit', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Agrandir', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  --font-display-warm: 'Outfit', ui-sans-serif, system-ui, sans-serif;
+  --font-display-warm: 'Agrandir', 'Segoe UI', system-ui, sans-serif;
 
   --text-display: clamp(1.75rem, 2vw + 1.25rem, 2.5rem);
 

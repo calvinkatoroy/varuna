@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AreaChart } from '@tremor/react'
 import {
   ArrowUpRight, Bell, Check, ChevronsUp, CircleAlert, Clock, Download, FileText,
   Lock, Play, Plus, Shield, ShieldCheck, TriangleAlert, CalendarDays, LayoutTemplate,
@@ -12,6 +11,8 @@ import { ClientNav } from '@/components/ClientNav'
 import { useLiquidGlassAll } from '@/lib/useLiquidGlass'
 import { NewProposalDrawer } from './NewProposalDrawer'
 import { revealTiles, tickNumber, press } from '@/lib/motion'
+
+const TrendChart = lazy(() => import('@/components/viz/TrendChart'))
 
 const HERO_BG =
   'radial-gradient(130% 120% at 84% -10%, rgba(242,106,67,.32), transparent 45%),' +
@@ -175,18 +176,9 @@ export default function ClientCockpit() {
         {/* 3 · Findings Trend (Tremor) */}
         <section className="tile glass-card liquid flex min-w-0 flex-col rounded-bento p-5" style={{ opacity: 0 }}>
           <TileHead title="Findings Trend" sub="Open findings · last 6 mo" to="/findings" />
-          <AreaChart
-            data={d.trend}
-            index="month"
-            categories={['open']}
-            colors={['orange']}
-            showLegend={false}
-            showGridLines={false}
-            startEndOnly
-            curveType="monotone"
-            valueFormatter={(v) => `${v}`}
-            className="mt-1 h-[168px]"
-          />
+          <Suspense fallback={<div className="h-[168px]" />}>
+            <TrendChart data={d.trend} />
+          </Suspense>
         </section>
 
         {/* 4 · Assets */}
