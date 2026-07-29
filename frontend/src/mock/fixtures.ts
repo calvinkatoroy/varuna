@@ -10,18 +10,21 @@ export const engagements = [
   { id: 'e3', target: 'staging.acme.io', detail: 'Katana → Nuclei running', when: 'now', status: 'scanning' },
 ]
 
-export const posture = { critical: 2, high: 5, medium: 11, low: 8, open: 18, total: 42, fixed: 24, hygiene: 72 }
+// Mirrors the `findings` list below (11 confirmed: 2 crit / 3 high / 4 med / 2 low, 3 fixed, 8
+// open, 27% resolved) so the cockpit and the Findings page tell one story.
+export const posture = { critical: 2, high: 3, medium: 4, low: 2, open: 8, total: 11, fixed: 3, resolved: 27 }
 
 export const trend = [
-  { month: 'Jan', open: 44 }, { month: 'Feb', open: 41 }, { month: 'Mar', open: 33 },
-  { month: 'Apr', open: 28 }, { month: 'May', open: 22 }, { month: 'Jun', open: 18 },
+  { month: 'Feb', open: 19 }, { month: 'Mar', open: 16 }, { month: 'Apr', open: 13 },
+  { month: 'May', open: 11 }, { month: 'Jun', open: 9 }, { month: 'Jul', open: 8 },
 ]
 
+// Per-host open counts sum to posture.open (8).
 export const assets = [
-  { host: 'api.acme.io', grade: 'D', label: 'Poor', open: 7 },
-  { host: 'acme.io', grade: 'A', label: 'Good', open: 1 },
-  { host: 'staging.acme.io', grade: 'C', label: 'Fair', open: 6 },
-  { host: 'admin.acme.io', grade: 'B', label: 'Fair', open: 4 },
+  { host: 'api.acme.io', grade: 'D', label: 'Poor', open: 3 },
+  { host: 'acme.io', grade: 'C', label: 'Fair', open: 3 },
+  { host: 'staging.acme.io', grade: 'B', label: 'Fair', open: 1 },
+  { host: 'admin.acme.io', grade: 'A', label: 'Good', open: 1 },
 ]
 
 export const latestReport = {

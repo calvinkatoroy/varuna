@@ -1,13 +1,12 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  ArrowUpRight, Bell, Check, ChevronsUp, CircleAlert, Clock, Download,
-  Lock, Play, Plus, Shield, ShieldCheck, TriangleAlert,
+  ArrowUpRight, Check, ChevronsUp, CircleAlert, Clock, Play, ShieldCheck, TriangleAlert,
 } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
-import { ThemeToggle } from '@/components/ThemeToggle'
-import { ClientNav } from '@/components/ClientNav'
+import { ClientTopbar } from '@/components/ClientTopbar'
+import { AgentStatus } from '@/components/AgentStatus'
 import { useLiquidGlassAll } from '@/lib/useLiquidGlass'
 import { NewProposalDrawer } from './NewProposalDrawer'
 import { revealTiles, tickNumber, press } from '@/lib/motion'
@@ -87,6 +86,7 @@ function AssetIcon({ host }: { host: string }) {
 }
 
 export default function ClientCockpit() {
+  const nav = useNavigate()
   const [d, setD] = useState<any>(null)
   const [proposalOpen, setProposalOpen] = useState(false)
   useEffect(() => {
@@ -108,20 +108,7 @@ export default function ClientCockpit() {
         className="relative isolate flex min-h-[340px] flex-col overflow-hidden rounded-bento-lg px-[clamp(18px,2.6vw,34px)] pb-[clamp(24px,3vw,38px)] pt-[clamp(16px,2vw,24px)] text-[#F2F5EF]"
         style={{ background: HERO_BG, borderRadius: '32px 32px 26px 26px' }}
       >
-        <div className="relative z-10 flex items-center gap-4">
-          <div className="flex items-center gap-[11px] text-[21px] font-bold tracking-[-0.02em]">
-            <span className="grid h-8 w-8 place-items-center rounded-[10px]" style={{ background: 'conic-gradient(from 210deg,#F26A43,#f4996d,#F26A43)', boxShadow: 'inset 0 0 0 2px rgba(255,255,255,.16)' }}>
-              <Shield size={18} className="fill-white text-white" />
-            </span>
-            Varuna
-          </div>
-          <ClientNav />
-          <div className="flex gap-2.5">
-            <ThemeToggle />
-            <button aria-label="Notifications" className="grid h-11 w-11 place-items-center rounded-full bg-white/10 backdrop-blur-md transition-colors hover:bg-white/[.18]"><Bell size={19} /></button>
-            <button aria-label="Account" className="grid h-11 w-11 place-items-center overflow-hidden rounded-full text-sm font-bold text-white" style={{ background: 'linear-gradient(160deg,#f4996d,#F26A43)' }}>AC</button>
-          </div>
-        </div>
+        <ClientTopbar />
 
         <div className="relative z-10 mt-auto flex flex-wrap items-end justify-between gap-5">
           <div>
@@ -133,8 +120,8 @@ export default function ClientCockpit() {
               Acme Web App<span className="block font-medium text-[#cfe0d3]">Security Assessment</span>
             </h1>
           </div>
-          <div className="flex gap-[11px]">
-            <Button variant="glass" size="pill"><Plus size={16} /> Install Agent</Button>
+          <div className="flex items-center gap-[11px]">
+            <AgentStatus />
             <Button variant="glass" size="pill" onClick={() => setProposalOpen(true)}>
               <span className="-my-1.5 -ml-2 mr-0.5 grid h-[26px] w-[26px] place-items-center rounded-full bg-[#F2F5EF] text-[#12140F]"><Play size={12} className="fill-current" /></span>
               New Proposal
@@ -147,7 +134,7 @@ export default function ClientCockpit() {
       <main className="mt-3.5 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1.16fr_1fr]">
         {/* 1 · Engagements */}
         <section className="tile glass-card liquid flex min-w-0 flex-col rounded-bento p-5" style={{ opacity: 0 }}>
-          <TileHead title="Engagements" sub="June 20 · 3 active" drill={false} />
+          <TileHead title="Engagements" sub="June 20 · 3 active" to="/proposals" />
           <ul className="flex flex-col">
             {d.engagements.map((e: any, i: number) => (
               <li key={e.id} className={`flex items-center gap-3.5 py-[11px] ${i ? 'border-t border-rule' : ''}`}>
@@ -168,7 +155,7 @@ export default function ClientCockpit() {
             <Stat tone="m" n={p.medium} label="Medium findings" icon={<CircleAlert size={20} />} />
             <Stat tone="l" n={p.low} label="Low findings" icon={<Check size={20} />} />
             <Stat tone="o" n={p.open} unit={`/ ${p.total}`} label={`Open · ${p.fixed} fixed`} icon={<Clock size={20} />} />
-            <Stat tone="s" n={p.hygiene} unit="/100" label="Hygiene score" icon={<ShieldCheck size={20} />} />
+            <Stat tone="s" n={p.resolved} unit="%" label="Resolved" icon={<ShieldCheck size={20} />} />
           </div>
         </section>
 
@@ -215,14 +202,13 @@ export default function ClientCockpit() {
             ))}
           </div>
           <div className="mt-auto">
-            <Button size="lg" className="w-full"><Download size={17} /> Download protected PDF</Button>
-            <button className="mt-[11px] flex w-full items-center justify-center gap-[7px] text-[12.5px] font-semibold text-ink-muted"><Lock size={14} /> Reveal password (view-once)</button>
+            <Button size="lg" className="w-full" onClick={() => nav('/reports')}>View report <ArrowUpRight size={17} /></Button>
           </div>
         </section>
 
         {/* 6 · Review Team */}
         <section className="tile glass-card liquid flex min-w-0 flex-col rounded-bento p-5" style={{ opacity: 0 }}>
-          <TileHead title="Review Team" sub="3 members on this engagement" />
+          <TileHead title="Review Team" sub="3 members on this engagement" drill={false} />
           <ul className="flex flex-col">
             {d.team.map((m: any, i: number) => (
               <li key={m.name} className={`flex items-center gap-3.5 py-[11px] ${i ? 'border-t border-rule' : ''}`}>

@@ -46,7 +46,12 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
   const [p, setP] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [copied, setCopied] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
+
+  const copyOneLiner = async () => {
+    try { await navigator.clipboard.writeText(ONE_LINER); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch {}
+  }
 
   // Animate the card in on each step change (microinteraction).
   useEffect(() => {
@@ -179,7 +184,7 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
             <div className="mb-5 rounded-input border border-rule bg-panel p-3">
               <div className="mb-2 flex items-center justify-between">
                 <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint"><Terminal size={13} /> PowerShell</span>
-                <button className="flex items-center gap-1.5 text-[11.5px] font-semibold text-ink-muted hover:text-ink"><Copy size={13} /> Copy</button>
+                <button onClick={copyOneLiner} className="flex items-center gap-1.5 text-[11.5px] font-semibold text-ink-muted hover:text-ink">{copied ? <><Check size={13} className="text-low" /> Copied</> : <><Copy size={13} /> Copy</>}</button>
               </div>
               <code className="block break-all font-mono text-[11.5px] leading-relaxed text-ink">{ONE_LINER}</code>
             </div>

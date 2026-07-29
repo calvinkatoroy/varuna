@@ -123,7 +123,15 @@ export default function ClientFindings() {
               </section>
             </div>
             <div className="sticky bottom-0 border-t border-rule bg-card p-6">
-              <Button size="lg" className="w-full" disabled={sel.status === 'fixed'}>
+              <Button
+                size="lg"
+                className="w-full"
+                disabled={sel.status === 'fixed'}
+                onClick={() => {
+                  setRows((rs) => rs?.map((f) => (f.id === sel.id ? { ...f, status: 'fixed' } : f)) ?? rs)
+                  setSel({ ...sel, status: 'fixed' })
+                }}
+              >
                 {sel.status === 'fixed' ? 'Resolved' : 'Mark as resolved'}
               </Button>
             </div>

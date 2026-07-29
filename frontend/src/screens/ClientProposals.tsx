@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ArrowUpRight, Plus } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ClientShell } from '@/components/ClientShell'
 import { Gauge } from '@/components/viz/Gauge'
 import { SegBar } from '@/components/viz/SegBar'
+import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
 import { rise } from '@/lib/motion'
 import { NewProposalDrawer } from './NewProposalDrawer'
+
+const stageHint: Record<string, string> = {
+  pending: 'Waiting for your lead pentester to verify authorization and approve the scan.',
+  scanning: 'The agent is running the scan on your machine. Findings stream in as tools finish.',
+  in_review: 'Scan complete. The report is moving through reporter, lead, and governance review.',
+  delivered: 'Signed off and delivered. The protected report is available on the Reports page.',
+}
 
 type P = { id: string; target: string; purpose: string; division: string; status: string; when: string }
 const meta: Record<string, { label: string; tone: string }> = {
@@ -18,8 +27,10 @@ const meta: Record<string, { label: string; tone: string }> = {
 const order = ['pending', 'scanning', 'in_review', 'delivered']
 
 export default function ClientProposals() {
+  const nav = useNavigate()
   const [rows, setRows] = useState<P[] | null>(null)
   const [open, setOpen] = useState(false)
+  const [sel, setSel] = useState<P | null>(null)
   useEffect(() => { api.get('/api/proposals').then(setRows) }, [])
   useEffect(() => { if (rows) rise('.entry', 45) }, [rows])
 
@@ -63,7 +74,7 @@ export default function ClientProposals() {
             <ul>
               {list.map((p) => (
                 <li key={p.id} className="entry" style={{ opacity: 0 }}>
-                  <button className="group flex w-full items-center gap-4 border-b border-rule px-5 py-4 text-left transition-colors last:border-b-0 hover:bg-panel">
+                  <button onClick={() => setSel(p)} className="group flex w-full items-center gap-4 border-b border-rule px-5 py-4 text-left transition-colors last:border-b-0 hover:bg-panel">
                     <span className="flex w-[128px] flex-none items-center gap-2">
                       <span className="h-2.5 w-2.5 flex-none rounded-full" style={{ background: `var(--color-${meta[p.status].tone})` }} />
                       <span className="text-[12px] text-ink-muted">{meta[p.status].label}</span>
@@ -82,6 +93,35 @@ export default function ClientProposals() {
         </div>
       )}
       <NewProposalDrawer open={open} onOpenChange={setOpen} />
+
+      <Drawer open={!!sel} onOpenChange={(v) => !v && setSel(null)}>
+        {sel && (
+          <DrawerContent>
+            <div className="border-b border-rule p-6">
+              <span className="inline-flex items-center gap-2 rounded-pill bg-panel px-[11px] py-1.5 text-[11.5px] font-semibold text-ink-muted">
+                <span className="h-2 w-2 rounded-full" style={{ background: `var(--color-${meta[sel.status].tone})` }} />
+                {meta[sel.status].label}
+              </span>
+              <DrawerTitle className="mt-2.5 text-[22px] font-bold tracking-[-0.02em] text-ink">{sel.target}</DrawerTitle>
+              <p className="mono mt-1 text-[13px] text-ink-muted">Submitted {sel.when}</p>
+            </div>
+            <div className="flex-1 space-y-5 p-6">
+              <div className="rounded-input border border-rule bg-panel p-4 text-[13.5px] leading-relaxed text-ink">{stageHint[sel.status]}</div>
+              {[['Purpose', sel.purpose], ['Division', sel.division]].map(([l, v]) => (
+                <div key={l} className="flex items-center justify-between border-b border-rule pb-3 last:border-b-0">
+                  <span className="text-[13px] text-ink-muted">{l}</span>
+                  <b className="text-[13.5px] font-semibold text-ink">{v}</b>
+                </div>
+              ))}
+            </div>
+            {sel.status === 'delivered' && (
+              <div className="sticky bottom-0 border-t border-rule bg-card p-6">
+                <Button size="lg" className="w-full" onClick={() => { setSel(null); nav('/reports') }}>View report <ArrowUpRight size={16} /></Button>
+              </div>
+            )}
+          </DrawerContent>
+        )}
+      </Drawer>
     </ClientShell>
   )
 }

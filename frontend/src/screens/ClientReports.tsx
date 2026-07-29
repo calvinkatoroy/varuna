@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Download, Lock, ShieldCheck } from 'lucide-react'
+import { Check, Download, Lock, ShieldCheck } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ClientShell } from '@/components/ClientShell'
@@ -24,6 +24,8 @@ export default function ClientReports() {
   useEffect(() => { api.get('/api/reports').then(setRows) }, [])
   useEffect(() => { if (rows) rise('.entry', 60) }, [rows])
 
+  const [got, setGot] = useState<Record<string, boolean>>({})
+  const download = (id: string) => setGot((g) => ({ ...g, [id]: true }))
   const featured = rows?.[0]
   const rest = rows?.slice(1) ?? []
 
@@ -48,7 +50,7 @@ export default function ClientReports() {
                 </div>
               </div>
               <div className="flex flex-col justify-center gap-3 border-t border-rule pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
-                <Button size="lg" className="w-full"><Download size={17} /> Download protected PDF</Button>
+                <Button size="lg" className="w-full" onClick={() => download(featured.id)}>{got[featured.id] ? <><Check size={17} /> Downloaded</> : <><Download size={17} /> Download protected PDF</>}</Button>
                 <div className="flex justify-center"><Password id={featured.id} shown={shown === featured.id} onReveal={() => setShown(featured.id)} /></div>
                 <p className="text-center text-[11.5px] leading-relaxed text-ink-faint">Password is out of band from the file. Re-request from governance if lost.</p>
               </div>
@@ -66,7 +68,7 @@ export default function ClientReports() {
                         <span className="text-[12px] text-ink-faint">{r.delivered}, {r.findings} findings, {r.templates.length} templates</span>
                       </div>
                       <Password id={r.id} shown={shown === r.id} onReveal={() => setShown(r.id)} />
-                      <Button variant="outline" size="sm"><Download size={15} /> PDF</Button>
+                      <Button variant="outline" size="sm" onClick={() => download(r.id)}>{got[r.id] ? <><Check size={15} /> Got it</> : <><Download size={15} /> PDF</>}</Button>
                     </div>
                   </li>
                 ))}
