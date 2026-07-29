@@ -1,8 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  ArrowUpRight, Bell, Check, ChevronsUp, CircleAlert, Clock, Download, FileText,
-  Lock, Play, Plus, Shield, ShieldCheck, TriangleAlert, CalendarDays, LayoutTemplate,
+  ArrowUpRight, Bell, Check, ChevronsUp, CircleAlert, Clock, Download,
+  Lock, Play, Plus, Shield, ShieldCheck, TriangleAlert,
 } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
@@ -54,7 +54,7 @@ function Stat({ tone, icon, n, unit, label }: any) {
     <div className="flex items-center gap-3.5">
       <span className={`grid h-[46px] w-[46px] flex-none place-items-center rounded-full border-[1.5px] ${ring[tone]}`}>{icon}</span>
       <div>
-        <div className="text-[23px] font-bold leading-none tracking-[-0.02em] text-ink">
+        <div className="text-[23px] font-bold leading-none tracking-[-0.02em] text-ink tabular-nums">
           <span ref={ref}>0</span>
           {unit && <small className="ml-0.5 text-[13px] font-semibold text-ink-faint">{unit}</small>}
         </div>
@@ -186,7 +186,7 @@ export default function ClientCockpit() {
           <TileHead title="Your Assets" sub="4 in scope" to="/findings" />
           <div className="grid grid-cols-2 gap-[11px]">
             {d.assets.map((a: any) => (
-              <div key={a.host} className="rounded-[16px] border border-rule p-[15px] text-center">
+              <div key={a.host} className="p-[13px] text-center">
                 <AssetIcon host={a.host} />
                 <b className="block truncate text-[13.5px] font-semibold text-ink">{a.host}</b>
                 <div className="mt-[11px] flex items-center justify-between">
@@ -203,15 +203,15 @@ export default function ClientCockpit() {
         {/* 5 · Latest Report */}
         <section className="tile glass-card liquid flex min-w-0 flex-col rounded-bento p-5" style={{ opacity: 0 }}>
           <TileHead title="Latest Report" sub={`${d.latestReport.findings} findings · governance signed`} to="/reports" />
-          <div className="my-1.5 mb-5 flex flex-col gap-3.5">
+          <div className="mb-5 mt-1 flex flex-col">
             {[
-              { ic: <FileText size={15} />, l: 'Engagement', v: d.latestReport.engagement },
-              { ic: <CalendarDays size={15} />, l: 'Delivered', v: d.latestReport.delivered },
-              { ic: <LayoutTemplate size={15} />, l: 'Templates', v: `${d.latestReport.templates} available` },
-            ].map((r) => (
-              <div key={r.l} className="flex items-center justify-between gap-3">
-                <span className="flex items-center gap-[11px] text-[13px] text-ink-muted"><span className="grid h-8 w-8 flex-none place-items-center rounded-[9px] border border-rule text-accent">{r.ic}</span>{r.l}</span>
-                <b className="text-[13.5px] font-semibold text-ink">{r.v}</b>
+              ['Engagement', d.latestReport.engagement],
+              ['Delivered', d.latestReport.delivered],
+              ['Templates', `${d.latestReport.templates} available`],
+            ].map(([l, v], i) => (
+              <div key={l} className={`flex items-center justify-between gap-3 py-[9px] ${i ? 'border-t border-rule' : ''}`}>
+                <span className="text-[13px] text-ink-muted">{l}</span>
+                <b className="text-[13.5px] font-semibold text-ink">{v}</b>
               </div>
             ))}
           </div>
