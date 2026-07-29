@@ -16,6 +16,7 @@ const buttonVariants = cva(
       },
       size: {
         default: 'h-11 px-5 text-sm rounded-input',
+        sm: 'h-9 px-3.5 text-[13px] rounded-input',
         pill: 'h-11 px-5 text-sm rounded-pill',
         lg: 'h-14 px-6 text-[15px] rounded-bento',
         icon: 'h-11 w-11 rounded-full',

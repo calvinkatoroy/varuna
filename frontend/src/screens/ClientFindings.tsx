@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ShieldCheck } from 'lucide-react'
+import { Check, ChevronsUp, ChevronRight, CircleAlert, Clock, ShieldCheck, TriangleAlert } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ClientShell } from '@/components/ClientShell'
+import { StatRing } from '@/components/StatRing'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
+import { revealTiles } from '@/lib/motion'
 
 type F = {
   id: string; name: string; severity: string; asset: string; tool: string
@@ -12,12 +14,11 @@ type F = {
 const sevPill: Record<string, string> = {
   critical: 'bg-crit-bg text-crit', high: 'bg-high-bg text-high', medium: 'bg-med-bg text-med', low: 'bg-low-bg text-low',
 }
-const sevDot: Record<string, string> = { critical: 'bg-crit', high: 'bg-high', medium: 'bg-med', low: 'bg-low' }
-const statusPill: Record<string, string> = { open: 'bg-accent-soft text-accent-ink', fixed: 'bg-low-bg text-low' }
+const sevBar: Record<string, string> = { critical: 'bg-crit', high: 'bg-high', medium: 'bg-med', low: 'bg-low' }
 const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
 
-// Client-facing remediation list: your own confirmed findings (FPs already filtered by the team),
-// sorted by severity, with evidence + fix guidance. Read-only — you can only track your own fixes.
+// Client-facing remediation view: your confirmed findings (FPs already filtered by the team),
+// led by a severity ledger and stacked as severity-spined cards — same language as the cockpit.
 export default function ClientFindings() {
   const [rows, setRows] = useState<F[] | null>(null)
   const [sel, setSel] = useState<F | null>(null)
@@ -28,28 +29,55 @@ export default function ClientFindings() {
     () => (rows ?? []).filter((f) => f.verdict === 'tp').sort((a, b) => rank[a.severity] - rank[b.severity]),
     [rows],
   )
+  const count = (s: string) => list.filter((f) => f.severity === s).length
+  const fixed = list.filter((f) => f.status === 'fixed').length
+
+  useEffect(() => { if (rows) revealTiles('.tile') }, [rows])
 
   return (
     <ClientShell title="Findings" sub="Confirmed issues from your latest assessment, prioritized by severity.">
       {!rows ? (
         <div className="p-10 text-ink-faint">Loading…</div>
       ) : (
-        <div className="overflow-hidden rounded-bento border border-rule bg-card">
-          <div className="grid grid-cols-[90px_1fr_90px] gap-4 border-b border-rule px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-ink-faint sm:grid-cols-[100px_1fr_1fr_90px]">
-            <span>Severity</span><span>Finding</span><span className="hidden sm:block">Asset</span><span className="text-right sm:text-left">Status</span>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+          {/* Severity ledger */}
+          <section className="tile flex flex-col rounded-bento border border-rule bg-card-2 p-5 lg:sticky lg:top-4 lg:self-start" style={{ opacity: 0 }}>
+            <h3 className="text-[16px] font-bold tracking-[-0.02em] text-ink">Severity ledger</h3>
+            <p className="mt-1 text-[12.5px] text-ink-muted">{list.length} confirmed · {fixed} fixed</p>
+            <div className="mt-5 grid grid-cols-2 gap-x-5 gap-y-5">
+              <StatRing tone="c" n={count('critical')} label="Critical" icon={<TriangleAlert size={20} />} />
+              <StatRing tone="h" n={count('high')} label="High" icon={<ChevronsUp size={20} />} />
+              <StatRing tone="m" n={count('medium')} label="Medium" icon={<CircleAlert size={20} />} />
+              <StatRing tone="l" n={count('low')} label="Low" icon={<Check size={20} />} />
+              <StatRing tone="o" n={list.length - fixed} unit={`/ ${list.length}`} label="Still open" icon={<Clock size={20} />} />
+              <StatRing tone="s" n={fixed} label="Resolved" icon={<ShieldCheck size={20} />} />
+            </div>
+          </section>
+
+          {/* Finding cards, severity-spined */}
+          <div className="flex flex-col gap-2.5">
+            {list.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => { setSel(f); setOpen(true) }}
+                className="tile group flex items-stretch overflow-hidden rounded-bento border border-rule bg-card text-left transition-colors hover:border-ink/25"
+                style={{ opacity: 0 }}
+              >
+                <span className={`w-1.5 flex-none ${sevBar[f.severity]}`} />
+                <div className="flex min-w-0 flex-1 items-center gap-4 py-4 pl-4 pr-3.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2.5">
+                      <span className={`rounded-md px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide ${sevPill[f.severity]}`}>{f.severity}</span>
+                      <span className="truncate text-[15px] font-semibold text-ink">{f.name}</span>
+                      {f.status === 'fixed' && <span className="rounded-pill bg-low-bg px-2 py-0.5 text-[10.5px] font-semibold text-low">Fixed</span>}
+                    </div>
+                    <div className="mt-1.5 text-[12px] text-ink-muted"><span className="font-mono text-ink-faint">{f.asset}</span> · {f.tool} · {f.cve}</div>
+                  </div>
+                  <ChevronRight size={18} className="flex-none text-ink-faint transition-colors group-hover:text-ink" />
+                </div>
+              </button>
+            ))}
           </div>
-          {list.map((f) => (
-            <button
-              key={f.id}
-              onClick={() => { setSel(f); setOpen(true) }}
-              className="grid w-full grid-cols-[90px_1fr_90px] items-center gap-4 border-b border-rule px-5 py-3.5 text-left transition-colors last:border-0 hover:bg-panel sm:grid-cols-[100px_1fr_1fr_90px]"
-            >
-              <span className={`inline-flex items-center gap-1.5 justify-self-start rounded-md px-2 py-1 text-[11px] font-bold capitalize ${sevPill[f.severity]}`}><span className={`h-1.5 w-1.5 rounded-full ${sevDot[f.severity]}`} />{f.severity}</span>
-              <span className="min-w-0"><span className="block truncate text-[14px] font-semibold text-ink">{f.name}</span><span className="text-[11.5px] text-ink-faint">{f.tool} · {f.cve}</span></span>
-              <span className="hidden truncate font-mono text-[12px] text-ink-muted sm:block">{f.asset}</span>
-              <span className={`justify-self-end rounded-pill px-2.5 py-1 text-[11px] font-semibold capitalize sm:justify-self-start ${statusPill[f.status]}`}>{f.status}</span>
-            </button>
-          ))}
         </div>
       )}
 
@@ -57,7 +85,7 @@ export default function ClientFindings() {
         {sel && (
           <DrawerContent>
             <div className="border-b border-rule p-6">
-              <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-bold capitalize ${sevPill[sel.severity]}`}><span className={`h-1.5 w-1.5 rounded-full ${sevDot[sel.severity]}`} />{sel.severity}</span>
+              <span className={`inline-block rounded-md px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide ${sevPill[sel.severity]}`}>{sel.severity}</span>
               <DrawerTitle className="mt-2.5 text-[21px] font-bold tracking-[-0.02em] text-ink">{sel.name}</DrawerTitle>
               <div className="mt-1 font-mono text-[13px] text-ink-muted">{sel.asset}</div>
               <div className="mt-1 text-[12.5px] text-ink-faint">{sel.tool} · {sel.cve}</div>
