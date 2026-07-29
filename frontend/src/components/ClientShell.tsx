@@ -19,7 +19,7 @@ export function ClientShell({
         style={{ background: BAND, borderRadius: '32px 32px 26px 26px' }}
       >
         <div className="flex items-center gap-4">
-          <Link to="/" viewTransition className="flex items-center gap-[11px] text-[21px] font-bold tracking-[-0.02em]">
+          <Link to="/" className="flex items-center gap-[11px] text-[21px] font-bold tracking-[-0.02em]">
             <span className="grid h-8 w-8 place-items-center rounded-[10px]" style={{ background: 'conic-gradient(from 210deg,#F26A43,#f4996d,#F26A43)', boxShadow: 'inset 0 0 0 2px rgba(255,255,255,.16)' }}>
               <Shield size={18} className="fill-white text-white" />
             </span>

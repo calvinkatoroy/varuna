@@ -9,6 +9,7 @@ import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { ClientNav } from '@/components/ClientNav'
+import { useLiquidGlassAll } from '@/lib/useLiquidGlass'
 import { NewProposalDrawer } from './NewProposalDrawer'
 import { revealTiles, tickNumber, press } from '@/lib/motion'
 
@@ -23,7 +24,7 @@ function Drill({ label, to }: { label: string; to?: string }) {
   return (
     <button
       aria-label={label}
-      onClick={(e) => { press(e.currentTarget); if (to) nav(to, { viewTransition: true }) }}
+      onClick={(e) => { press(e.currentTarget); if (to) nav(to) }}
       className="grid h-9 w-9 flex-none place-items-center rounded-full border border-rule bg-panel text-ink transition-colors hover:border-ink hover:bg-ink hover:text-card"
     >
       <ArrowUpRight size={15} />
@@ -81,6 +82,8 @@ export default function ClientCockpit() {
   useEffect(() => {
     if (d) revealTiles('.tile')
   }, [d])
+  // Liquid glass on every bento tile, floating over the page gradient.
+  useLiquidGlassAll('.glass-card', { scale: -68, blur: 2, mapBlur: 10, saturate: 1.4 }, [d])
 
   if (!d) return <div className="p-10 text-ink-faint">Loading…</div>
   const p = d.posture
@@ -129,9 +132,9 @@ export default function ClientCockpit() {
       </header>
 
       {/* BENTO */}
-      <main className="mt-3.5 grid grid-cols-1 gap-3 rounded-bento-lg bg-panel p-3.5 lg:grid-cols-[1fr_1.16fr_1fr]">
+      <main className="mt-3.5 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1.16fr_1fr]">
         {/* 1 · Engagements */}
-        <section className="tile flex min-w-0 flex-col rounded-bento border border-rule bg-card p-5" style={{ opacity: 0 }}>
+        <section className="tile glass-card liquid flex min-w-0 flex-col rounded-bento p-5" style={{ opacity: 0 }}>
           <TileHead title="Engagements" sub="June 20 · 3 active" drill={false} />
           <ul className="flex flex-col">
             {d.engagements.map((e: any, i: number) => (
@@ -145,7 +148,7 @@ export default function ClientCockpit() {
         </section>
 
         {/* 2 · Posture */}
-        <section className="tile flex min-w-0 flex-col rounded-bento border border-rule bg-card-2 p-5" style={{ opacity: 0 }}>
+        <section className="tile glass-card liquid flex min-w-0 flex-col rounded-bento p-5" style={{ opacity: 0 }}>
           <TileHead title="Posture Overview" sub="Engagement ID: AC-WEB-0712" to="/findings" />
           <div className="mt-0.5 grid grid-cols-2 gap-x-6 gap-y-4">
             <Stat tone="c" n={p.critical} label="Critical findings" icon={<TriangleAlert size={20} />} />
@@ -158,7 +161,7 @@ export default function ClientCockpit() {
         </section>
 
         {/* 3 · Findings Trend (Tremor) */}
-        <section className="tile flex min-w-0 flex-col rounded-bento border border-rule bg-card p-5" style={{ opacity: 0 }}>
+        <section className="tile glass-card liquid flex min-w-0 flex-col rounded-bento p-5" style={{ opacity: 0 }}>
           <TileHead title="Findings Trend" sub="Open findings · last 6 mo" to="/findings" />
           <AreaChart
             data={d.trend}
@@ -175,7 +178,7 @@ export default function ClientCockpit() {
         </section>
 
         {/* 4 · Assets */}
-        <section className="tile flex min-w-0 flex-col rounded-bento border border-rule bg-card p-5" style={{ opacity: 0 }}>
+        <section className="tile glass-card liquid flex min-w-0 flex-col rounded-bento p-5" style={{ opacity: 0 }}>
           <TileHead title="Your Assets" sub="4 in scope" to="/findings" />
           <div className="grid grid-cols-2 gap-[11px]">
             {d.assets.map((a: any, i: number) => (
@@ -196,7 +199,7 @@ export default function ClientCockpit() {
         </section>
 
         {/* 5 · Latest Report */}
-        <section className="tile flex min-w-0 flex-col rounded-bento border border-rule bg-card-2 p-5" style={{ opacity: 0 }}>
+        <section className="tile glass-card liquid flex min-w-0 flex-col rounded-bento p-5" style={{ opacity: 0 }}>
           <TileHead title="Latest Report" sub={`${d.latestReport.findings} findings · governance signed`} to="/reports" />
           <div className="my-1.5 mb-5 flex flex-col gap-3.5">
             {[
@@ -217,7 +220,7 @@ export default function ClientCockpit() {
         </section>
 
         {/* 6 · Review Team */}
-        <section className="tile flex min-w-0 flex-col rounded-bento border border-rule bg-card p-5" style={{ opacity: 0 }}>
+        <section className="tile glass-card liquid flex min-w-0 flex-col rounded-bento p-5" style={{ opacity: 0 }}>
           <TileHead title="Review Team" sub="3 members on this engagement" />
           <ul className="flex flex-col">
             {d.team.map((m: any, i: number) => (

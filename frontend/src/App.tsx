@@ -1,4 +1,5 @@
-import { lazy, Suspense, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom'
 import { useAuth } from './auth'
 import ClientCockpit from './screens/ClientCockpit'
@@ -10,23 +11,17 @@ import TeamBoard from './screens/TeamBoard'
 import FindingsReview from './screens/FindingsReview'
 import { Splash } from './components/Splash'
 
-const GradientBg = lazy(() => import('./components/viz/GradientBg'))
-
 const ACTIVATED = 'varuna-activated'
 
-// The client area is gated as a whole: until the account is activated (register → proposal →
-// lead approval → agent → unlock), every client route shows the blurred cockpit + AuthGate.
+// The client area is gated as a whole: until the account is activated (register -> proposal ->
+// lead approval -> agent -> unlock), every client route shows the blurred cockpit + AuthGate.
 // Activation persists (localStorage) so the unlock survives navigation and reloads.
 function ClientRoute({ children }: { children: React.ReactNode }) {
   const [active, setActive] = useState(() => localStorage.getItem(ACTIVATED) === '1')
   if (active) return <>{children}</>
   return (
     <>
-      <div
-        aria-hidden
-        className="pointer-events-none select-none saturate-[.85]"
-        style={{ filter: 'blur(7px)' }}
-      >
+      <div aria-hidden className="pointer-events-none select-none saturate-[.85]" style={{ filter: 'blur(7px)' }}>
         <ClientCockpit />
       </div>
       <AuthGate onActivate={() => { localStorage.setItem(ACTIVATED, '1'); setActive(true) }} />
@@ -37,8 +32,7 @@ function ClientRoute({ children }: { children: React.ReactNode }) {
 const pill = (on: boolean) =>
   `rounded-pill px-4 py-1.5 text-[12.5px] font-semibold transition-colors ${on ? 'bg-accent text-white' : 'text-ink-muted hover:text-ink'}`
 
-// Prototype-only: real app routes by role (client vs team). This lets you explore both worlds
-// on mock data. "Reset" clears the unlock so you can re-demo the onboarding gate.
+// Prototype-only: switch between the client and team worlds; Reset replays the onboarding gate.
 function PrototypeSwitcher() {
   const loc = useLocation()
   const team = loc.pathname.startsWith('/team')
@@ -46,8 +40,8 @@ function PrototypeSwitcher() {
   return (
     <div className="fixed bottom-4 left-1/2 z-[60] flex -translate-x-1/2 items-center gap-1 rounded-pill border border-rule bg-card/90 p-1 shadow-[0_12px_40px_rgba(0,0,0,.3)] backdrop-blur">
       <span className="px-2 text-[10.5px] font-semibold uppercase tracking-wide text-ink-faint">Preview</span>
-      <Link to="/" viewTransition className={pill(!team)}>Client</Link>
-      <Link to="/team" viewTransition className={pill(team)}>Team</Link>
+      <Link to="/" className={pill(!team)}>Client</Link>
+      <Link to="/team" className={pill(team)}>Team</Link>
       <button onClick={reset} className="rounded-pill px-3 py-1.5 text-[12.5px] font-medium text-ink-faint hover:text-ink">Reset</button>
     </div>
   )
@@ -55,14 +49,44 @@ function PrototypeSwitcher() {
 
 export default function App() {
   const { ready } = useAuth()
-  const dark = typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') !== 'light'
+  const location = useLocation()
+  const [displayed, setDisplayed] = useState(location)
+
+  // Page transition: drive the View Transitions API manually so it fires on every route change
+  // (react-router's viewTransition prop silently no-ops with <BrowserRouter>). Old + new pages
+  // are captured and cross-animated via the ::view-transition-* rules in index.css.
+  useEffect(() => {
+    if (location.pathname === displayed.pathname) return
+    const doc = document as any
+    if (!doc.startViewTransition || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setDisplayed(location)
+      return
+    }
+    doc.startViewTransition(() => flushSync(() => setDisplayed(location)))
+  }, [location, displayed])
+
+  // Scroll parallax: drift the background bloom as the page scrolls (cheap, no per-frame cost
+  // on the glass filters since it only updates on scroll).
+  useEffect(() => {
+    let raf = 0
+    const onScroll = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        const max = Math.max(1, document.body.scrollHeight - window.innerHeight)
+        const f = Math.min(window.scrollY / max, 1)
+        document.documentElement.style.setProperty('--bg-y', (-8 + f * 34).toFixed(1) + '%')
+      })
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => { window.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf) }
+  }, [])
+
   return (
     <>
-      {dark && <Suspense fallback={null}><GradientBg /></Suspense>}
       <Splash />
       {ready && (
         <>
-          <Routes>
+          <Routes location={displayed}>
             <Route path="/" element={<ClientRoute><ClientCockpit /></ClientRoute>} />
             <Route path="/proposals" element={<ClientRoute><ClientProposals /></ClientRoute>} />
             <Route path="/findings" element={<ClientRoute><ClientFindings /></ClientRoute>} />

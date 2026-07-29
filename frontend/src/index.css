@@ -36,6 +36,13 @@
   --color-med-bg: #322D11;
   --color-low-bg: #123029;
 
+  /* Dark-mode page background: the hero-style green + coral gradient fills the screen (never
+     pure black). --bg-x / --bg-y are nudged by the pointer for a cheap parallax. */
+  --bg-grad:
+    radial-gradient(115% 95% at var(--bg-x, 80%) var(--bg-y, -8%), rgba(242, 106, 67, 0.16), transparent 42%),
+    radial-gradient(120% 120% at 12% 112%, rgba(21, 71, 57, 0.55), transparent 55%),
+    linear-gradient(158deg, #0b1712 0%, #07100c 46%, #05070a 100%);
+
   --font-display: 'Outfit', ui-sans-serif, system-ui, sans-serif;
   --font-body: 'Outfit', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
@@ -56,6 +63,7 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
+  --bg-grad: none;
   --color-shell: #E7ECDF;
   --color-paper: #E7ECDF;
   --color-paper-2: #DFE4D6;
@@ -90,9 +98,12 @@ body {
 }
 
 body {
-  @apply bg-paper text-ink;
+  @apply text-ink;
   font-family: var(--font-body);
   font-weight: 350;
+  background-color: var(--color-shell);
+  background-image: var(--bg-grad);
+  background-attachment: fixed;
 }
 
 h1,
@@ -200,6 +211,12 @@ input[type='checkbox'] {
       inset 0 1px 1px rgba(255, 255, 255, 0.35),
       inset 0 -1px 1px rgba(255, 255, 255, 0.06),
       0 10px 34px rgba(0, 0, 0, 0.28);
+  }
+  /* A translucent card surface so the page gradient shows through and liquid glass has a
+     backdrop to bend. Pair with the JS displacement filter (useLiquidGlassAll). */
+  .glass-card {
+    background: color-mix(in oklab, var(--color-card) 58%, transparent);
+    border: 1px solid rgba(255, 255, 255, 0.09);
   }
   /* Dense master-detail / table pages (Dashboard, Findings Review): a deliberate
      density variant of Workbench, edge-to-edge panels instead of floating cards.

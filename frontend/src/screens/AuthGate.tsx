@@ -3,7 +3,6 @@ import anime from 'animejs'
 import { Shield, Check, Clock, Terminal, Copy, ArrowRight, ShieldCheck } from 'lucide-react'
 import { useAuth } from '@/auth'
 import { api } from '@/api'
-import { applyLiquidGlass } from '@/lib/liquidGlass'
 import { Button } from '@/components/ui/button'
 import { ProposalForm } from '@/components/ProposalForm'
 
@@ -56,13 +55,6 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
     anime({ targets: cardRef.current, translateY: [16, 0], opacity: [0, 1], duration: 420, easing: 'easeOutCubic' })
   }, [step])
 
-  // Liquid glass on the card, refracting the blurred dashboard behind the gate.
-  useEffect(() => {
-    if (!cardRef.current) return
-    const h = applyLiquidGlass(cardRef.current, { scale: -90, blur: 6, saturate: 1.6, radius: 32 })
-    return () => h.destroy()
-  }, [])
-
   async function submitAuth(e: React.FormEvent) {
     e.preventDefault()
     setErr('')
@@ -86,7 +78,7 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
     <div className="fixed inset-0 z-50 grid place-items-center bg-shell/55 px-4 backdrop-blur-[2px]">
       <div
         ref={cardRef}
-        className={`liquid w-full ${step === 'proposal' ? 'max-w-[600px]' : 'max-w-[440px]'} rounded-bento-lg border border-white/10 bg-card/70 p-8`}
+        className={`w-full ${step === 'proposal' ? 'max-w-[600px]' : 'max-w-[440px]'} rounded-bento-lg border border-rule bg-card p-8 shadow-[0_30px_80px_-20px_rgba(0,0,0,.6)]`}
       >
         {/* brand */}
         <div className="mb-6 flex items-center gap-2.5">
