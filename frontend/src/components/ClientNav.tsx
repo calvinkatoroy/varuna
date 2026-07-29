@@ -12,7 +12,7 @@ const items: [string, string][] = [
 
 export function ClientNav() {
   const { pathname } = useLocation()
-  const glass = useLiquidGlass<HTMLElement>({ scale: -64, blur: 2, mapBlur: 8, radius: 999 })
+  const glass = useLiquidGlass<HTMLElement>({ scale: -64, blur: 2, mapBlur: 8, radius: 999, chroma: 0 })
   return (
     <nav ref={glass} className="liquid mx-auto flex gap-[3px] rounded-pill bg-white/[.06] p-[5px]">
       {items.map(([label, to]) => {

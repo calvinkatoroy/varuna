@@ -85,7 +85,7 @@ export default function ClientFindings() {
                       </span>
                       {resolved
                         ? <span className="w-[76px] flex-none text-right text-[12px] font-medium text-low">Resolved</span>
-                        : <span className="grid h-8 w-8 flex-none place-items-center rounded-full border border-rule text-ink-faint opacity-0 transition-all duration-200 group-hover:opacity-100 group-hover:text-ink sm:w-8"><ArrowUpRight size={15} /></span>}
+                        : <span className="grid h-8 w-8 flex-none place-items-center rounded-full border border-rule text-ink-faint opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-hover:text-ink sm:w-8"><ArrowUpRight size={15} /></span>}
                     </button>
                   </li>
                 )

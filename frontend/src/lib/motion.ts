@@ -61,17 +61,3 @@ export function rise(selector: string, stagger = 70) {
     easing: 'easeOutExpo',
   })
 }
-
-// Magnetic hover: the element eases toward the cursor while hovered, then glides back to
-// rest. The felt microinteraction on buttons/arrows. Returns a cleanup fn. No overshoot.
-export function magnetic(el: HTMLElement | null, strength = 0.4): () => void {
-  if (!el || reduced()) return () => {}
-  const move = (e: MouseEvent) => {
-    const r = el.getBoundingClientRect()
-    anime.set(el, { translateX: (e.clientX - (r.left + r.width / 2)) * strength, translateY: (e.clientY - (r.top + r.height / 2)) * strength })
-  }
-  const leave = () => anime({ targets: el, translateX: 0, translateY: 0, duration: 650, easing: 'easeOutQuart' })
-  el.addEventListener('mousemove', move)
-  el.addEventListener('mouseleave', leave)
-  return () => { el.removeEventListener('mousemove', move); el.removeEventListener('mouseleave', leave) }
-}

@@ -83,6 +83,20 @@ function buildFilter(id: string, scales: number[]) {
   feImage.setAttribute('result', 'map')
   feImage.setAttribute('preserveAspectRatio', 'none')
   filter.appendChild(feImage)
+
+  // chroma 0 => all scales equal => one displacement pass (no prism split). ~3x cheaper.
+  if (scales[0] === scales[1] && scales[1] === scales[2]) {
+    const disp = document.createElementNS(SVG_NS, 'feDisplacementMap')
+    disp.setAttribute('in', 'SourceGraphic')
+    disp.setAttribute('in2', 'map')
+    disp.setAttribute('scale', String(scales[0]))
+    disp.setAttribute('xChannelSelector', 'R')
+    disp.setAttribute('yChannelSelector', 'B')
+    filter.appendChild(disp)
+    ensureDefs().appendChild(filter)
+    return { filter, feImage }
+  }
+
   const keep = [
     '1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0',
     '0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0',

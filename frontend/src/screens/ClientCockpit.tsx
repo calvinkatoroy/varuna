@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AreaChart } from '@tremor/react'
 import {
@@ -12,8 +12,6 @@ import { ClientNav } from '@/components/ClientNav'
 import { useLiquidGlassAll } from '@/lib/useLiquidGlass'
 import { NewProposalDrawer } from './NewProposalDrawer'
 import { revealTiles, tickNumber, press } from '@/lib/motion'
-
-const Scanner = lazy(() => import('@/components/viz/ScannerCanvas'))
 
 const HERO_BG =
   'radial-gradient(130% 120% at 84% -10%, rgba(242,106,67,.32), transparent 45%),' +
@@ -83,7 +81,7 @@ export default function ClientCockpit() {
     if (d) revealTiles('.tile')
   }, [d])
   // Liquid glass on every bento tile, floating over the page gradient.
-  useLiquidGlassAll('.glass-card', { scale: -68, blur: 2, mapBlur: 10, saturate: 1.4 }, [d])
+  useLiquidGlassAll('.glass-card', { scale: -62, blur: 2, mapBlur: 10, saturate: 1.25, chroma: 0 }, [d])
 
   if (!d) return <div className="p-10 text-ink-faint">Loading…</div>
   const p = d.posture
@@ -95,7 +93,6 @@ export default function ClientCockpit() {
         className="relative isolate flex min-h-[340px] flex-col overflow-hidden rounded-bento-lg px-[clamp(18px,2.6vw,34px)] pb-[clamp(24px,3vw,38px)] pt-[clamp(16px,2vw,24px)] text-[#F2F5EF]"
         style={{ background: HERO_BG, borderRadius: '32px 32px 26px 26px' }}
       >
-        <Suspense fallback={null}><Scanner /></Suspense>
         <div className="relative z-10 flex items-center gap-4">
           <div className="flex items-center gap-[11px] text-[21px] font-bold tracking-[-0.02em]">
             <span className="grid h-8 w-8 place-items-center rounded-[10px]" style={{ background: 'conic-gradient(from 210deg,#F26A43,#f4996d,#F26A43)', boxShadow: 'inset 0 0 0 2px rgba(255,255,255,.16)' }}>

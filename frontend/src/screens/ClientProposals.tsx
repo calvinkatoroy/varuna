@@ -73,7 +73,7 @@ export default function ClientProposals() {
                       <span className="mt-0.5 block truncate text-[12px] text-ink-faint">{p.purpose}, {p.division}</span>
                     </span>
                     <span className="mono hidden flex-none text-[12px] text-ink-faint sm:block">{p.when}</span>
-                    <span className="grid h-8 w-8 flex-none place-items-center rounded-full border border-rule text-ink-faint opacity-0 transition-all duration-200 group-hover:text-ink group-hover:opacity-100"><ArrowUpRight size={15} /></span>
+                    <span className="grid h-8 w-8 flex-none place-items-center rounded-full border border-rule text-ink-faint opacity-0 transition-opacity duration-200 group-hover:text-ink group-hover:opacity-100"><ArrowUpRight size={15} /></span>
                   </button>
                 </li>
               ))}

@@ -65,22 +65,6 @@ export default function App() {
     doc.startViewTransition(() => flushSync(() => setDisplayed(location)))
   }, [location, displayed])
 
-  // Scroll parallax: drift the background bloom as the page scrolls (cheap, no per-frame cost
-  // on the glass filters since it only updates on scroll).
-  useEffect(() => {
-    let raf = 0
-    const onScroll = () => {
-      cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => {
-        const max = Math.max(1, document.body.scrollHeight - window.innerHeight)
-        const f = Math.min(window.scrollY / max, 1)
-        document.documentElement.style.setProperty('--bg-y', (-8 + f * 34).toFixed(1) + '%')
-      })
-    }
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => { window.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf) }
-  }, [])
-
   return (
     <>
       <Splash />

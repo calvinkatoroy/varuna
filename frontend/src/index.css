@@ -102,8 +102,16 @@ body {
   font-family: var(--font-body);
   font-weight: 350;
   background-color: var(--color-shell);
-  background-image: var(--bg-grad);
-  background-attachment: fixed;
+}
+/* Dark-mode gradient as a fixed, composited layer (does not repaint on scroll, unlike
+   background-attachment: fixed). Content scrolls over it, which reads as parallax. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--bg-grad);
+  pointer-events: none;
 }
 
 h1,
@@ -134,19 +142,20 @@ input[type='checkbox'] {
 
 /* Page transition on route change (the View Transitions API, driven by react-router).
    Browsers without support just navigate instantly. Reduced-motion opts out. */
+/* Barba-style leave then enter: old page slides up and out, new page waits, then rises in. */
 @media (prefers-reduced-motion: no-preference) {
   ::view-transition-old(root) {
-    animation: vt-out 260ms var(--ease-out) both;
+    animation: vt-out 240ms var(--ease-out) both;
   }
   ::view-transition-new(root) {
-    animation: vt-in 460ms var(--ease-out) both;
+    animation: vt-in 380ms var(--ease-out) 170ms both;
   }
 }
 @keyframes vt-out {
-  to { opacity: 0; transform: scale(0.985) translateY(-10px); }
+  to { opacity: 0; transform: translateY(-14px); }
 }
 @keyframes vt-in {
-  from { opacity: 0; transform: scale(1.012) translateY(16px); }
+  from { opacity: 0; transform: translateY(20px); }
 }
 
 @keyframes status-pulse {
