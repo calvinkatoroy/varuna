@@ -36,12 +36,10 @@
   --color-med-bg: #322D11;
   --color-low-bg: #123029;
 
-  --font-display: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
-  --font-body: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Outfit', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Outfit', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  --font-display-warm: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
-  /* Dossier voice (case-file pages): editorial serif for the human/report layer. */
-  --font-serif: 'Newsreader', ui-serif, Georgia, 'Times New Roman', serif;
+  --font-display-warm: 'Outfit', ui-sans-serif, system-ui, sans-serif;
 
   --text-display: clamp(1.75rem, 2vw + 1.25rem, 2.5rem);
 
@@ -177,27 +175,6 @@ input[type='checkbox'] {
   }
   .mono {
     font-family: var(--font-mono);
-  }
-  .font-serif {
-    font-family: var(--font-serif);
-  }
-  /* Dossier paper grain: a faint fibrous texture so a case-file panel reads as paper,
-     not a shadcn card. SVG turbulence, tinted by the current ink so it works in dark
-     (manila) and light (bond paper) alike. */
-  .paper-grain {
-    position: relative;
-    isolation: isolate;
-  }
-  .paper-grain::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    border-radius: inherit;
-    pointer-events: none;
-    opacity: 0.5;
-    mix-blend-mode: soft-light;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
   /* Dense master-detail / table pages (Dashboard, Findings Review): a deliberate
      density variant of Workbench, edge-to-edge panels instead of floating cards.

@@ -54,7 +54,6 @@ export default {
         display: ['var(--font-display)'],
         body: ['var(--font-body)'],
         mono: ['var(--font-mono)'],
-        serif: ['var(--font-serif)'],
       },
       fontSize: {
         display: ['var(--text-display)', { lineHeight: '1.1', letterSpacing: '-0.02em' }],

@@ -45,28 +45,33 @@ export function press(el: HTMLElement) {
   anime({ targets: el, scale: [1, 0.9, 1], duration: 260, easing: 'easeOutQuad' })
 }
 
-// Dossier reveal: case-file entries settle in like sheets laid onto a desk — a soft rise
-// plus a hair of rotation, slower and calmer than the generic fade-up.
-export function inkSettle(selector: string) {
+// Clean rise: elements lift into place with a long expo ease. Calm, not bouncy — the
+// restrained entrance a minimalist-bold page wants (no rotation, no stagger gimmicks).
+export function rise(selector: string, stagger = 70) {
   if (reduced()) {
     document.querySelectorAll(selector).forEach((e) => ((e as HTMLElement).style.opacity = '1'))
     return
   }
   anime({
     targets: selector,
-    translateY: [12, 0],
-    rotate: [-0.5, 0],
+    translateY: [28, 0],
     opacity: [0, 1],
-    delay: anime.stagger(75),
-    duration: 620,
-    easing: 'easeOutCubic',
+    delay: anime.stagger(stagger),
+    duration: 900,
+    easing: 'easeOutExpo',
   })
 }
 
-// Stamp press: a rubber stamp coming down onto the page. Rotation lives on the wrapper, so
-// this only drives scale + opacity and won't fight the tilt. No bounce (UI-state easing).
-export function stampIn(el: HTMLElement | null, delay = 260) {
-  if (!el) return
-  if (reduced()) { el.style.opacity = '1'; return }
-  anime({ targets: el, scale: [1.3, 1], opacity: [0, 1], duration: 380, delay, easing: 'easeOutCubic' })
+// Magnetic hover: the element eases toward the cursor while hovered, then glides back to
+// rest. The felt microinteraction on buttons/arrows. Returns a cleanup fn. No overshoot.
+export function magnetic(el: HTMLElement | null, strength = 0.4): () => void {
+  if (!el || reduced()) return () => {}
+  const move = (e: MouseEvent) => {
+    const r = el.getBoundingClientRect()
+    anime.set(el, { translateX: (e.clientX - (r.left + r.width / 2)) * strength, translateY: (e.clientY - (r.top + r.height / 2)) * strength })
+  }
+  const leave = () => anime({ targets: el, translateX: 0, translateY: 0, duration: 650, easing: 'easeOutQuart' })
+  el.addEventListener('mousemove', move)
+  el.addEventListener('mouseleave', leave)
+  return () => { el.removeEventListener('mousemove', move); el.removeEventListener('mouseleave', leave) }
 }
