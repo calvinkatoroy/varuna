@@ -51,9 +51,9 @@
   /* Dark-mode page background: the hero-style green + coral gradient fills the screen (never
      pure black). --bg-x / --bg-y are nudged by the pointer for a cheap parallax. */
   --bg-grad:
-    radial-gradient(115% 95% at var(--bg-x, 80%) var(--bg-y, -8%), rgba(242, 106, 67, 0.16), transparent 42%),
-    radial-gradient(120% 120% at 12% 112%, rgba(21, 71, 57, 0.55), transparent 55%),
-    linear-gradient(158deg, #0b1712 0%, #07100c 46%, #05070a 100%);
+    radial-gradient(115% 90% at var(--bg-x, 84%) var(--bg-y, -6%), rgba(242, 106, 67, 0.24), transparent 48%),
+    radial-gradient(100% 100% at 6% 106%, rgba(30, 108, 82, 0.6), transparent 56%),
+    linear-gradient(160deg, #1a5140 0%, #123527 42%, #0b1c15 74%, #081210 100%);
 
   --font-display: 'Agrandir', 'Segoe UI', system-ui, sans-serif;
   --font-body: 'Helvetica Neue', Helvetica, Arial, sans-serif;

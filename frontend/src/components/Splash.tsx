@@ -10,7 +10,10 @@ export function Splash() {
 
   useEffect(() => {
     const start = Date.now()
+    let done = false
     const finish = () => {
+      if (done) return
+      done = true
       const wait = Math.max(0, 600 - (Date.now() - start))
       setTimeout(() => {
         if (!ref.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return setGone(true)
@@ -19,6 +22,9 @@ export function Splash() {
     }
     const fonts = (document as any).fonts
     fonts?.ready ? fonts.ready.then(finish) : finish()
+    // Hard cap: never let a hung font/asset load keep the black splash up.
+    const cap = setTimeout(finish, 1600)
+    return () => clearTimeout(cap)
   }, [])
 
   if (gone) return null
