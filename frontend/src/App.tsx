@@ -1,20 +1,27 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { useState } from 'react'
 import { useAuth } from './auth'
-import Login from './pages/Login'
 import ClientCockpit from './screens/ClientCockpit'
+import { AuthGate } from './screens/AuthGate'
 
-// v2 shell: each screen owns its own chrome (the studied-DNA hero band), so there is no shared
-// sidebar Layout. Team/pipeline routes land in later frontend tasks. (v1 pages remain on disk,
-// unrouted, until fully replaced.)
+// Progressive-unlock entry: the dashboard is always the backdrop, blurred and locked behind the
+// AuthGate until the account is activated (register → proposal → lead approval → agent → unlock).
+// This is the visual form of the backend rule: an account is inert until a proposal is approved.
 export default function App() {
-  const { user, ready } = useAuth()
+  const { ready } = useAuth()
+  const [active, setActive] = useState(false)
   if (!ready) return <div className="p-sm text-ink-faint">Loading…</div>
-  if (!user) return <Login />
+  const gated = !active
 
   return (
-    <Routes>
-      <Route path="/" element={<ClientCockpit />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <>
+      <div
+        aria-hidden={gated}
+        className={gated ? 'pointer-events-none select-none saturate-[.85]' : ''}
+        style={{ filter: gated ? 'blur(7px)' : 'blur(0px)', transition: 'filter .6s cubic-bezier(0.16,1,0.3,1)' }}
+      >
+        <ClientCockpit />
+      </div>
+      {gated && <AuthGate onActivate={() => setActive(true)} />}
+    </>
   )
 }
