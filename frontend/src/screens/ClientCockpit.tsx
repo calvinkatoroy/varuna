@@ -72,17 +72,16 @@ const stageLabel: Record<string, string> = { in_review: 'In review', delivered: 
 const teamBadge = (s: string) => (s === 'In review' ? 'bg-accent-soft text-accent-ink' : 'bg-low-bg text-low')
 const avaBg = ['linear-gradient(160deg,#3fb98a,#268a63)', 'linear-gradient(160deg,#f4996d,#F26A43)', 'linear-gradient(160deg,#7b86ee,#4a56c9)']
 
-// The scanned site's own favicon, with a letter monogram fallback. Mock/demo uses a public
-// favicon service; PRODUCTION: the agent grabs /favicon.ico from the target during the scan and
-// stores it locally (on-premise), never a third-party lookup that would leak client hostnames.
+// Asset identity mark. PROTOTYPE: a letter monogram (the fictional demo domains have no real
+// favicon, and calling a third-party favicon service would leak hostnames, against the
+// on-premise premise). PRODUCTION: the agent fetches /favicon.ico from the target during the
+// scan and stores it locally; the monogram stays as the fallback when a site has none.
 function AssetIcon({ host }: { host: string }) {
-  const [err, setErr] = useState(false)
-  const clean = host.replace(/^www\./, '')
+  const label = host.replace(/^www\./, '').split('.')[0] || host
+  const mono = label.slice(0, 2).toUpperCase()
   return (
-    <span className="mx-auto mb-2.5 grid h-[38px] w-[38px] place-items-center overflow-hidden rounded-[11px] bg-panel text-[15px] font-semibold text-ink">
-      {err
-        ? (clean[0]?.toUpperCase() ?? '?')
-        : <img src={`https://icons.duckduckgo.com/ip3/${clean}.ico`} alt="" width={20} height={20} loading="lazy" onError={() => setErr(true)} className="h-5 w-5 rounded-[4px]" />}
+    <span className="mx-auto mb-2.5 grid h-[38px] w-[38px] place-items-center rounded-[11px] bg-panel font-display text-[14px] font-bold tracking-tight text-ink">
+      {mono}
     </span>
   )
 }
