@@ -37,6 +37,12 @@ export const team = [
 // Convenience aggregate the cockpit reads in mock mode.
 export const cockpit = { me, engagements, posture, trend, assets, latestReport, team }
 
+// Client's delivered reports (download + view-once password).
+export const reports = [
+  { id: 'rep1', engagement: 'acme.io — Standard VA', delivered: 'Jun 18, 2026', findings: 27, templates: ['Formal handover', 'Full technical', 'Executive summary', 'Raw (FP/TP)'], signed: true },
+  { id: 'rep2', engagement: 'shop.acme.io — Standard VA', delivered: 'May 30, 2026', findings: 12, templates: ['Formal handover', 'Executive summary'], signed: true },
+]
+
 // --- Team / advanced side: the review pipeline board (team sees ALL clients) ---
 type Card = {
   id: string; client: string; target: string; mode: 'standard' | 'advanced'

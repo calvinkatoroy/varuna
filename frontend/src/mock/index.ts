@@ -8,6 +8,7 @@ const routes: Record<string, any> = {
   'POST /api/register': { token: 'mock.jwt.client' },
   'GET /api/cockpit': fx.cockpit,
   'GET /api/proposals': fx.engagements,
+  'GET /api/reports': fx.reports,
   'GET /api/agent': { registered: true, online: true },
   'GET /api/pipeline/board': fx.board,
   'GET /api/pipeline/detail/r1': fx.engagementDetail.r1,

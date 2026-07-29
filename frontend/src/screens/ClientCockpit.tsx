@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { AreaChart } from '@tremor/react'
 import {
   ArrowUpRight, Bell, Check, ChevronsUp, CircleAlert, Clock, Download, FileText,
@@ -7,6 +8,7 @@ import {
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { ClientNav } from '@/components/ClientNav'
 import { NewProposalDrawer } from './NewProposalDrawer'
 import { revealTiles, tickNumber, press } from '@/lib/motion'
 
@@ -14,11 +16,12 @@ const HERO_BG =
   'radial-gradient(130% 120% at 84% -10%, rgba(242,106,67,.32), transparent 45%),' +
   'linear-gradient(158deg,#154739 0%,#0d211b 46%,#070908 100%)'
 
-function Drill({ label }: { label: string }) {
+function Drill({ label, to }: { label: string; to?: string }) {
+  const nav = useNavigate()
   return (
     <button
       aria-label={label}
-      onClick={(e) => press(e.currentTarget)}
+      onClick={(e) => { press(e.currentTarget); if (to) nav(to) }}
       className="grid h-9 w-9 flex-none place-items-center rounded-full border border-rule bg-panel text-ink transition-colors hover:border-ink hover:bg-ink hover:text-card"
     >
       <ArrowUpRight size={15} />
@@ -26,14 +29,14 @@ function Drill({ label }: { label: string }) {
   )
 }
 
-function TileHead({ title, sub, drill = true }: { title: string; sub?: string; drill?: boolean }) {
+function TileHead({ title, sub, drill = true, to }: { title: string; sub?: string; drill?: boolean; to?: string }) {
   return (
     <div className="mb-4 flex items-start justify-between gap-3">
       <div>
         <h3 className="text-[18.5px] font-bold tracking-[-0.02em] text-ink">{title}</h3>
         {sub && <div className="mt-1 text-[12.5px] text-ink-muted">{sub}</div>}
       </div>
-      {drill && <Drill label={`Open ${title}`} />}
+      {drill && <Drill label={`Open ${title}`} to={to} />}
     </div>
   )
 }
@@ -94,11 +97,7 @@ export default function ClientCockpit() {
             </span>
             Varuna
           </div>
-          <nav className="mx-auto flex gap-[3px] rounded-pill bg-white/[.08] p-[5px] backdrop-blur-md">
-            {['Overview', 'Proposals', 'Findings', 'Reports'].map((n, i) => (
-              <a key={n} href="#" className={`rounded-pill px-[17px] py-[9px] text-sm leading-none ${i === 0 ? 'bg-[#F4F6F1] font-semibold text-[#12140F]' : 'font-medium text-[#F2F5EF]/70'}`}>{n}</a>
-            ))}
-          </nav>
+          <ClientNav />
           <div className="flex gap-2.5">
             <ThemeToggle />
             <button aria-label="Notifications" className="grid h-11 w-11 place-items-center rounded-full bg-white/10 backdrop-blur-md transition-colors hover:bg-white/[.18]"><Bell size={19} /></button>
@@ -144,7 +143,7 @@ export default function ClientCockpit() {
 
         {/* 2 · Posture */}
         <section className="tile flex min-w-0 flex-col rounded-bento border border-rule bg-card-2 p-5" style={{ opacity: 0 }}>
-          <TileHead title="Posture Overview" sub="Engagement ID: AC-WEB-0712" />
+          <TileHead title="Posture Overview" sub="Engagement ID: AC-WEB-0712" to="/findings" />
           <div className="mt-0.5 grid grid-cols-2 gap-x-6 gap-y-4">
             <Stat tone="c" n={p.critical} label="Critical findings" icon={<TriangleAlert size={20} />} />
             <Stat tone="h" n={p.high} label="High findings" icon={<ChevronsUp size={20} />} />
@@ -157,7 +156,7 @@ export default function ClientCockpit() {
 
         {/* 3 · Findings Trend (Tremor) */}
         <section className="tile flex min-w-0 flex-col rounded-bento border border-rule bg-card p-5" style={{ opacity: 0 }}>
-          <TileHead title="Findings Trend" sub="Open findings · last 6 mo" />
+          <TileHead title="Findings Trend" sub="Open findings · last 6 mo" to="/findings" />
           <AreaChart
             data={d.trend}
             index="month"
@@ -174,7 +173,7 @@ export default function ClientCockpit() {
 
         {/* 4 · Assets */}
         <section className="tile flex min-w-0 flex-col rounded-bento border border-rule bg-card p-5" style={{ opacity: 0 }}>
-          <TileHead title="Your Assets" sub="4 in scope" />
+          <TileHead title="Your Assets" sub="4 in scope" to="/findings" />
           <div className="grid grid-cols-2 gap-[11px]">
             {d.assets.map((a: any, i: number) => (
               <div key={a.host} className="rounded-[16px] border border-rule p-[15px] text-center">
@@ -195,7 +194,7 @@ export default function ClientCockpit() {
 
         {/* 5 · Latest Report */}
         <section className="tile flex min-w-0 flex-col rounded-bento border border-rule bg-card-2 p-5" style={{ opacity: 0 }}>
-          <TileHead title="Latest Report" sub={`${d.latestReport.findings} findings · governance signed`} />
+          <TileHead title="Latest Report" sub={`${d.latestReport.findings} findings · governance signed`} to="/reports" />
           <div className="my-1.5 mb-5 flex flex-col gap-3.5">
             {[
               { ic: <FileText size={15} />, l: 'Engagement', v: d.latestReport.engagement },
