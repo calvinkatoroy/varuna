@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { AreaChart } from '@tremor/react'
 import {
   ArrowUpRight, Bell, Check, ChevronsUp, CircleAlert, Clock, Download, FileText,
-  Globe, Lock, Play, Plus, Server, Shield, ShieldCheck, TriangleAlert, CalendarDays, LayoutTemplate,
+  Lock, Play, Plus, Shield, ShieldCheck, TriangleAlert, CalendarDays, LayoutTemplate,
 } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
@@ -70,6 +70,21 @@ const stageBadge: Record<string, string> = {
 const stageLabel: Record<string, string> = { in_review: 'In review', delivered: 'Delivered', scanning: 'Scanning' }
 const teamBadge = (s: string) => (s === 'In review' ? 'bg-accent-soft text-accent-ink' : 'bg-low-bg text-low')
 const avaBg = ['linear-gradient(160deg,#3fb98a,#268a63)', 'linear-gradient(160deg,#f4996d,#F26A43)', 'linear-gradient(160deg,#7b86ee,#4a56c9)']
+
+// The scanned site's own favicon, with a letter monogram fallback. Mock/demo uses a public
+// favicon service; PRODUCTION: the agent grabs /favicon.ico from the target during the scan and
+// stores it locally (on-premise), never a third-party lookup that would leak client hostnames.
+function AssetIcon({ host }: { host: string }) {
+  const [err, setErr] = useState(false)
+  const clean = host.replace(/^www\./, '')
+  return (
+    <span className="mx-auto mb-2.5 grid h-[38px] w-[38px] place-items-center overflow-hidden rounded-[11px] bg-panel text-[15px] font-semibold text-ink">
+      {err
+        ? (clean[0]?.toUpperCase() ?? '?')
+        : <img src={`https://icons.duckduckgo.com/ip3/${clean}.ico`} alt="" width={20} height={20} loading="lazy" onError={() => setErr(true)} className="h-5 w-5 rounded-[4px]" />}
+    </span>
+  )
+}
 
 export default function ClientCockpit() {
   const [d, setD] = useState<any>(null)
@@ -178,11 +193,9 @@ export default function ClientCockpit() {
         <section className="tile glass-card liquid flex min-w-0 flex-col rounded-bento p-5" style={{ opacity: 0 }}>
           <TileHead title="Your Assets" sub="4 in scope" to="/findings" />
           <div className="grid grid-cols-2 gap-[11px]">
-            {d.assets.map((a: any, i: number) => (
+            {d.assets.map((a: any) => (
               <div key={a.host} className="rounded-[16px] border border-rule p-[15px] text-center">
-                <span className="mx-auto mb-2.5 grid h-[38px] w-[38px] place-items-center rounded-[11px] bg-panel text-ink">
-                  {i === 2 ? <Server size={19} /> : i === 3 ? <Shield size={19} /> : <Globe size={19} />}
-                </span>
+                <AssetIcon host={a.host} />
                 <b className="block truncate text-[13.5px] font-semibold text-ink">{a.host}</b>
                 <div className="mt-[11px] flex items-center justify-between">
                   <span className="inline-flex items-center gap-[5px] text-[11.5px] font-bold text-ink">
