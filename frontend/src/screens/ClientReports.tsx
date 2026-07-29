@@ -21,7 +21,7 @@ function PasswordRow({ id, shown, onReveal }: { id: string; shown: boolean; onRe
   )
 }
 
-// Client reports: one featured latest deliverable, then a quiet list of older ones — hierarchy
+// Client reports: one featured latest deliverable, then a quiet list of older ones, hierarchy
 // over the flat two-card grid.
 export default function ClientReports() {
   const [rows, setRows] = useState<Report[] | null>(null)
@@ -64,7 +64,7 @@ export default function ClientReports() {
             </section>
           )}
 
-          {/* Older reports — quiet list */}
+          {/* Older reports, quiet list */}
           {rest.length > 0 && (
             <section className="tile rounded-bento border border-rule bg-card p-2" style={{ opacity: 0 }}>
               {rest.map((r) => (

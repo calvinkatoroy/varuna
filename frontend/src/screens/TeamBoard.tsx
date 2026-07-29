@@ -200,7 +200,7 @@ export default function TeamBoard() {
 
               {stageActions[detectStage(sel)] === 'scan' && (
                 <section className="flex items-center gap-3 rounded-input border border-rule bg-panel p-4 text-[13px]">
-                  <Activity size={18} className="text-info" /> Live scan in progress — Nuclei 62%. Findings stream in as tools finish.
+                  <Activity size={18} className="text-info" /> Live scan in progress. Nuclei 62%. Findings stream in as tools finish.
                 </section>
               )}
 

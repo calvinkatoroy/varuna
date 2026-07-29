@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import anime from 'animejs'
 import { Shield } from 'lucide-react'
 
-// A short branded buffer so fonts + charts finish loading before the app shows — hides the
+// A short branded buffer so fonts + charts finish loading before the app shows, hides the
 // inconsistent asset pop-in, then fades out.
 export function Splash() {
   const [gone, setGone] = useState(false)

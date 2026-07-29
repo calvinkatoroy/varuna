@@ -45,7 +45,7 @@ export function press(el: HTMLElement) {
   anime({ targets: el, scale: [1, 0.9, 1], duration: 260, easing: 'easeOutQuad' })
 }
 
-// Clean rise: elements lift into place with a long expo ease. Calm, not bouncy — the
+// Clean rise: elements lift into place with a long expo ease. Calm, not bouncy, the
 // restrained entrance a minimalist-bold page wants (no rotation, no stagger gimmicks).
 export function rise(selector: string, stagger = 70) {
   if (reduced()) {

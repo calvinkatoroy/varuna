@@ -15,7 +15,7 @@ const badgeLabel: Record<string, string> = {
   in_review: 'In review', delivered: 'Delivered', scanning: 'Scanning', pending: 'Pending approval',
 }
 
-// Client proposals: a compact activity ledger over engagement cards — the cockpit's tile
+// Client proposals: a compact activity ledger over engagement cards, the cockpit's tile
 // language, not a CRUD table.
 export default function ClientProposals() {
   const [rows, setRows] = useState<any[] | null>(null)
@@ -31,7 +31,7 @@ export default function ClientProposals() {
   return (
     <ClientShell
       title="Proposals"
-      sub="Every scan starts here — approved by your lead pentester before it runs."
+      sub="Every scan starts here. Approved by your lead pentester before it runs."
       action={<Button variant="glass" size="pill" onClick={() => setOpen(true)}><Plus size={16} /> New Proposal</Button>}
     >
       {!rows ? (

@@ -136,8 +136,8 @@ export function AdvancedScanDrawer({ open, onOpenChange }: { open: boolean; onOp
             )}
           </Section>
 
-          {/* aggressive — gated */}
-          <Section icon={<Sparkles size={16} />} title="Aggressive" sub="Destructive — gated by the safe-profile lock">
+          {/* aggressive, gated */}
+          <Section icon={<Sparkles size={16} />} title="Aggressive" sub="Destructive, gated by the safe-profile lock">
             <div className="rounded-input border border-dashed border-rule bg-panel/60 p-4">
               <div className="mb-3 flex items-center gap-2 text-[12px] font-semibold text-accent-ink"><Lock size={14} /> Requires lead-pentester approval + explicit opt-in</div>
               <div className="flex items-center justify-between opacity-60"><span className="text-[13px] text-ink-muted">SQLMap --dump (extract DB)</span><Switch checked={dump} onCheckedChange={setDump} disabled /></div>

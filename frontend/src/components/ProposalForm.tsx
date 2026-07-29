@@ -11,7 +11,7 @@ export type ProposalPayload = {
   authorization_attested: true
 }
 
-// The scan-proposal scoping form — shared by the onboarding gate and the in-app "New Proposal".
+// The scan-proposal scoping form, shared by the onboarding gate and the in-app "New Proposal".
 export function ProposalForm({ onSubmit, submitLabel = 'Submit for approval' }: { onSubmit: (p: ProposalPayload) => Promise<void> | void; submitLabel?: string }) {
   const [target, setTarget] = useState('')
   const [outScope, setOutScope] = useState('')
@@ -72,7 +72,7 @@ export function ProposalForm({ onSubmit, submitLabel = 'Submit for approval' }: 
         </div>
         <div>
           <label className={label}>Test window <span className="text-ink-faint">(optional)</span></label>
-          <input className={field} value={testWindow} onChange={(e) => setTestWindow(e.target.value)} placeholder="Jun 20–25, 09–17" />
+          <input className={field} value={testWindow} onChange={(e) => setTestWindow(e.target.value)} placeholder="Jun 20-25, 09-17" />
         </div>
       </div>
       <div>
@@ -92,7 +92,7 @@ export function ProposalForm({ onSubmit, submitLabel = 'Submit for approval' }: 
       <label className="flex cursor-pointer items-start gap-3 rounded-input border border-accent-soft bg-accent-soft/40 p-3.5">
         <input type="checkbox" checked={attest} onChange={(e) => setAttest(e.target.checked)} className="mt-0.5 h-4 w-4 flex-none accent-[var(--color-accent)]" />
         <span className="text-[12.5px] leading-relaxed text-ink-muted">
-          I confirm I <b className="text-ink">own or am authorized</b> to test these assets. (Legally required — the lead verifies this.)
+          I confirm I <b className="text-ink">own or am authorized</b> to test these assets. (Legally required. The lead verifies this.)
         </span>
       </label>
       <Button type="submit" size="lg" className="w-full" disabled={!attest || busy}>{submitLabel} <ArrowRight size={16} /></Button>

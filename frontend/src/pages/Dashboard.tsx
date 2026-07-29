@@ -40,7 +40,7 @@ export default function Dashboard() {
     if (isPro) api.get('/api/approvals').then(setApprovals).catch((e) => setErr(e.message))
   }, [isPro])
 
-  // Real counts only — never a stat the API didn't actually return.
+  // Real counts only, never a stat the API didn't actually return.
   const statusCounts: Record<string, number> = {}
   jobs?.forEach((j) => {
     statusCounts[j.status] = (statusCounts[j.status] || 0) + 1
@@ -71,7 +71,7 @@ export default function Dashboard() {
         {agent && !agent.registered && (
           <div className="glass flex flex-wrap items-center justify-between gap-sm border-l-2 !border-l-med px-sm py-xs md:px-md">
             <div className="text-sm text-ink">
-              No agent installed — you can't launch scans until one is registered.
+              No agent installed. You can't launch scans until one is registered.
             </div>
             <Link to="/install" className="btn-ghost whitespace-nowrap">
               Install agent

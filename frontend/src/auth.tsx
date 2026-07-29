@@ -18,7 +18,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false)
 
   // Restore session from a stored JWT on load. With no token, the app lands on the gate
-  // (login/register over a blurred dashboard) — see App + AuthGate.
+  // (login/register over a blurred dashboard), see App + AuthGate.
   useEffect(() => {
     if (!getToken()) {
       setReady(true)

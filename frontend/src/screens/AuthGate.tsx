@@ -121,7 +121,7 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
               </Button>
               <p className="text-center text-[12px] leading-relaxed text-ink-muted">
                 {mode === 'register'
-                  ? 'Registering grants access only — the dashboard unlocks once a proposal is approved.'
+                  ? 'Registering grants access only. The dashboard unlocks once a proposal is approved.'
                   : 'Welcome back.'}
               </p>
             </form>
@@ -172,7 +172,7 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
             <div className="mb-4 flex items-center gap-3">
               <span className="grid h-11 w-11 flex-none place-items-center rounded-full bg-low-bg text-low"><ShieldCheck size={20} /></span>
               <div>
-                <h2 className="text-[18px] font-bold tracking-[-0.02em] text-ink">Approved — install your agent</h2>
+                <h2 className="text-[18px] font-bold tracking-[-0.02em] text-ink">Approved. Install your agent</h2>
                 <p className="text-[12.5px] text-ink-muted">Paste this in Windows PowerShell (no admin).</p>
               </div>
             </div>
@@ -183,7 +183,7 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
               </div>
               <code className="block break-all font-mono text-[11.5px] leading-relaxed text-ink">{ONE_LINER}</code>
             </div>
-            <Button size="lg" className="w-full" onClick={onActivate}>I've installed it — unlock <ArrowRight size={16} /></Button>
+            <Button size="lg" className="w-full" onClick={onActivate}>I've installed it. Unlock <ArrowRight size={16} /></Button>
           </>
         )}
       </div>

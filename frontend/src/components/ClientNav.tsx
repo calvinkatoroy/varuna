@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 
-// The client pill nav — routes between the four client pages. Shared by the cockpit hero and
+// The client pill nav, routes between the four client pages. Shared by the cockpit hero and
 // the sub-page shell so the active state is always correct.
 const items: [string, string][] = [
   ['Overview', '/'],

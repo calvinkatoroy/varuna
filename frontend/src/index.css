@@ -194,10 +194,10 @@ input[type='checkbox'] {
 }
 
 /* Pilot: warm/soft glass variant, scoped to Dashboard only (design.md: not yet
-   system-wide — see design.md "Pilot: warm/glass Dashboard variant"). Overriding
+   system-wide, see design.md "Pilot: warm/glass Dashboard variant"). Overriding
    the tokens on this wrapper re-themes every existing token-based class (.btn,
    .card, .data-table, severity colors) automatically via the CSS custom property
-   cascade — nothing else needed to change. */
+   cascade, nothing else needed to change. */
 .dashboard-warm {
   /* sage page wash (outer canvas) */
   --color-paper: oklch(90% 0.035 150);
