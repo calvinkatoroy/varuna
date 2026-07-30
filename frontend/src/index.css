@@ -180,66 +180,51 @@ input[type='checkbox'] {
   from { opacity: 0; transform: translateY(20px); }
 }
 
-/* Hero shrink/fade, driven entirely by native CSS scroll-driven animations (animation-timeline:
-   scroll()) instead of a hand-rolled JS scroll listener. The browser ties these keyframes
-   directly to document scroll position and runs them on the compositor - it can't jank the way
-   scrubbing a layout property (padding) via a JS scroll handler did (that forced a full reflow on
-   every single scroll event, 60+/sec). Chromium-only today (same tradeoff already accepted for
-   the liquid-glass tiles); @supports below leaves unsupported browsers in the resting, expanded
-   state - safe, not broken.
-   --hero-pt/--hero-pb (start padding) and --collapse/--collapse-mt (start height/margin of a
-   fading row) are still supplied per-usage via inline style, same as before; only the distance
-   each animation runs over is now a fixed, named range per variant instead of a JS-computed
-   scroll fraction. */
-@supports (animation-timeline: scroll()) {
-  @keyframes hero-shrink-kf {
-    from { padding-top: var(--hero-pt, 20px); padding-bottom: var(--hero-pb, 38px); }
-    to { padding-top: 8px; padding-bottom: 10px; }
-  }
-  @keyframes hero-bg-fade-kf {
-    to { opacity: 0; }
-  }
-  @keyframes fade-collapse-kf {
-    to { opacity: 0; max-height: 0; margin-top: 0; }
-  }
-
-  .hero-sticky {
-    animation: hero-shrink-kf linear both;
-    animation-timeline: scroll(root block);
-  }
-  .hero-sticky--cockpit { animation-range: 0 65px; }
-  .hero-sticky--shell { animation-range: 0 60px; }
-
-  .hero-bg-fade {
-    animation: hero-bg-fade-kf linear both;
-    animation-timeline: scroll(root block);
-  }
-  .hero-bg-fade--cockpit { animation-range: 0 65px; }
-  .hero-bg-fade--shell { animation-range: 0 60px; }
-
-  .fade-collapse {
-    animation: fade-collapse-kf linear both;
-    animation-timeline: scroll(root block);
-    animation-range: 0 55px;
-  }
-}
-
+/* Hero shrink/fade: a threshold class toggle (useScrollThreshold), not a continuously-scrubbed
+   value - whether that scrubbing was driven by a JS scroll handler or by native CSS
+   animation-timeline: scroll() (tried both). Neither fixed the slow-scroll stutter, because the
+   properties being animated here - padding, max-height, margin - are LAYOUT properties. Native
+   scroll-driven animations only skip main-thread work for transform/opacity; a layout property
+   still forces a full layout recalculation on every scroll tick no matter what's driving it. A
+   one-shot class toggle + ordinary CSS transition makes that layout cost happen ONCE per
+   threshold crossing instead of continuously, which is what actually fixes it.
+   --hero-pt/--hero-pb (expanded padding) and --collapse/--collapse-mt (expanded height/margin
+   of a fading row) are supplied per-usage via inline style. */
 .hero-sticky {
   position: sticky;
   top: clamp(6px, 1vw, 14px);
   z-index: 30;
   padding-top: var(--hero-pt, 20px);
   padding-bottom: var(--hero-pb, 38px);
+  transition: padding 220ms var(--ease-out);
+}
+.hero-sticky.is-shrunk {
+  padding-top: 8px;
+  padding-bottom: 10px;
 }
 .hero-bg-fade {
   z-index: 0;
   pointer-events: none;
+  opacity: 1;
+  transition: opacity 220ms var(--ease-out);
+}
+.hero-sticky.is-shrunk .hero-bg-fade {
+  opacity: 0;
 }
 .fade-collapse {
   opacity: 1;
   max-height: var(--collapse, 160px);
   margin-top: var(--collapse-mt, 14px);
   overflow: hidden;
+  transition: opacity 200ms var(--ease-out), max-height 200ms var(--ease-out), margin-top 200ms var(--ease-out);
+}
+.fade-collapse.is-faded {
+  opacity: 0;
+  max-height: 0;
+  margin-top: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-sticky, .hero-bg-fade, .fade-collapse { transition: none; }
 }
 
 @keyframes bubIn {
