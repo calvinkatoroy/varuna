@@ -7,8 +7,6 @@ import { ClientTopbar } from '@/components/ClientTopbar'
 import { AgentStatus } from '@/components/AgentStatus'
 import { PostureBubbles } from '@/components/viz/PostureBubbles'
 import { useLiquidGlassAll } from '@/lib/useLiquidGlass'
-import { useHeroShrink } from '@/lib/useHeroShrink'
-import { useScrollFade } from '@/lib/useScrollFade'
 import { NewProposalDrawer } from './NewProposalDrawer'
 import { revealTiles, press } from '@/lib/motion'
 
@@ -59,8 +57,6 @@ function MiniSev({ sev }: { sev: { c: number; h: number; m: number; l: number } 
 
 export default function ClientCockpit() {
   const nav = useNavigate()
-  const shrink = useHeroShrink<HTMLElement>(180)
-  const fade = useScrollFade<HTMLDivElement>(55)
   const [d, setD] = useState<any>(null)
   const [proposalOpen, setProposalOpen] = useState(false)
   useEffect(() => { api.get('/api/cockpit').then(setD) }, [])
@@ -81,16 +77,15 @@ export default function ClientCockpit() {
           The nav pill + controls (inside ClientTopbar) don't fade - they're what's left once
           the card is fully compact. Cards below flow freely, no compensation. */}
       <header
-        ref={shrink}
-        className="hero-sticky relative isolate flex flex-col overflow-hidden rounded-bento-lg px-[clamp(18px,2.6vw,34px)] text-[#F2F5EF]"
+        className="hero-sticky hero-sticky--cockpit relative isolate flex flex-col overflow-hidden rounded-bento-lg px-[clamp(18px,2.6vw,34px)] text-[#F2F5EF]"
         style={{ borderRadius: '32px 32px 26px 26px', ['--hero-pb' as any]: '38px', ['--hero-pt' as any]: '20px' }}
       >
         {/* Background is its own layer so it can fade to fully transparent as the hero shrinks -
             at rest it reads as one card; once collapsed, only the individually-glassed nav pill
             and controls remain floating, no leftover dark bar behind them. */}
-        <div className="hero-bg-fade absolute inset-0 rounded-[inherit]" style={{ background: HERO_BG }} />
+        <div className="hero-bg-fade hero-bg-fade--cockpit absolute inset-0 rounded-[inherit]" style={{ background: HERO_BG }} />
         <ClientTopbar />
-        <div ref={fade} className="fade-collapse relative z-10 flex flex-wrap items-end justify-between gap-5" style={{ ['--collapse' as any]: '200px' }}>
+        <div className="fade-collapse relative z-10 flex flex-wrap items-end justify-between gap-5" style={{ ['--collapse' as any]: '200px' }}>
           <div>
             <h1 className="text-[clamp(30px,4.4vw,52px)] font-bold leading-none tracking-[-0.02em]">Hello, {d?.me.name ?? 'there'}</h1>
             <p className="mt-3.5 text-[14px] text-[#F2F5EF]/72">{d ? `${d.engagements.length} engagements in progress · ${p.open} open findings` : 'Loading your workspace…'}</p>

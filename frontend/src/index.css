@@ -180,48 +180,66 @@ input[type='checkbox'] {
   from { opacity: 0; transform: translateY(20px); }
 }
 
-/* The hero card: sticky, shrinks its own padding on scroll (see useHeroShrink). Nothing below it
-   is compensated - cards flow freely and just move up as the hero's occupied height shrinks,
-   like ordinary sticky content. Once fully shrunk it holds a small constant height forever; past
-   that point it covers content normally, same as any regular sticky nav bar. */
+/* Hero shrink/fade, driven entirely by native CSS scroll-driven animations (animation-timeline:
+   scroll()) instead of a hand-rolled JS scroll listener. The browser ties these keyframes
+   directly to document scroll position and runs them on the compositor - it can't jank the way
+   scrubbing a layout property (padding) via a JS scroll handler did (that forced a full reflow on
+   every single scroll event, 60+/sec). Chromium-only today (same tradeoff already accepted for
+   the liquid-glass tiles); @supports below leaves unsupported browsers in the resting, expanded
+   state - safe, not broken.
+   --hero-pt/--hero-pb (start padding) and --collapse/--collapse-mt (start height/margin of a
+   fading row) are still supplied per-usage via inline style, same as before; only the distance
+   each animation runs over is now a fixed, named range per variant instead of a JS-computed
+   scroll fraction. */
+@supports (animation-timeline: scroll()) {
+  @keyframes hero-shrink-kf {
+    from { padding-top: var(--hero-pt, 20px); padding-bottom: var(--hero-pb, 38px); }
+    to { padding-top: 8px; padding-bottom: 10px; }
+  }
+  @keyframes hero-bg-fade-kf {
+    to { opacity: 0; }
+  }
+  @keyframes fade-collapse-kf {
+    to { opacity: 0; max-height: 0; margin-top: 0; }
+  }
+
+  .hero-sticky {
+    animation: hero-shrink-kf linear both;
+    animation-timeline: scroll(root block);
+  }
+  .hero-sticky--cockpit { animation-range: 0 180px; }
+  .hero-sticky--shell { animation-range: 0 150px; }
+
+  .hero-bg-fade {
+    animation: hero-bg-fade-kf linear both;
+    animation-timeline: scroll(root block);
+  }
+  .hero-bg-fade--cockpit { animation-range: 0 180px; }
+  .hero-bg-fade--shell { animation-range: 0 150px; }
+
+  .fade-collapse {
+    animation: fade-collapse-kf linear both;
+    animation-timeline: scroll(root block);
+    animation-range: 0 55px;
+  }
+}
+
 .hero-sticky {
   position: sticky;
   top: clamp(6px, 1vw, 14px);
   z-index: 30;
-  padding-bottom: calc(var(--hero-pb, 38px) * (1 - var(--shrink, 0)) + 10px * var(--shrink, 0));
-  padding-top: calc(var(--hero-pt, 20px) * (1 - var(--shrink, 0)) + 8px * var(--shrink, 0));
+  padding-top: var(--hero-pt, 20px);
+  padding-bottom: var(--hero-pb, 38px);
 }
-/* The gradient background lives on its own absolutely-positioned layer (z-0, behind the topbar
-   and content) so IT can fade to fully transparent as the hero shrinks, independent of the nav
-   pill / controls sitting above it. --shrink inherits straight from the header (its ancestor,
-   also .hero-sticky), no separate wiring needed. At --shrink:1 nothing is left but the
-   individually-glassed pill and buttons floating over the page's own background. */
 .hero-bg-fade {
   z-index: 0;
-  opacity: calc(1 - var(--shrink, 0));
   pointer-events: none;
 }
-/* Opacity-only fading isn't enough: an invisible element still reserves its full layout box, so
-   the hero could never shrink past "topbar height + this row's natural height" no matter how
-   much its own padding collapsed. max-height (--collapse, the row's own natural height at rest)
-   genuinely removes that reserved space once faded; margin-top collapses too so no gap is left
-   behind. Driven by a single class toggle (useScrollFade), not a per-scroll-frame scrub - see
-   that file for why: this row can contain a plain CSS backdrop-blur button, and reflowing that
-   every scroll frame is what caused the stutter. The CSS transition here does the animating. */
 .fade-collapse {
   opacity: 1;
   max-height: var(--collapse, 160px);
   margin-top: var(--collapse-mt, 14px);
   overflow: hidden;
-  transition: opacity 200ms var(--ease-out), max-height 200ms var(--ease-out), margin-top 200ms var(--ease-out);
-}
-.fade-collapse.is-faded {
-  opacity: 0;
-  max-height: 0;
-  margin-top: 0;
-}
-@media (prefers-reduced-motion: reduce) {
-  .fade-collapse { transition: none; }
 }
 
 @keyframes bubIn {
