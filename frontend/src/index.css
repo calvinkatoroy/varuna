@@ -191,6 +191,17 @@ input[type='checkbox'] {
   padding-bottom: calc(var(--hero-pb, 38px) * (1 - var(--shrink, 0)) + 10px * var(--shrink, 0));
   padding-top: calc(var(--hero-pt, 20px) * (1 - var(--shrink, 0)) + 8px * var(--shrink, 0));
 }
+/* Opacity-only fading isn't enough: an invisible element still reserves its full layout box, so
+   the hero could never shrink past "topbar height + this row's natural height" no matter how
+   much its own padding collapsed. max-height (via --collapse, the row's own natural height at
+   rest) genuinely removes that reserved space once faded. margin-top collapses too so no gap is
+   left behind. Set on the element via useScrollFade + a --collapse custom property per usage. */
+.fade-collapse {
+  opacity: calc(1 - var(--fade, 0));
+  max-height: calc((1 - var(--fade, 0)) * var(--collapse, 160px));
+  margin-top: calc((1 - var(--fade, 0)) * var(--collapse-mt, 14px));
+  overflow: hidden;
+}
 
 @keyframes bubIn {
   from { opacity: 0; transform: translateY(10px); }

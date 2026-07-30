@@ -23,7 +23,7 @@ export function ClientShell({
         style={{ background: BAND, borderRadius: '32px 32px 26px 26px', ['--hero-pb' as any]: '28px', ['--hero-pt' as any]: '20px' }}
       >
         <ClientTopbar />
-        <div ref={fade} className="mt-3.5 flex flex-wrap items-end justify-between gap-4">
+        <div ref={fade} className="fade-collapse flex flex-wrap items-end justify-between gap-4" style={{ ['--collapse' as any]: '120px' }}>
           <div>
             <h1 className="text-[clamp(24px,3.4vw,38px)] font-bold leading-none tracking-[-0.02em]">{title}</h1>
             {sub && <p className="mt-2 text-[13.5px] text-[#F2F5EF]/72">{sub}</p>}

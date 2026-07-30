@@ -72,7 +72,7 @@ export function ClientTopbar() {
 
   return (
     <div className="relative z-10 flex items-center gap-4">
-      <Link ref={brandFade} to="/" className="flex items-center gap-[11px] text-[21px] font-bold tracking-[-0.02em] text-[#F2F5EF]">
+      <Link ref={brandFade} to="/" className="fade-collapse flex items-center gap-[11px] text-[21px] font-bold tracking-[-0.02em] text-[#F2F5EF]" style={{ ['--collapse' as any]: '40px', ['--collapse-mt' as any]: '0px' }}>
         <span className="grid h-8 w-8 place-items-center rounded-[10px]" style={{ background: 'conic-gradient(from 210deg,#F26A43,#f4996d,#F26A43)', boxShadow: 'inset 0 0 0 2px rgba(255,255,255,.16)' }}>
           <Shield size={18} className="fill-white text-white" />
         </span>

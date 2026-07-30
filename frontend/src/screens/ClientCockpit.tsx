@@ -86,7 +86,7 @@ export default function ClientCockpit() {
         style={{ background: HERO_BG, borderRadius: '32px 32px 26px 26px', ['--hero-pb' as any]: '38px', ['--hero-pt' as any]: '20px' }}
       >
         <ClientTopbar />
-        <div ref={fade} className="relative z-10 mt-3.5 flex flex-wrap items-end justify-between gap-5">
+        <div ref={fade} className="fade-collapse relative z-10 flex flex-wrap items-end justify-between gap-5" style={{ ['--collapse' as any]: '200px' }}>
           <div>
             <h1 className="text-[clamp(30px,4.4vw,52px)] font-bold leading-none tracking-[-0.02em]">Hello, {d?.me.name ?? 'there'}</h1>
             <p className="mt-3.5 text-[14px] text-[#F2F5EF]/72">{d ? `${d.engagements.length} engagements in progress · ${p.open} open findings` : 'Loading your workspace…'}</p>
