@@ -1,9 +1,8 @@
 import { Link, useLocation } from 'react-router-dom'
 
 // The client pill nav, routes between the four client pages. Shared by the cockpit hero and
-// the sub-page shell so the active state is always correct. Same material as the bottom
-// PrototypeSwitcher pill (border-rule + bg-card/90 + plain backdrop-blur, theme-aware) - no SVG
-// liquid glass, so it stays legible and consistent whichever theme or backdrop it floats over.
+// the sub-page shell so the active state is always correct. Solid bg-card, no backdrop-filter -
+// see ClientTopbar's ctrl comment for why (too many adjacent blur regions bleed into each other).
 const items: [string, string][] = [
   ['Overview', '/'],
   ['Proposals', '/proposals'],
@@ -14,7 +13,7 @@ const items: [string, string][] = [
 export function ClientNav() {
   const { pathname } = useLocation()
   return (
-    <nav className="mx-auto flex h-11 items-center gap-[3px] rounded-pill border border-rule bg-card/90 p-1 shadow-[0_12px_40px_rgba(0,0,0,.3)] backdrop-blur">
+    <nav className="mx-auto flex h-11 items-center gap-[3px] rounded-pill border border-rule bg-card p-1 shadow-[0_12px_40px_rgba(0,0,0,.3)]">
       {items.map(([label, to]) => {
         const on = pathname === to
         return (

@@ -54,7 +54,7 @@ export default function FindingsReview() {
           Varuna
         </div>
         <div className="hidden h-6 w-px bg-white/15 sm:block" />
-        <div className="flex items-center gap-1 rounded-pill bg-white/10 p-1 backdrop-blur-md">
+        <div className="flex items-center gap-1 rounded-pill bg-white/[.16] p-1">
           <Link to="/team" className="rounded-pill px-3.5 py-1.5 text-[13px] font-medium text-[#F2F5EF]/70">Board</Link>
           <span className="rounded-pill bg-[#F4F6F1] px-3.5 py-1.5 text-[13px] font-semibold text-[#12140F]">Findings</span>
         </div>
@@ -64,7 +64,7 @@ export default function FindingsReview() {
         </div>
         <div className="ml-auto flex items-center gap-2.5">
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-2 rounded-pill bg-white/10 px-4 py-2.5 text-[13px] font-medium capitalize text-[#F2F5EF] backdrop-blur-md">
+            <DropdownMenuTrigger className="flex items-center gap-2 rounded-pill bg-white/[.16] px-4 py-2.5 text-[13px] font-medium capitalize text-[#F2F5EF]">
               <Filter size={15} /> {sevFilter ?? 'All severities'} <ChevronDown size={14} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -73,7 +73,7 @@ export default function FindingsReview() {
               {SEVS.map((s) => <DropdownMenuItem key={s} onClick={() => setSevFilter(s)} className="capitalize">{s}</DropdownMenuItem>)}
             </DropdownMenuContent>
           </DropdownMenu>
-          <ThemeToggle />
+          <ThemeToggle className="grid h-11 w-11 place-items-center rounded-full bg-white/[.16] text-[#F2F5EF] transition-colors hover:bg-white/25" />
         </div>
       </header>
 

@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { ClientTopbar } from '@/components/ClientTopbar'
 import { AgentStatus } from '@/components/AgentStatus'
 import { PostureBubbles } from '@/components/viz/PostureBubbles'
-import { useLiquidGlassAll } from '@/lib/useLiquidGlass'
 import { NewProposalDrawer } from './NewProposalDrawer'
 import { revealTiles, press } from '@/lib/motion'
 
@@ -61,8 +60,6 @@ export default function ClientCockpit() {
   const [proposalOpen, setProposalOpen] = useState(false)
   useEffect(() => { api.get('/api/cockpit').then(setD) }, [])
   useEffect(() => { if (d) revealTiles('.tile') }, [d])
-  useLiquidGlassAll('.glass-card', { scale: -62, blur: 2, mapBlur: 10, saturate: 1.25, chroma: 0 }, [d])
-
   const p = d?.posture
   const drop = d ? Math.round(((sum(d.trend[0]) - sum(d.trend[d.trend.length - 1])) / sum(d.trend[0])) * 100) : 0
   function sum(r: any) { return r.critical + r.high + r.medium + r.low }

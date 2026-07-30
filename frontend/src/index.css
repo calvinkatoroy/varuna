@@ -305,18 +305,21 @@ input[type='checkbox'] {
   .mono {
     font-family: var(--font-mono);
   }
-  /* Dressing for liquid-glass surfaces: the specular rim + depth shadow that sells the
-     refraction (the backdrop-filter itself is applied in JS by lib/liquidGlass). */
+  /* Depth dressing (specular rim + shadow) without any backdrop-filter. A grid of many tiles
+     each with their own live SVG-refraction backdrop-filter, packed 12px apart, hit a real
+     Chromium compositor limitation where adjacent backdrop-filter regions bleed into each
+     other's rendering - confirmed because it also happened on PLAIN backdrop-blur elements
+     (the header controls), ruling out the SVG filter specifically. Not fixable by tuning
+     scale/blur; the fix is not stacking that many backdrop-filter regions at once. Cards are
+     solid opaque bg-card now (see .glass-card below); this box-shadow keeps their depth. */
   .liquid {
     box-shadow:
       inset 0 1px 1px rgba(255, 255, 255, 0.35),
       inset 0 -1px 1px rgba(255, 255, 255, 0.06),
       0 10px 34px rgba(0, 0, 0, 0.28);
   }
-  /* A translucent card surface so the page gradient shows through and liquid glass has a
-     backdrop to bend. Pair with the JS displacement filter (useLiquidGlassAll). */
   .glass-card {
-    background: color-mix(in oklab, var(--color-card) 58%, transparent);
+    background: var(--color-card);
     border: 1px solid rgba(255, 255, 255, 0.09);
   }
   /* Dense master-detail / table pages (Dashboard, Findings Review): a deliberate

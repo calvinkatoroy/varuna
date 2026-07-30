@@ -13,7 +13,6 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { AdvancedScanDrawer } from './AdvancedScanDrawer'
-import { useLiquidGlassAll } from '@/lib/useLiquidGlass'
 import { revealTiles } from '@/lib/motion'
 import { toast } from '@/lib/toast'
 
@@ -35,7 +34,9 @@ const isReview = (s: string) => s.startsWith('in_review')
 const sevChip = (n: number, cls: string, letter: string) =>
   n > 0 ? <span className={`rounded-md px-1.5 py-0.5 text-[10.5px] font-bold ${cls}`}>{n}{letter}</span> : null
 
-const ctrl = 'grid h-11 w-11 place-items-center rounded-full bg-white/10 text-[#F2F5EF] backdrop-blur-md transition-colors hover:bg-white/[.18]'
+// No backdrop-filter: this header packs 6 controls in one row, and stacking that many blurred
+// regions this close together triggers a real Chromium compositor bleed (see ClientTopbar).
+const ctrl = 'grid h-11 w-11 place-items-center rounded-full bg-white/[.16] text-[#F2F5EF] transition-colors hover:bg-white/25'
 const sampleVersions = [
   { n: 1, editor: 'system', note: 'auto-generated v1', when: 'Jun 19, 09:12' },
   { n: 2, editor: 'Aisah', note: 'fixed exec summary · 2 FPs marked', when: 'Jun 19, 14:40' },
@@ -50,7 +51,6 @@ export default function TeamBoard() {
 
   useEffect(() => { api.get('/api/pipeline/board').then(setCols) }, [])
   useEffect(() => { if (cols) revealTiles('.pcard') }, [cols, client])
-  useLiquidGlassAll('.pcard', { scale: -40, blur: 2, mapBlur: 7, saturate: 1.2, chroma: 0 }, [cols, client])
 
   const clients = useMemo(() => [...new Set((cols ?? []).flatMap((c) => c.cards.map((k) => k.client)))], [cols])
   const view = useMemo(
@@ -94,7 +94,7 @@ export default function TeamBoard() {
           Varuna
         </div>
         <div className="hidden h-6 w-px bg-white/15 sm:block" />
-        <div className="flex items-center gap-1 rounded-pill bg-white/10 p-1 backdrop-blur-md">
+        <div className="flex items-center gap-1 rounded-pill bg-white/[.16] p-1">
           <span className="rounded-pill bg-[#F4F6F1] px-3.5 py-1.5 text-[13px] font-semibold text-[#12140F]">Board</span>
           <Link to="/team/findings" className="rounded-pill px-3.5 py-1.5 text-[13px] font-medium text-[#F2F5EF]/70">Findings</Link>
         </div>
@@ -107,7 +107,7 @@ export default function TeamBoard() {
             <Plus size={15} /> New scan
           </button>
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-2 rounded-pill bg-white/10 px-4 py-2.5 text-[13px] font-medium text-[#F2F5EF] backdrop-blur-md">
+            <DropdownMenuTrigger className="flex items-center gap-2 rounded-pill bg-white/[.16] px-4 py-2.5 text-[13px] font-medium text-[#F2F5EF]">
               <Filter size={15} /> {client ?? 'All clients'} <ChevronDown size={14} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -116,7 +116,7 @@ export default function TeamBoard() {
               {clients.map((cl) => <DropdownMenuItem key={cl} onClick={() => setClient(cl)}>{cl}</DropdownMenuItem>)}
             </DropdownMenuContent>
           </DropdownMenu>
-          <ThemeToggle />
+          <ThemeToggle className={ctrl} />
           <DropdownMenu>
             <DropdownMenuTrigger aria-label="Notifications" className={`relative ${ctrl}`}>
               <Bell size={18} />

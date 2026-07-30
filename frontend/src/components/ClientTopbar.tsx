@@ -6,9 +6,11 @@ import { ThemeToggle } from './ThemeToggle'
 import { ClientNav } from './ClientNav'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu'
 
-// Same material as the bottom PrototypeSwitcher pill (border-rule + bg-card/90 + plain
-// backdrop-blur, theme-aware) - no SVG liquid glass.
-const ctrl = 'relative grid h-11 w-11 place-items-center rounded-full border border-rule bg-card/90 text-ink shadow-[0_12px_40px_rgba(0,0,0,.3)] backdrop-blur transition-colors hover:bg-panel'
+// Solid bg-card (no backdrop-filter): stacking many blurred/glassed regions this close
+// together (nav pill + these 3 + AgentStatus + New Proposal, all in one row) triggers a real
+// Chromium compositor limitation where adjacent backdrop-filter regions bleed into each
+// other's rendering - not fixable by tuning, only by not having that many at once.
+const ctrl = 'relative grid h-11 w-11 place-items-center rounded-full border border-rule bg-card text-ink shadow-[0_12px_40px_rgba(0,0,0,.3)] transition-colors hover:bg-panel'
 
 // A couple of read-only demo notifications so the bell is not a dead control.
 const notifications = [
