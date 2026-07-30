@@ -180,39 +180,6 @@ input[type='checkbox'] {
   from { opacity: 0; transform: translateY(20px); }
 }
 
-/* Sticky-shrink hero: pins to the top and compresses on scroll (see useHeroShrink). --shrink is
-   set by JS, 0 at rest -> 1 after `distance`px of scroll. The topbar (nav/pill/controls) stays
-   put; the title+subtitle fade and lift away as the hero shrinks. */
-.hero-sticky {
-  /* --shrink is set by JS on the WRAPPER (see useHeroShrink), not here - declaring a literal
-     value on this selector would set the header's own local value and block inheritance from
-     that wrapper entirely, no matter what JS does upstream. The var(--shrink, 0) fallback below
-     covers the case before JS has run at all. */
-  position: sticky;
-  top: clamp(6px, 1vw, 14px);
-  z-index: 30;
-  /* A tighter fully-shrunk target (6px/4px) for a genuinely compact bar once collapsed. */
-  padding-bottom: calc(var(--hero-pb, 38px) * (1 - var(--shrink, 0)) + 6px * var(--shrink, 0));
-  padding-top: calc(var(--hero-pt, 20px) * (1 - var(--shrink, 0)) + 4px * var(--shrink, 0));
-  /* No CSS transition here on purpose: --shrink is already interpolated smoothly every
-     scroll-driven rAF frame. A padding transition on top of that raced the page-transition
-     snapshot (old snapshot mid-tween, new snapshot pre-tween) and caused a visible flicker. */
-}
-.hero-sticky .hero-fade {
-  max-height: calc((1 - var(--shrink, 0)) * 140px);
-  opacity: calc(1 - var(--shrink, 0));
-  transform: translateY(calc(var(--shrink, 0) * -12px));
-  overflow: hidden;
-}
-/* Once a sticky element is pinned, whatever follows it in normal flow keeps scrolling underneath
-   it at the ordinary 1:1 rate - shrinking the hero doesn't change that, it's just how `position:
-   sticky` works. --over (px scrolled past the shrink distance, from useHeroShrink) grows the
-   content's own top margin by exactly that amount, canceling the consumption so the visual gap
-   between the collapsed hero and the tiles below holds steady instead of closing to zero. */
-.content-offset {
-  margin-top: calc(0.875rem + var(--over, 0) * 1px);
-}
-
 @keyframes bubIn {
   from { opacity: 0; transform: translateY(10px); }
 }

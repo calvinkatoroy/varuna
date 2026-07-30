@@ -3,11 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowUpRight, Play } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
-import { ClientTopbar } from '@/components/ClientTopbar'
+import { FixedTopbar } from '@/components/FixedTopbar'
 import { AgentStatus } from '@/components/AgentStatus'
 import { PostureBubbles } from '@/components/viz/PostureBubbles'
 import { useLiquidGlassAll } from '@/lib/useLiquidGlass'
-import { useHeroShrink } from '@/lib/useHeroShrink'
+import { useScrollFade } from '@/lib/useScrollFade'
 import { NewProposalDrawer } from './NewProposalDrawer'
 import { revealTiles, press } from '@/lib/motion'
 
@@ -59,7 +59,7 @@ function MiniSev({ sev }: { sev: { c: number; h: number; m: number; l: number } 
 
 export default function ClientCockpit() {
   const nav = useNavigate()
-  const hero = useHeroShrink<HTMLElement>(70)
+  const fade = useScrollFade<HTMLElement>(90)
   const [d, setD] = useState<any>(null)
   const [proposalOpen, setProposalOpen] = useState(false)
   useEffect(() => { api.get('/api/cockpit').then(setD) }, [])
@@ -73,14 +73,24 @@ export default function ClientCockpit() {
   const drop = Math.round(((sum(first) - sum(last)) / sum(first)) * 100)
 
   return (
-    <div ref={hero} className="mx-auto max-w-[1380px] p-[clamp(10px,2vw,28px)]">
-      {/* HERO: sticky + shrinks on scroll (title/subtitle fade, topbar stays put) */}
+    <div className="mx-auto max-w-[1380px] p-[clamp(10px,2vw,28px)]">
+      {/* Chrome (brand, nav pill, controls): its own floating bar, always fixed at top - see
+          FixedTopbar. Never resizes, never scrolls, so none of the tiles below it ever need to
+          compensate for it. */}
+      <FixedTopbar />
+      {/* Reserve room for the fixed bar above (its own height + top offset + a gap) before the
+          hero starts. */}
+      <div className="h-[76px]" />
+
+      {/* HERO: plain, normal-flow card. Scrolls away like anything else - no sticky, no shrink,
+          no compensating margins anywhere. The greeting fades (opacity only) as it nears the
+          fixed bar; that's cosmetic and can't cause a layout bug since it never touches size. */}
       <header
-        className="hero-sticky relative isolate flex flex-col overflow-hidden rounded-bento-lg px-[clamp(18px,2.6vw,34px)] text-[#F2F5EF]"
-        style={{ background: HERO_BG, borderRadius: '32px 32px 26px 26px', ['--hero-pb' as any]: '38px', ['--hero-pt' as any]: '20px' }}
+        ref={fade}
+        className="relative isolate flex flex-col overflow-hidden rounded-bento-lg px-[clamp(18px,2.6vw,34px)] py-[clamp(20px,2.6vw,30px)] text-[#F2F5EF]"
+        style={{ background: HERO_BG, borderRadius: '32px 32px 26px 26px' }}
       >
-        <ClientTopbar />
-        <div className="hero-fade relative z-10 mt-3.5 flex flex-wrap items-end justify-between gap-5">
+        <div className="relative z-10 flex flex-wrap items-end justify-between gap-5">
           <div>
             <h1 className="text-[clamp(30px,4.4vw,52px)] font-bold leading-none tracking-[-0.02em]">Hello, {d.me.name}</h1>
             <p className="mt-3.5 text-[14px] text-[#F2F5EF]/72">{d.engagements.length} engagements in progress · {p.open} open findings</p>
@@ -96,7 +106,7 @@ export default function ClientCockpit() {
       </header>
 
       {/* BENTO */}
-      <main className="content-offset grid grid-cols-1 gap-3 lg:grid-cols-3 lg:grid-rows-[auto_1fr]" style={{ viewTransitionName: 'page-body' }}>
+      <main className="mt-3.5 grid grid-cols-1 gap-3 lg:grid-cols-3 lg:grid-rows-[auto_1fr]" style={{ viewTransitionName: 'page-body' }}>
         {/* Engagements (merged navigator, tall) */}
         <section className="tile glass-card liquid flex min-w-0 flex-col overflow-hidden rounded-bento p-5 lg:row-span-2" style={{ opacity: 0 }}>
           <TileHead title="Engagements" sub={`${d.engagements.length} active`} to="/proposals" />
