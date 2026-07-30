@@ -207,15 +207,15 @@ input[type='checkbox'] {
     animation: hero-shrink-kf linear both;
     animation-timeline: scroll(root block);
   }
-  .hero-sticky--cockpit { animation-range: 0 180px; }
-  .hero-sticky--shell { animation-range: 0 150px; }
+  .hero-sticky--cockpit { animation-range: 0 65px; }
+  .hero-sticky--shell { animation-range: 0 60px; }
 
   .hero-bg-fade {
     animation: hero-bg-fade-kf linear both;
     animation-timeline: scroll(root block);
   }
-  .hero-bg-fade--cockpit { animation-range: 0 180px; }
-  .hero-bg-fade--shell { animation-range: 0 150px; }
+  .hero-bg-fade--cockpit { animation-range: 0 65px; }
+  .hero-bg-fade--shell { animation-range: 0 60px; }
 
   .fade-collapse {
     animation: fade-collapse-kf linear both;
