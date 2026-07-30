@@ -10,7 +10,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 // together (nav pill + these 3 + AgentStatus + New Proposal, all in one row) triggers a real
 // Chromium compositor limitation where adjacent backdrop-filter regions bleed into each
 // other's rendering - not fixable by tuning, only by not having that many at once.
-const ctrl = 'relative grid h-11 w-11 place-items-center rounded-full border border-rule bg-card text-ink shadow-[0_12px_40px_rgba(0,0,0,.3)] transition-colors hover:bg-panel'
+const ctrl = 'relative grid h-11 w-11 place-items-center rounded-full border border-rule bg-card text-ink shadow-[0_4px_14px_rgba(0,0,0,.16)] transition-colors hover:bg-panel'
 
 // A couple of read-only demo notifications so the bell is not a dead control.
 const notifications = [
@@ -48,7 +48,7 @@ function Account() {
   const signOut = () => { localStorage.removeItem('varuna-activated'); location.assign('/') }
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger aria-label="Account" className="grid h-11 w-11 place-items-center overflow-hidden rounded-full text-sm font-bold text-white shadow-[0_12px_40px_rgba(0,0,0,.3)]" style={{ background: 'linear-gradient(160deg,#f4996d,#F26A43)' }}>
+      <DropdownMenuTrigger aria-label="Account" className="grid h-11 w-11 place-items-center overflow-hidden rounded-full text-sm font-bold text-white shadow-[0_4px_14px_rgba(0,0,0,.16)]" style={{ background: 'linear-gradient(160deg,#f4996d,#F26A43)' }}>
         {initials}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
