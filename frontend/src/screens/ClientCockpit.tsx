@@ -98,7 +98,7 @@ export default function ClientCockpit() {
       {/* BENTO */}
       <main className="content-offset grid grid-cols-1 gap-3 lg:grid-cols-3 lg:grid-rows-[auto_1fr]" style={{ viewTransitionName: 'page-body' }}>
         {/* Engagements (merged navigator, tall) */}
-        <section className="tile glass-card liquid flex min-w-0 flex-col rounded-bento p-5 lg:row-span-2" style={{ opacity: 0 }}>
+        <section className="tile glass-card liquid flex min-w-0 flex-col overflow-hidden rounded-bento p-5 lg:row-span-2" style={{ opacity: 0 }}>
           <TileHead title="Engagements" sub={`${d.engagements.length} active`} to="/proposals" />
           <div className="flex flex-col">
             {d.engagements.map((e: any, i: number) => (
@@ -123,13 +123,13 @@ export default function ClientCockpit() {
         </section>
 
         {/* Posture bubbles */}
-        <section className="tile glass-card liquid flex min-w-0 flex-col rounded-bento p-5" style={{ opacity: 0 }}>
+        <section className="tile glass-card liquid flex min-w-0 flex-col overflow-hidden rounded-bento p-5" style={{ opacity: 0 }}>
           <TileHead title="Posture Overview" sub="Severity across all engagements" to="/findings" />
           <PostureBubbles posture={p} />
         </section>
 
         {/* Latest Report */}
-        <section className="tile glass-card liquid flex min-w-0 flex-col rounded-bento p-5" style={{ opacity: 0 }}>
+        <section className="tile glass-card liquid flex min-w-0 flex-col overflow-hidden rounded-bento p-5" style={{ opacity: 0 }}>
           <TileHead title="Latest Report" sub={`${d.latestReport.findings} findings · governance signed`} to="/reports" />
           <div className="mb-5 mt-1 flex flex-col">
             {[['Engagement', d.latestReport.engagement], ['Delivered', d.latestReport.delivered], ['Templates', `${d.latestReport.templates} available`]].map(([l, v], i) => (
@@ -143,7 +143,7 @@ export default function ClientCockpit() {
         </section>
 
         {/* Findings Trend (wide) */}
-        <section className="tile glass-card liquid flex min-w-0 flex-col rounded-bento p-5 lg:col-span-2" style={{ opacity: 0 }}>
+        <section className="tile glass-card liquid flex min-w-0 flex-col overflow-hidden rounded-bento p-5 lg:col-span-2" style={{ opacity: 0 }}>
           <TileHead title="Findings Trend" sub="Open findings by severity · 6 mo" to="/findings" />
           <div className="mb-1 text-[13px] text-ink-muted">{p.open} open now, <span className="font-semibold text-low">down {drop}%</span> over 6 months</div>
           <Suspense fallback={<div className="h-[214px]" />}><TrendChart data={d.trend} /></Suspense>
