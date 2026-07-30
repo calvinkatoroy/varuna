@@ -158,13 +158,19 @@ input[type='checkbox'] {
 
 /* Page transition on route change (the View Transitions API, driven by react-router).
    Browsers without support just navigate instantly. Reduced-motion opts out. */
-/* Barba-style leave then enter: old page slides up and out, new page waits, then rises in. */
+/* Scoped page transition: only the content BELOW the hero slides (view-transition-name:
+   page-body). The hero morphs gently (default), the active nav pill (view-transition-name:
+   nav-pill) slides between tabs, and everything else (root) is frozen. */
 @media (prefers-reduced-motion: no-preference) {
-  ::view-transition-old(root) {
+  ::view-transition-old(page-body) {
     animation: vt-out 240ms var(--ease-out) both;
   }
-  ::view-transition-new(root) {
+  ::view-transition-new(page-body) {
     animation: vt-in 380ms var(--ease-out) 170ms both;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
   }
 }
 @keyframes vt-out {

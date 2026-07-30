@@ -94,7 +94,7 @@ export default function ClientCockpit() {
       </header>
 
       {/* BENTO */}
-      <main className="mt-3.5 grid grid-cols-1 gap-3 lg:grid-cols-3 lg:grid-rows-[auto_1fr]">
+      <main className="mt-3.5 grid grid-cols-1 gap-3 lg:grid-cols-3 lg:grid-rows-[auto_1fr]" style={{ viewTransitionName: 'page-body' }}>
         {/* Engagements (merged navigator, tall) */}
         <section className="tile glass-card liquid flex min-w-0 flex-col rounded-bento p-5 lg:row-span-2" style={{ opacity: 0 }}>
           <TileHead title="Engagements" sub={`${d.engagements.length} active`} to="/proposals" />

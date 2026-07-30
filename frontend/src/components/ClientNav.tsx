@@ -21,6 +21,7 @@ export function ClientNav() {
           <Link
             key={to}
             to={to}
+            style={on ? { viewTransitionName: 'nav-pill' } : undefined}
             className={`rounded-pill px-[17px] py-[9px] text-sm leading-none transition-colors ${
               on ? 'bg-[#F4F6F1] font-semibold text-[#12140F]' : 'font-medium text-[#F2F5EF]/70 hover:text-[#F2F5EF]'
             }`}

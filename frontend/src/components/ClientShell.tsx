@@ -24,7 +24,7 @@ export function ClientShell({
           {action}
         </div>
       </header>
-      <main className="mt-3.5 rounded-bento-lg bg-panel p-3.5">{children}</main>
+      <main className="mt-3.5 rounded-bento-lg bg-panel p-3.5" style={{ viewTransitionName: 'page-body' }}>{children}</main>
     </div>
   )
 }

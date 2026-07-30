@@ -1,7 +1,11 @@
 import * as DM from '@radix-ui/react-dropdown-menu'
 import { cn } from '@/lib/utils'
 
-export const DropdownMenu = DM.Root
+// modal={false}: don't lock body scroll (that removes the scrollbar and shifts the page under
+// the popover). Menus don't need the scroll lock; they close on outside click regardless.
+export function DropdownMenu(props: React.ComponentProps<typeof DM.Root>) {
+  return <DM.Root modal={false} {...props} />
+}
 export const DropdownMenuTrigger = DM.Trigger
 
 export function DropdownMenuContent({ className, ...props }: React.ComponentProps<typeof DM.Content>) {
