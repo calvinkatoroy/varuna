@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Shield, Bell, Filter, Lock, Check, X as XIcon, ArrowRight, ArrowLeft, Download,
-  Upload, FileText, KeyRound, Activity, Plus, Eye, LogOut, ChevronDown,
+  Upload, FileText, KeyRound, Activity, Plus, Eye, LogOut, ChevronDown, Pause, Play,
 } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
@@ -19,7 +19,7 @@ import { toast } from '@/lib/toast'
 
 type Card = {
   id: string; client: string; target: string; mode: string
-  sev: { c: number; h: number; m: number; l: number }; meta: string; owner?: string
+  sev: { c: number; h: number; m: number; l: number }; meta: string; owner?: string; suspended?: boolean
 }
 type Col = { id: string; title: string; accent: string; cards: Card[] }
 
@@ -73,6 +73,12 @@ export default function TeamBoard() {
   }
   const forward = (c: Card, col: string) => { const to = STAGES[Math.min(STAGES.indexOf(col) + 1, STAGES.length - 1)]; move(c.id, col, to, `Forwarded to ${stageName[to]}.`) }
   const back = (c: Card, col: string) => { const to = STAGES[Math.max(STAGES.indexOf(col) - 1, 0)]; move(c.id, col, to, `Sent back to ${stageName[to]}.`) }
+  const toggleSuspend = (c: Card, col: string) => {
+    const next = !c.suspended
+    setCols((cs) => cs?.map((x) => (x.id === col ? { ...x, cards: x.cards.map((k) => (k.id === c.id ? { ...k, suspended: next } : k)) } : x)) ?? cs)
+    setSel((s) => (s && s.card.id === c.id ? { ...s, card: { ...s.card, suspended: next } } : s))
+    toast(next ? `Scan suspended for ${c.client}.` : `Scan resumed for ${c.client}.`)
+  }
 
   return (
     <div className="mx-auto max-w-[1500px] p-[clamp(10px,2vw,28px)]">
@@ -163,7 +169,10 @@ export default function TeamBoard() {
                           {c.sev.c + c.sev.h + c.sev.m + c.sev.l === 0 && <span className="text-[11px] text-ink-faint">no findings yet</span>}
                         </div>
                         <div className="mt-2.5 flex items-center justify-between border-t border-rule pt-2.5">
-                          <span className="text-[11.5px] text-ink-faint">{c.meta}</span>
+                          <span className={`flex items-center gap-1.5 text-[11.5px] ${c.suspended ? 'font-semibold text-med' : 'text-ink-faint'}`}>
+                            {c.suspended && <Pause size={11} />}
+                            {c.suspended ? 'Suspended' : c.meta}
+                          </span>
                           {c.owner && <span className="grid h-6 w-6 place-items-center rounded-full text-[10.5px] font-bold text-white" style={{ background: 'linear-gradient(160deg,#f4996d,#F26A43)' }}>{c.owner[0]}</span>}
                         </div>
                       </button>
@@ -175,6 +184,11 @@ export default function TeamBoard() {
                           <DropdownMenuItem onClick={() => move(c.id, col.id, 'scanning', `Approved. Scan queued for ${c.client}.`)} className="text-low focus:bg-low-bg"><Check size={15} /> Approve proposal</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => reject(c, col.id)} className="text-crit focus:bg-crit-bg"><XIcon size={15} /> Reject</DropdownMenuItem>
                         </>
+                      )}
+                      {col.id === 'scanning' && (
+                        <DropdownMenuItem onClick={() => toggleSuspend(c, col.id)} className={c.suspended ? 'text-low focus:bg-low-bg' : 'text-med focus:bg-med-bg'}>
+                          {c.suspended ? <><Play size={15} /> Resume scan</> : <><Pause size={15} /> Suspend scan</>}
+                        </DropdownMenuItem>
                       )}
                       {isReview(col.id) && (
                         <>
@@ -236,7 +250,9 @@ export default function TeamBoard() {
 
               {sel.col === 'scanning' && (
                 <section className="flex items-center gap-3 rounded-input border border-rule bg-panel p-4 text-[13px]">
-                  <Activity size={18} className="text-info" /> Live scan in progress. Nuclei 62%. Findings stream in as tools finish.
+                  {sel.card.suspended
+                    ? <><Pause size={18} className="text-med" /> Scan suspended. Resume to continue where it left off.</>
+                    : <><Activity size={18} className="text-info" /> Live scan in progress. Nuclei 62%. Findings stream in as tools finish.</>}
                 </section>
               )}
 
@@ -264,7 +280,14 @@ export default function TeamBoard() {
               {sel.col === 'delivered' && (
                 <Button variant="outline" size="lg" className="w-full" onClick={() => { toast(`New view-once password issued for ${sel.card.client}.`); setOpen(false) }}><KeyRound size={16} /> Re-issue password</Button>
               )}
-              {sel.col === 'scanning' && <DrawerClose asChild><Button variant="outline" size="lg" className="w-full">Close</Button></DrawerClose>}
+              {sel.col === 'scanning' && (
+                <>
+                  <Button variant="outline" size="lg" className="flex-1" onClick={() => toggleSuspend(sel.card, sel.col)}>
+                    {sel.card.suspended ? <><Play size={16} /> Resume scan</> : <><Pause size={16} /> Suspend scan</>}
+                  </Button>
+                  <DrawerClose asChild><Button size="lg" className="flex-1">Close</Button></DrawerClose>
+                </>
+              )}
             </div>
           </DrawerContent>
         )}
