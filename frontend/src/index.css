@@ -113,6 +113,9 @@ body {
    was, which left a black void below short pages). Body stays transparent so it shows through. */
 html {
   min-height: 100%;
+  /* Always reserve the scrollbar gutter so opening a Radix popover/drawer (which locks body
+     scroll and hides the scrollbar) doesn't shift the whole page sideways. */
+  scrollbar-gutter: stable;
   background-color: var(--color-shell);
   background-image: var(--bg-grad);
   background-repeat: no-repeat;
