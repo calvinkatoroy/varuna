@@ -184,21 +184,24 @@ input[type='checkbox'] {
    set by JS, 0 at rest -> 1 after `distance`px of scroll. The topbar (nav/pill/controls) stays
    put; the title+subtitle fade and lift away as the hero shrinks. */
 .hero-sticky {
-  --shrink: 0;
+  /* --shrink is set by JS on the WRAPPER (see useHeroShrink), not here - declaring a literal
+     value on this selector would set the header's own local value and block inheritance from
+     that wrapper entirely, no matter what JS does upstream. The var(--shrink, 0) fallback below
+     covers the case before JS has run at all. */
   position: sticky;
   top: clamp(6px, 1vw, 14px);
   z-index: 30;
   /* A tighter fully-shrunk target (6px/4px) for a genuinely compact bar once collapsed. */
-  padding-bottom: calc(var(--hero-pb, 38px) * (1 - var(--shrink)) + 6px * var(--shrink));
-  padding-top: calc(var(--hero-pt, 20px) * (1 - var(--shrink)) + 4px * var(--shrink));
+  padding-bottom: calc(var(--hero-pb, 38px) * (1 - var(--shrink, 0)) + 6px * var(--shrink, 0));
+  padding-top: calc(var(--hero-pt, 20px) * (1 - var(--shrink, 0)) + 4px * var(--shrink, 0));
   /* No CSS transition here on purpose: --shrink is already interpolated smoothly every
      scroll-driven rAF frame. A padding transition on top of that raced the page-transition
      snapshot (old snapshot mid-tween, new snapshot pre-tween) and caused a visible flicker. */
 }
 .hero-sticky .hero-fade {
-  max-height: calc((1 - var(--shrink)) * 140px);
-  opacity: calc(1 - var(--shrink));
-  transform: translateY(calc(var(--shrink) * -12px));
+  max-height: calc((1 - var(--shrink, 0)) * 140px);
+  opacity: calc(1 - var(--shrink, 0));
+  transform: translateY(calc(var(--shrink, 0) * -12px));
   overflow: hidden;
 }
 /* Once a sticky element is pinned, whatever follows it in normal flow keeps scrolling underneath
