@@ -188,8 +188,9 @@ input[type='checkbox'] {
   position: sticky;
   top: clamp(6px, 1vw, 14px);
   z-index: 30;
-  padding-bottom: calc(var(--hero-pb, 38px) * (1 - var(--shrink)) + 14px * var(--shrink));
-  padding-top: calc(var(--hero-pt, 20px) * (1 - var(--shrink)) + 12px * var(--shrink));
+  /* A tighter fully-shrunk target (6px/4px) for a genuinely compact bar once collapsed. */
+  padding-bottom: calc(var(--hero-pb, 38px) * (1 - var(--shrink)) + 6px * var(--shrink));
+  padding-top: calc(var(--hero-pt, 20px) * (1 - var(--shrink)) + 4px * var(--shrink));
   /* No CSS transition here on purpose: --shrink is already interpolated smoothly every
      scroll-driven rAF frame. A padding transition on top of that raced the page-transition
      snapshot (old snapshot mid-tween, new snapshot pre-tween) and caused a visible flicker. */
@@ -199,6 +200,14 @@ input[type='checkbox'] {
   opacity: calc(1 - var(--shrink));
   transform: translateY(calc(var(--shrink) * -12px));
   overflow: hidden;
+}
+/* Once a sticky element is pinned, whatever follows it in normal flow keeps scrolling underneath
+   it at the ordinary 1:1 rate - shrinking the hero doesn't change that, it's just how `position:
+   sticky` works. --over (px scrolled past the shrink distance, from useHeroShrink) grows the
+   content's own top margin by exactly that amount, canceling the consumption so the visual gap
+   between the collapsed hero and the tiles below holds steady instead of closing to zero. */
+.content-offset {
+  margin-top: calc(0.875rem + var(--over, 0) * 1px);
 }
 
 @keyframes bubIn {

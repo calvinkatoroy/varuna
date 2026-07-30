@@ -1,15 +1,23 @@
 import { useCallback, useRef } from 'react'
 
-// Drives the sticky-shrink hero: as the page scrolls, sets --shrink (0->1) on the hero element
-// via rAF (no React re-render). CSS (see .hero-sticky in index.css) uses the variable to shrink
-// the hero's height and fade its title as it pins to the top.
+// Drives the sticky-shrink hero. Sets two CSS vars on the wrapping element (via rAF, no React
+// re-render): --shrink (0->1 over `distance`px, used by .hero-sticky to shrink height/fade the
+// title) and --over (0+, px scrolled PAST `distance`).
 //
-// Implemented as a CALLBACK ref (not useRef+useEffect): a page that shows a "Loading..." gate
-// before its data arrives renders a completely different tree on its first pass (no header at
-// all). An effect keyed on a constant dep (e.g. [distance]) only runs on that first render, sees
-// ref.current === null, bails, and never runs again once the real header finally mounts after
-// data loads - the scroll listener never attaches. A callback ref fires every time React attaches
-// the ref to an actual DOM node, however many renders it took to get there, so this can't happen.
+// --over exists because position:sticky, on its own, guarantees the gap between the stuck
+// header and whatever follows it in normal flow shrinks 1:1 with scroll and eventually hits
+// zero (then overlaps) - that's true no matter how the header itself shrinks, since the header
+// shrinking and the content behind it scrolling up are two independent things once the header
+// is pinned. Content that wants a PERSISTENT gap needs to grow its own top margin by exactly
+// however much scroll happened past the shrink point, canceling that consumption. See
+// `.content-offset` in index.css, applied to the row of tiles below the hero.
+//
+// Implemented as a callback ref (not useRef+useEffect): a page that shows a "Loading..." gate
+// before its data arrives renders a completely different tree on its first pass (no hero at
+// all). An effect keyed on a constant dep only runs on that first render, sees the ref as null,
+// bails, and never runs again once the real hero finally mounts after data loads - the scroll
+// listener never attaches. A callback ref fires every time React attaches it to an actual DOM
+// node, however many renders it took to get there.
 export function useHeroShrink<T extends HTMLElement>(distance = 140) {
   const cleanup = useRef<(() => void) | null>(null)
   return useCallback(
@@ -19,8 +27,9 @@ export function useHeroShrink<T extends HTMLElement>(distance = 140) {
       if (!el) return
       let raf = 0
       const apply = () => {
-        const p = Math.min(Math.max(window.scrollY / distance, 0), 1)
-        el.style.setProperty('--shrink', String(p))
+        const y = window.scrollY
+        el.style.setProperty('--shrink', String(Math.min(Math.max(y / distance, 0), 1)))
+        el.style.setProperty('--over', String(Math.max(y - distance, 0)))
       }
       const onScroll = () => {
         cancelAnimationFrame(raf)
