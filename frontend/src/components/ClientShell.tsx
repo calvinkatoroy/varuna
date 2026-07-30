@@ -20,10 +20,11 @@ export function ClientShell({
       <header
         ref={shrink}
         className="hero-sticky relative isolate flex flex-col overflow-hidden rounded-bento-lg px-[clamp(18px,2.6vw,34px)] text-[#F2F5EF]"
-        style={{ background: BAND, borderRadius: '32px 32px 26px 26px', ['--hero-pb' as any]: '28px', ['--hero-pt' as any]: '20px' }}
+        style={{ borderRadius: '32px 32px 26px 26px', ['--hero-pb' as any]: '28px', ['--hero-pt' as any]: '20px' }}
       >
+        <div className="hero-bg-fade absolute inset-0 rounded-[inherit]" style={{ background: BAND }} />
         <ClientTopbar />
-        <div ref={fade} className="fade-collapse flex flex-wrap items-end justify-between gap-4" style={{ ['--collapse' as any]: '120px' }}>
+        <div ref={fade} className="fade-collapse relative z-10 flex flex-wrap items-end justify-between gap-4" style={{ ['--collapse' as any]: '120px' }}>
           <div>
             <h1 className="text-[clamp(24px,3.4vw,38px)] font-bold leading-none tracking-[-0.02em]">{title}</h1>
             {sub && <p className="mt-2 text-[13.5px] text-[#F2F5EF]/72">{sub}</p>}

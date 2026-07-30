@@ -83,8 +83,12 @@ export default function ClientCockpit() {
       <header
         ref={shrink}
         className="hero-sticky relative isolate flex flex-col overflow-hidden rounded-bento-lg px-[clamp(18px,2.6vw,34px)] text-[#F2F5EF]"
-        style={{ background: HERO_BG, borderRadius: '32px 32px 26px 26px', ['--hero-pb' as any]: '38px', ['--hero-pt' as any]: '20px' }}
+        style={{ borderRadius: '32px 32px 26px 26px', ['--hero-pb' as any]: '38px', ['--hero-pt' as any]: '20px' }}
       >
+        {/* Background is its own layer so it can fade to fully transparent as the hero shrinks -
+            at rest it reads as one card; once collapsed, only the individually-glassed nav pill
+            and controls remain floating, no leftover dark bar behind them. */}
+        <div className="hero-bg-fade absolute inset-0 rounded-[inherit]" style={{ background: HERO_BG }} />
         <ClientTopbar />
         <div ref={fade} className="fade-collapse relative z-10 flex flex-wrap items-end justify-between gap-5" style={{ ['--collapse' as any]: '200px' }}>
           <div>

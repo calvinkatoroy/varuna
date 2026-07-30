@@ -191,6 +191,16 @@ input[type='checkbox'] {
   padding-bottom: calc(var(--hero-pb, 38px) * (1 - var(--shrink, 0)) + 10px * var(--shrink, 0));
   padding-top: calc(var(--hero-pt, 20px) * (1 - var(--shrink, 0)) + 8px * var(--shrink, 0));
 }
+/* The gradient background lives on its own absolutely-positioned layer (z-0, behind the topbar
+   and content) so IT can fade to fully transparent as the hero shrinks, independent of the nav
+   pill / controls sitting above it. --shrink inherits straight from the header (its ancestor,
+   also .hero-sticky), no separate wiring needed. At --shrink:1 nothing is left but the
+   individually-glassed pill and buttons floating over the page's own background. */
+.hero-bg-fade {
+  z-index: 0;
+  opacity: calc(1 - var(--shrink, 0));
+  pointer-events: none;
+}
 /* Opacity-only fading isn't enough: an invisible element still reserves its full layout box, so
    the hero could never shrink past "topbar height + this row's natural height" no matter how
    much its own padding collapsed. max-height (--collapse, the row's own natural height at rest)
