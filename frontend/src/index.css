@@ -53,7 +53,7 @@
   --bg-grad:
     radial-gradient(115% 90% at var(--bg-x, 84%) var(--bg-y, -6%), rgba(242, 106, 67, 0.24), transparent 48%),
     radial-gradient(100% 100% at 6% 106%, rgba(30, 108, 82, 0.6), transparent 56%),
-    linear-gradient(160deg, #1a5140 0%, #123527 42%, #0b1c15 74%, #081210 100%);
+    linear-gradient(160deg, #1c5643 0%, #143a2b 40%, #103023 72%, #0d2a1f 100%);
 
   --font-display: 'Agrandir', 'Segoe UI', system-ui, sans-serif;
   --font-body: 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -108,22 +108,23 @@ html,
 body {
   overflow-x: clip;
 }
+/* The gradient lives on the ROOT element so it always fills the whole viewport (the root
+   background is painted across the canvas and can't be clipped by overflow like a body::before
+   was, which left a black void below short pages). Body stays transparent so it shows through. */
+html {
+  min-height: 100%;
+  background-color: var(--color-shell);
+  background-image: var(--bg-grad);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  background-size: cover;
+}
 
 body {
   @apply text-ink;
   font-family: var(--font-body);
   font-weight: 350;
-  background-color: var(--color-shell);
-}
-/* Dark-mode gradient as a fixed, composited layer (does not repaint on scroll, unlike
-   background-attachment: fixed). Content scrolls over it, which reads as parallax. */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background: var(--bg-grad);
-  pointer-events: none;
+  background: transparent;
 }
 
 h1,
