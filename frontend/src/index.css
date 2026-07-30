@@ -180,6 +180,26 @@ input[type='checkbox'] {
   from { opacity: 0; transform: translateY(20px); }
 }
 
+/* Sticky-shrink hero: pins to the top and compresses on scroll (see useHeroShrink). --shrink is
+   set by JS, 0 at rest -> 1 after `distance`px of scroll. The topbar (nav/pill/controls) stays
+   put; the title+subtitle fade and lift away as the hero shrinks. */
+.hero-sticky {
+  --shrink: 0;
+  position: sticky;
+  top: clamp(6px, 1vw, 14px);
+  z-index: 30;
+  padding-bottom: calc(var(--hero-pb, 38px) * (1 - var(--shrink)) + 14px * var(--shrink));
+  padding-top: calc(var(--hero-pt, 20px) * (1 - var(--shrink)) + 12px * var(--shrink));
+  transition: padding 60ms linear;
+}
+.hero-sticky .hero-fade {
+  max-height: calc((1 - var(--shrink)) * 140px);
+  opacity: calc(1 - var(--shrink));
+  transform: translateY(calc(var(--shrink) * -12px));
+  overflow: hidden;
+  transition: opacity 80ms linear;
+}
+
 @keyframes bubIn {
   from { opacity: 0; transform: translateY(10px); }
 }

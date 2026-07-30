@@ -7,6 +7,7 @@ import { ClientTopbar } from '@/components/ClientTopbar'
 import { AgentStatus } from '@/components/AgentStatus'
 import { PostureBubbles } from '@/components/viz/PostureBubbles'
 import { useLiquidGlassAll } from '@/lib/useLiquidGlass'
+import { useHeroShrink } from '@/lib/useHeroShrink'
 import { NewProposalDrawer } from './NewProposalDrawer'
 import { revealTiles, press } from '@/lib/motion'
 
@@ -58,6 +59,7 @@ function MiniSev({ sev }: { sev: { c: number; h: number; m: number; l: number } 
 
 export default function ClientCockpit() {
   const nav = useNavigate()
+  const hero = useHeroShrink<HTMLElement>()
   const [d, setD] = useState<any>(null)
   const [proposalOpen, setProposalOpen] = useState(false)
   useEffect(() => { api.get('/api/cockpit').then(setD) }, [])
@@ -72,13 +74,14 @@ export default function ClientCockpit() {
 
   return (
     <div className="mx-auto max-w-[1380px] p-[clamp(10px,2vw,28px)]">
-      {/* HERO */}
+      {/* HERO: sticky + shrinks on scroll (title/subtitle fade, topbar stays put) */}
       <header
-        className="relative isolate flex min-h-[300px] flex-col overflow-hidden rounded-bento-lg px-[clamp(18px,2.6vw,34px)] pb-[clamp(24px,3vw,38px)] pt-[clamp(16px,2vw,24px)] text-[#F2F5EF]"
-        style={{ background: HERO_BG, borderRadius: '32px 32px 26px 26px' }}
+        ref={hero}
+        className="hero-sticky relative isolate flex flex-col overflow-hidden rounded-bento-lg px-[clamp(18px,2.6vw,34px)] text-[#F2F5EF]"
+        style={{ background: HERO_BG, borderRadius: '32px 32px 26px 26px', ['--hero-pb' as any]: '38px', ['--hero-pt' as any]: '20px' }}
       >
         <ClientTopbar />
-        <div className="relative z-10 mt-auto flex flex-wrap items-end justify-between gap-5">
+        <div className="hero-fade relative z-10 mt-3.5 flex flex-wrap items-end justify-between gap-5">
           <div>
             <h1 className="text-[clamp(30px,4.4vw,52px)] font-bold leading-none tracking-[-0.02em]">Hello, {d.me.name}</h1>
             <p className="mt-3.5 text-[14px] text-[#F2F5EF]/72">{d.engagements.length} engagements in progress · {p.open} open findings</p>

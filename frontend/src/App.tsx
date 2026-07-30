@@ -58,6 +58,10 @@ export default function App() {
   // are captured and cross-animated via the ::view-transition-* rules in index.css.
   useEffect(() => {
     if (location.pathname === displayed.pathname) return
+    // Snap scroll to top BEFORE the old-page snapshot is taken. Otherwise the old snapshot is
+    // captured at the current scroll position while the new page always renders at scroll 0,
+    // so any named element (e.g. the nav pill) jumps between two different viewport positions.
+    window.scrollTo(0, 0)
     const doc = document as any
     if (!doc.startViewTransition || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       setDisplayed(location)
