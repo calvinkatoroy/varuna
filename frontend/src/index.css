@@ -193,14 +193,25 @@ input[type='checkbox'] {
 }
 /* Opacity-only fading isn't enough: an invisible element still reserves its full layout box, so
    the hero could never shrink past "topbar height + this row's natural height" no matter how
-   much its own padding collapsed. max-height (via --collapse, the row's own natural height at
-   rest) genuinely removes that reserved space once faded. margin-top collapses too so no gap is
-   left behind. Set on the element via useScrollFade + a --collapse custom property per usage. */
+   much its own padding collapsed. max-height (--collapse, the row's own natural height at rest)
+   genuinely removes that reserved space once faded; margin-top collapses too so no gap is left
+   behind. Driven by a single class toggle (useScrollFade), not a per-scroll-frame scrub - see
+   that file for why: this row can contain a plain CSS backdrop-blur button, and reflowing that
+   every scroll frame is what caused the stutter. The CSS transition here does the animating. */
 .fade-collapse {
-  opacity: calc(1 - var(--fade, 0));
-  max-height: calc((1 - var(--fade, 0)) * var(--collapse, 160px));
-  margin-top: calc((1 - var(--fade, 0)) * var(--collapse-mt, 14px));
+  opacity: 1;
+  max-height: var(--collapse, 160px);
+  margin-top: var(--collapse-mt, 14px);
   overflow: hidden;
+  transition: opacity 200ms var(--ease-out), max-height 200ms var(--ease-out), margin-top 200ms var(--ease-out);
+}
+.fade-collapse.is-faded {
+  opacity: 0;
+  max-height: 0;
+  margin-top: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fade-collapse { transition: none; }
 }
 
 @keyframes bubIn {
