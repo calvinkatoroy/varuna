@@ -190,14 +190,15 @@ input[type='checkbox'] {
   z-index: 30;
   padding-bottom: calc(var(--hero-pb, 38px) * (1 - var(--shrink)) + 14px * var(--shrink));
   padding-top: calc(var(--hero-pt, 20px) * (1 - var(--shrink)) + 12px * var(--shrink));
-  transition: padding 60ms linear;
+  /* No CSS transition here on purpose: --shrink is already interpolated smoothly every
+     scroll-driven rAF frame. A padding transition on top of that raced the page-transition
+     snapshot (old snapshot mid-tween, new snapshot pre-tween) and caused a visible flicker. */
 }
 .hero-sticky .hero-fade {
   max-height: calc((1 - var(--shrink)) * 140px);
   opacity: calc(1 - var(--shrink));
   transform: translateY(calc(var(--shrink) * -12px));
   overflow: hidden;
-  transition: opacity 80ms linear;
 }
 
 @keyframes bubIn {

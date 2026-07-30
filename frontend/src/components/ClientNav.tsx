@@ -14,7 +14,7 @@ export function ClientNav() {
   const { pathname } = useLocation()
   const glass = useLiquidGlass<HTMLElement>({ scale: -64, blur: 2, mapBlur: 8, radius: 999, chroma: 0 })
   return (
-    <nav ref={glass} className="liquid mx-auto flex gap-[3px] rounded-pill bg-white/[.06] p-[5px]">
+    <nav ref={glass} className="liquid mx-auto flex h-11 items-center gap-[3px] rounded-pill bg-white/[.06] p-[5px]">
       {items.map(([label, to]) => {
         const on = pathname === to
         return (
@@ -22,7 +22,7 @@ export function ClientNav() {
             key={to}
             to={to}
             style={on ? { viewTransitionName: 'nav-pill' } : undefined}
-            className={`rounded-pill px-[17px] py-[9px] text-sm leading-none transition-colors ${
+            className={`flex h-full items-center rounded-pill px-[17px] text-sm leading-none transition-colors ${
               on ? 'bg-[#F4F6F1] font-semibold text-[#12140F]' : 'font-medium text-[#F2F5EF]/70 hover:text-[#F2F5EF]'
             }`}
           >

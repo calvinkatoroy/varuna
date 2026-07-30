@@ -10,14 +10,18 @@ export function useHeroShrink<T extends HTMLElement>(distance = 140) {
     const el = ref.current
     if (!el) return
     let raf = 0
+    const apply = () => {
+      const p = Math.min(Math.max(window.scrollY / distance, 0), 1)
+      el.style.setProperty('--shrink', String(p))
+    }
     const onScroll = () => {
       cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => {
-        const p = Math.min(Math.max(window.scrollY / distance, 0), 1)
-        el.style.setProperty('--shrink', String(p))
-      })
+      raf = requestAnimationFrame(apply)
     }
-    onScroll()
+    // Set synchronously on mount/route-change (no rAF delay) so a freshly-mounted hero already
+    // reflects the current (just-reset) scroll position before the page-transition snapshot is
+    // taken - otherwise it briefly shows the old shrink amount, then pops on the next frame.
+    apply()
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => { window.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf) }
   }, [distance])
