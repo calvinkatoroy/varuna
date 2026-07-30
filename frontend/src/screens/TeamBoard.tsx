@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Shield, Bell, Filter, Lock, Check, X as XIcon, ArrowRight, ArrowLeft, Download,
-  Upload, FileText, KeyRound, Activity, Plus, Eye,
+  Upload, FileText, KeyRound, Activity, Plus, Eye, LogOut, ChevronDown,
 } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
@@ -13,7 +13,9 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { AdvancedScanDrawer } from './AdvancedScanDrawer'
+import { useLiquidGlassAll } from '@/lib/useLiquidGlass'
 import { revealTiles } from '@/lib/motion'
+import { toast } from '@/lib/toast'
 
 type Card = {
   id: string; client: string; target: string; mode: string
@@ -24,15 +26,16 @@ type Col = { id: string; title: string; accent: string; cards: Card[] }
 const dot: Record<string, string> = {
   accent: 'bg-accent', info: 'bg-info', high: 'bg-high', crit: 'bg-crit', med: 'bg-med', low: 'bg-low',
 }
-const sevChip = (n: number, cls: string, letter: string) =>
-  n > 0 ? (
-    <span className={`rounded-md px-1.5 py-0.5 text-[10.5px] font-bold ${cls}`}>{n}{letter}</span>
-  ) : null
-
-const stageActions: Record<string, string> = {
-  pending: 'approve', scanning: 'scan', in_review_reporter: 'review',
-  in_review_lead: 'review', in_review_governance: 'review', delivered: 'delivered',
+const STAGES = ['pending', 'scanning', 'in_review_reporter', 'in_review_lead', 'in_review_governance', 'delivered']
+const stageName: Record<string, string> = {
+  pending: 'Pending', scanning: 'Scanning', in_review_reporter: 'Reporter',
+  in_review_lead: 'Lead', in_review_governance: 'Governance', delivered: 'Delivered',
 }
+const isReview = (s: string) => s.startsWith('in_review')
+const sevChip = (n: number, cls: string, letter: string) =>
+  n > 0 ? <span className={`rounded-md px-1.5 py-0.5 text-[10.5px] font-bold ${cls}`}>{n}{letter}</span> : null
+
+const ctrl = 'grid h-11 w-11 place-items-center rounded-full bg-white/10 text-[#F2F5EF] backdrop-blur-md transition-colors hover:bg-white/[.18]'
 const sampleVersions = [
   { n: 1, editor: 'system', note: 'auto-generated v1', when: 'Jun 19, 09:12' },
   { n: 2, editor: 'Aisah', note: 'fixed exec summary · 2 FPs marked', when: 'Jun 19, 14:40' },
@@ -40,21 +43,36 @@ const sampleVersions = [
 
 export default function TeamBoard() {
   const [cols, setCols] = useState<Col[] | null>(null)
-  const [sel, setSel] = useState<Card | null>(null)
+  const [sel, setSel] = useState<{ card: Card; col: string } | null>(null)
   const [open, setOpen] = useState(false)
   const [scanOpen, setScanOpen] = useState(false)
+  const [client, setClient] = useState<string | null>(null)
 
-  useEffect(() => {
-    api.get('/api/pipeline/board').then(setCols)
-  }, [])
-  useEffect(() => {
-    if (cols) revealTiles('.pcard')
-  }, [cols])
+  useEffect(() => { api.get('/api/pipeline/board').then(setCols) }, [])
+  useEffect(() => { if (cols) revealTiles('.pcard') }, [cols, client])
+  useLiquidGlassAll('.pcard', { scale: -40, blur: 2, mapBlur: 7, saturate: 1.2, chroma: 0 }, [cols, client])
 
-  function openCard(c: Card) {
-    setSel(c)
-    setOpen(true)
+  const clients = useMemo(() => [...new Set((cols ?? []).flatMap((c) => c.cards.map((k) => k.client)))], [cols])
+  const view = useMemo(
+    () => (cols ?? []).map((c) => ({ ...c, cards: client ? c.cards.filter((k) => k.client === client) : c.cards })),
+    [cols, client],
+  )
+
+  const move = (id: string, from: string, to: string, msg: string) => {
+    setCols((cs) => {
+      if (!cs) return cs
+      const card = cs.find((c) => c.id === from)?.cards.find((k) => k.id === id)
+      if (!card) return cs
+      return cs.map((c) => (c.id === from ? { ...c, cards: c.cards.filter((k) => k.id !== id) } : c.id === to ? { ...c, cards: [card, ...c.cards] } : c))
+    })
+    toast(msg); setOpen(false)
   }
+  const reject = (c: Card, col: string) => {
+    setCols((cs) => cs?.map((x) => (x.id === col ? { ...x, cards: x.cards.filter((k) => k.id !== c.id) } : x)) ?? cs)
+    toast(`Proposal rejected: ${c.client}.`); setOpen(false)
+  }
+  const forward = (c: Card, col: string) => { const to = STAGES[Math.min(STAGES.indexOf(col) + 1, STAGES.length - 1)]; move(c.id, col, to, `Forwarded to ${stageName[to]}.`) }
+  const back = (c: Card, col: string) => { const to = STAGES[Math.max(STAGES.indexOf(col) - 1, 0)]; move(c.id, col, to, `Sent back to ${stageName[to]}.`) }
 
   return (
     <div className="mx-auto max-w-[1500px] p-[clamp(10px,2vw,28px)]">
@@ -75,21 +93,43 @@ export default function TeamBoard() {
           <Link to="/team/findings" className="rounded-pill px-3.5 py-1.5 text-[13px] font-medium text-[#F2F5EF]/70">Findings</Link>
         </div>
         <div>
-          <div className="flex items-center gap-2 text-[12.5px] text-[#F2F5EF]/70">
-            <Lock size={13} /> Private plane · Tailscale · Security team
-          </div>
+          <div className="flex items-center gap-2 text-[12.5px] text-[#F2F5EF]/70"><Lock size={13} /> Private plane · Tailscale · Security team</div>
           <h1 className="text-[22px] font-bold tracking-[-0.02em]">Review Pipeline</h1>
         </div>
         <div className="ml-auto flex items-center gap-2.5">
           <button onClick={() => setScanOpen(true)} className="flex items-center gap-2 rounded-pill bg-[#F4F6F1] px-4 py-2.5 text-[13px] font-semibold text-[#12140F] transition-opacity hover:opacity-90">
             <Plus size={15} /> New scan
           </button>
-          <button className="flex items-center gap-2 rounded-pill bg-white/10 px-4 py-2.5 text-[13px] font-medium backdrop-blur-md">
-            <Filter size={15} /> All clients
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger className="flex items-center gap-2 rounded-pill bg-white/10 px-4 py-2.5 text-[13px] font-medium text-[#F2F5EF] backdrop-blur-md">
+              <Filter size={15} /> {client ?? 'All clients'} <ChevronDown size={14} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setClient(null)}>All clients</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {clients.map((cl) => <DropdownMenuItem key={cl} onClick={() => setClient(cl)}>{cl}</DropdownMenuItem>)}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <ThemeToggle />
-          <button aria-label="Notifications" className="grid h-11 w-11 place-items-center rounded-full bg-white/10 backdrop-blur-md"><Bell size={18} /></button>
-          <button aria-label="Account" className="grid h-11 w-11 place-items-center rounded-full text-sm font-bold text-white" style={{ background: 'linear-gradient(160deg,#3fb98a,#268a63)' }}>RY</button>
+          <DropdownMenu>
+            <DropdownMenuTrigger aria-label="Notifications" className={`relative ${ctrl}`}>
+              <Bell size={18} />
+              <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-accent ring-2 ring-[#0e211b]" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[280px]">
+              <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+              <DropdownMenuItem className="items-start gap-2.5"><span className="mt-0.5 text-accent"><FileText size={15} /></span><span className="flex-1"><span className="block text-[13px] text-ink">New proposal: Nimbus Ltd</span><span className="text-[11.5px] text-ink-faint">2h ago</span></span></DropdownMenuItem>
+              <DropdownMenuItem className="items-start gap-2.5"><span className="mt-0.5 text-info"><Activity size={15} /></span><span className="flex-1"><span className="block text-[13px] text-ink">Scan finished: Vault Bank</span><span className="text-[11.5px] text-ink-faint">Just now</span></span></DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger aria-label="Account" className="grid h-11 w-11 place-items-center rounded-full text-sm font-bold text-white" style={{ background: 'linear-gradient(160deg,#3fb98a,#268a63)' }}>RY</DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <div className="px-3 py-2"><div className="text-[14px] font-semibold text-ink">Riyan</div><div className="text-[12px] text-ink-muted">Lead pentester</div></div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => location.assign('/')} className="text-crit"><LogOut size={15} /> Sign out</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
@@ -97,8 +137,8 @@ export default function TeamBoard() {
       {!cols ? (
         <div className="p-10 text-ink-faint">Loading…</div>
       ) : (
-        <div className="mt-3.5 flex gap-3 overflow-x-auto rounded-bento-lg bg-panel p-3.5">
-          {cols.map((col) => (
+        <div className="mt-3.5 flex gap-3 overflow-x-auto p-1">
+          {view.map((col) => (
             <div key={col.id} className="flex w-[280px] flex-none flex-col">
               <div className="mb-2.5 flex items-center gap-2 px-1">
                 <span className={`h-2 w-2 rounded-full ${dot[col.accent]}`} />
@@ -109,15 +149,12 @@ export default function TeamBoard() {
                 {col.cards.map((c) => (
                   <DropdownMenu key={c.id}>
                     <DropdownMenuTrigger asChild>
-                      <button
-                        style={{ opacity: 0 }}
-                        className="pcard rounded-bento border border-rule bg-card p-3.5 text-left shadow-sm transition-shadow hover:shadow-[0_10px_28px_rgba(0,0,0,.18)] focus:outline-none focus-visible:ring-2 focus-visible:ring-focus data-[state=open]:shadow-[0_10px_28px_rgba(0,0,0,.18)]"
-                      >
+                      <button style={{ opacity: 0 }} className="pcard glass-card liquid rounded-bento p-3.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate text-[13.5px] font-semibold text-ink">{c.client}</span>
                           <span className={`flex-none rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase ${c.mode === 'advanced' ? 'bg-accent-soft text-accent-ink' : 'bg-panel text-ink-muted'}`}>{c.mode}</span>
                         </div>
-                        <div className="mt-0.5 truncate text-[12px] text-ink-muted">{c.target}</div>
+                        <div className="mono mt-0.5 truncate text-[12px] text-ink-muted">{c.target}</div>
                         <div className="mt-2.5 flex items-center gap-1.5">
                           {sevChip(c.sev.c, 'bg-crit-bg text-crit', 'C')}
                           {sevChip(c.sev.h, 'bg-high-bg text-high', 'H')}
@@ -133,24 +170,25 @@ export default function TeamBoard() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent>
                       <DropdownMenuLabel>{col.title}</DropdownMenuLabel>
-                      {detectStage(c) === 'pending' && (
+                      {col.id === 'pending' && (
                         <>
-                          <DropdownMenuItem className="text-low focus:bg-low-bg"><Check size={15} /> Approve proposal</DropdownMenuItem>
-                          <DropdownMenuItem className="text-crit focus:bg-crit-bg"><XIcon size={15} /> Reject</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => move(c.id, col.id, 'scanning', `Approved. Scan queued for ${c.client}.`)} className="text-low focus:bg-low-bg"><Check size={15} /> Approve proposal</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => reject(c, col.id)} className="text-crit focus:bg-crit-bg"><XIcon size={15} /> Reject</DropdownMenuItem>
                         </>
                       )}
-                      {stageActions[detectStage(c)] === 'review' && (
+                      {isReview(col.id) && (
                         <>
-                          <DropdownMenuItem><ArrowRight size={15} /> Forward stage</DropdownMenuItem>
-                          <DropdownMenuItem><ArrowLeft size={15} /> Send back</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => forward(c, col.id)}><ArrowRight size={15} /> Forward stage</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => back(c, col.id)}><ArrowLeft size={15} /> Send back</DropdownMenuItem>
                         </>
                       )}
-                      {detectStage(c) === 'delivered' && <DropdownMenuItem><KeyRound size={15} /> Re-issue password</DropdownMenuItem>}
+                      {col.id === 'delivered' && <DropdownMenuItem onClick={() => { toast(`New view-once password issued for ${c.client}.`) }}><KeyRound size={15} /> Re-issue password</DropdownMenuItem>}
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => openCard(c)}><Eye size={15} /> View details</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => { setSel({ card: c, col: col.id }); setOpen(true) }}><Eye size={15} /> View details</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 ))}
+                {col.cards.length === 0 && <div className="rounded-bento border border-dashed border-rule px-3.5 py-6 text-center text-[12px] text-ink-faint">Nothing here</div>}
               </div>
             </div>
           ))}
@@ -162,13 +200,12 @@ export default function TeamBoard() {
         {sel && (
           <DrawerContent>
             <div className="border-b border-rule p-6">
-              <span className="text-[12px] font-medium text-ink-muted">{sel.mode === 'advanced' ? 'Advanced' : 'Standard'} engagement</span>
-              <DrawerTitle className="mt-1 text-[20px] font-bold tracking-[-0.02em] text-ink">{sel.client}</DrawerTitle>
-              <div className="text-[13px] text-ink-muted">{sel.target}</div>
+              <span className="text-[12px] font-medium text-ink-muted">{sel.card.mode === 'advanced' ? 'Advanced' : 'Standard'} engagement · {stageName[sel.col]}</span>
+              <DrawerTitle className="mt-1 text-[20px] font-bold tracking-[-0.02em] text-ink">{sel.card.client}</DrawerTitle>
+              <div className="mono text-[13px] text-ink-muted">{sel.card.target}</div>
             </div>
 
             <div className="flex-1 space-y-6 p-6">
-              {/* proposal summary */}
               <section>
                 <h4 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Proposal</h4>
                 <div className="grid grid-cols-2 gap-3 text-[13px]">
@@ -179,72 +216,60 @@ export default function TeamBoard() {
                 </div>
               </section>
 
-              {/* stage-specific body */}
-              {stageActions[detectStage(sel)] === 'review' && (
+              {isReview(sel.col) && (
                 <section>
                   <div className="mb-2.5 flex items-center justify-between">
                     <h4 className="text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Versions</h4>
-                    <button className="flex items-center gap-1.5 text-[12px] font-semibold text-accent hover:opacity-80"><Upload size={13} /> Upload new</button>
+                    <button onClick={() => toast('Upload a new .docx version')} className="flex items-center gap-1.5 text-[12px] font-semibold text-accent hover:opacity-80"><Upload size={13} /> Upload new</button>
                   </div>
                   <ul className="space-y-2">
                     {sampleVersions.map((v) => (
                       <li key={v.n} className="flex items-center gap-3 rounded-input border border-rule bg-panel p-3">
                         <span className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-card text-[12px] font-bold text-ink">v{v.n}</span>
                         <div className="min-w-0 flex-1"><div className="truncate text-[13px] font-medium text-ink">{v.note}</div><div className="text-[11.5px] text-ink-faint">{v.editor} · {v.when}</div></div>
-                        <button aria-label="Download" className="grid h-8 w-8 flex-none place-items-center rounded-full text-ink-muted hover:bg-card hover:text-ink"><Download size={15} /></button>
+                        <button onClick={() => toast(`Downloading v${v.n}.docx`)} aria-label="Download" className="grid h-8 w-8 flex-none place-items-center rounded-full text-ink-muted hover:bg-card hover:text-ink"><Download size={15} /></button>
                       </li>
                     ))}
                   </ul>
                 </section>
               )}
 
-              {stageActions[detectStage(sel)] === 'scan' && (
+              {sel.col === 'scanning' && (
                 <section className="flex items-center gap-3 rounded-input border border-rule bg-panel p-4 text-[13px]">
                   <Activity size={18} className="text-info" /> Live scan in progress. Nuclei 62%. Findings stream in as tools finish.
                 </section>
               )}
 
-              {stageActions[detectStage(sel)] === 'delivered' && (
+              {sel.col === 'delivered' && (
                 <section>
                   <h4 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Delivery</h4>
-                  <div className="flex items-center gap-3 rounded-input border border-rule bg-panel p-3.5 text-[13px]">
-                    <FileText size={18} className="text-accent" /> Protected PDF sent · view-once password.
-                  </div>
+                  <div className="flex items-center gap-3 rounded-input border border-rule bg-panel p-3.5 text-[13px]"><FileText size={18} className="text-accent" /> Protected PDF sent · view-once password.</div>
                 </section>
               )}
             </div>
 
-            {/* stage actions */}
             <div className="sticky bottom-0 flex gap-2.5 border-t border-rule bg-card p-6">
-              {detectStage(sel) === 'pending' && (
+              {sel.col === 'pending' && (
                 <>
-                  <Button variant="outline" size="lg" className="flex-1"><XIcon size={16} /> Reject</Button>
-                  <Button size="lg" className="flex-1"><Check size={16} /> Approve</Button>
+                  <Button variant="outline" size="lg" className="flex-1" onClick={() => reject(sel.card, sel.col)}><XIcon size={16} /> Reject</Button>
+                  <Button size="lg" className="flex-1" onClick={() => move(sel.card.id, sel.col, 'scanning', `Approved. Scan queued for ${sel.card.client}.`)}><Check size={16} /> Approve</Button>
                 </>
               )}
-              {stageActions[detectStage(sel)] === 'review' && (
+              {isReview(sel.col) && (
                 <>
-                  <Button variant="outline" size="lg" className="flex-1"><ArrowLeft size={16} /> Send back</Button>
-                  <Button size="lg" className="flex-1">Forward <ArrowRight size={16} /></Button>
+                  <Button variant="outline" size="lg" className="flex-1" onClick={() => back(sel.card, sel.col)}><ArrowLeft size={16} /> Send back</Button>
+                  <Button size="lg" className="flex-1" onClick={() => forward(sel.card, sel.col)}>Forward <ArrowRight size={16} /></Button>
                 </>
               )}
-              {detectStage(sel) === 'delivered' && (
-                <Button variant="outline" size="lg" className="w-full"><KeyRound size={16} /> Re-issue password</Button>
+              {sel.col === 'delivered' && (
+                <Button variant="outline" size="lg" className="w-full" onClick={() => { toast(`New view-once password issued for ${sel.card.client}.`); setOpen(false) }}><KeyRound size={16} /> Re-issue password</Button>
               )}
-              {detectStage(sel) === 'scanning' && (
-                <DrawerClose asChild><Button variant="outline" size="lg" className="w-full">Close</Button></DrawerClose>
-              )}
+              {sel.col === 'scanning' && <DrawerClose asChild><Button variant="outline" size="lg" className="w-full">Close</Button></DrawerClose>}
             </div>
           </DrawerContent>
         )}
       </Drawer>
-      <AdvancedScanDrawer open={scanOpen} onOpenChange={setScanOpen} />
+      <AdvancedScanDrawer open={scanOpen} onOpenChange={setScanOpen} onLaunch={(t) => toast(`Scan launched: ${t}`)} />
     </div>
   )
-}
-
-// The card id prefix encodes its column in the mock; map it back to a stage.
-function detectStage(c: Card): string {
-  const p = c.id[0]
-  return { p: 'pending', s: 'scanning', r: 'in_review_reporter', l: 'in_review_lead', g: 'in_review_governance', d: 'delivered' }[p] || 'pending'
 }

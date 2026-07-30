@@ -1,16 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Shield, ArrowLeft, Filter, ShieldCheck, Bug, FlaskConical } from 'lucide-react'
+import { Shield, Filter, ShieldCheck, Bug, FlaskConical, ChevronDown } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { toast } from '@/lib/toast'
 
 type F = {
   id: string; name: string; severity: string; asset: string; tool: string
   cve: string; verdict: 'tp' | 'fp'; status: string; evidence: string; remediation: string
 }
-
 const sevPill: Record<string, string> = {
   critical: 'bg-crit-bg text-crit', high: 'bg-high-bg text-high', medium: 'bg-med-bg text-med', low: 'bg-low-bg text-low',
 }
@@ -18,15 +19,27 @@ const sevDot: Record<string, string> = { critical: 'bg-crit', high: 'bg-high', m
 const statusPill: Record<string, string> = {
   open: 'bg-accent-soft text-accent-ink', fixed: 'bg-low-bg text-low', accepted: 'bg-panel text-ink-muted',
 }
+const SEVS = ['critical', 'high', 'medium', 'low']
 
 export default function FindingsReview() {
   const [rows, setRows] = useState<F[] | null>(null)
   const [sel, setSel] = useState<F | null>(null)
   const [open, setOpen] = useState(false)
+  const [sevFilter, setSevFilter] = useState<string | null>(null)
 
-  useEffect(() => {
-    api.get('/api/findings').then(setRows)
-  }, [])
+  useEffect(() => { api.get('/api/findings').then(setRows) }, [])
+
+  const list = useMemo(() => (rows ?? []).filter((f) => !sevFilter || f.severity === sevFilter), [rows, sevFilter])
+
+  const setVerdict = (id: string, v: 'tp' | 'fp') => {
+    setRows((rs) => rs?.map((f) => (f.id === id ? { ...f, verdict: v } : f)) ?? rs)
+    setSel((s) => (s && s.id === id ? { ...s, verdict: v } : s))
+  }
+  const markFixed = (id: string) => {
+    setRows((rs) => rs?.map((f) => (f.id === id ? { ...f, status: 'fixed' } : f)) ?? rs)
+    setSel((s) => (s && s.id === id ? { ...s, status: 'fixed' } : s))
+    toast('Marked as fixed')
+  }
 
   return (
     <div className="mx-auto max-w-[1300px] p-[clamp(10px,2vw,28px)]">
@@ -50,7 +63,16 @@ export default function FindingsReview() {
           <h1 className="text-[22px] font-bold tracking-[-0.02em]">Findings review</h1>
         </div>
         <div className="ml-auto flex items-center gap-2.5">
-          <button className="flex items-center gap-2 rounded-pill bg-white/10 px-4 py-2.5 text-[13px] font-medium backdrop-blur-md"><Filter size={15} /> All severities</button>
+          <DropdownMenu>
+            <DropdownMenuTrigger className="flex items-center gap-2 rounded-pill bg-white/10 px-4 py-2.5 text-[13px] font-medium capitalize text-[#F2F5EF] backdrop-blur-md">
+              <Filter size={15} /> {sevFilter ?? 'All severities'} <ChevronDown size={14} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setSevFilter(null)}>All severities</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {SEVS.map((s) => <DropdownMenuItem key={s} onClick={() => setSevFilter(s)} className="capitalize">{s}</DropdownMenuItem>)}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <ThemeToggle />
         </div>
       </header>
@@ -62,7 +84,7 @@ export default function FindingsReview() {
           <div className="grid grid-cols-[auto_1fr_auto] gap-4 border-b border-rule px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-ink-faint sm:grid-cols-[90px_1fr_1fr_90px_90px]">
             <span>Severity</span><span>Finding</span><span className="hidden sm:block">Asset</span><span className="hidden sm:block">Verdict</span><span className="text-right sm:text-left">Status</span>
           </div>
-          {rows.map((f) => (
+          {list.map((f) => (
             <button
               key={f.id}
               onClick={() => { setSel(f); setOpen(true) }}
@@ -70,11 +92,12 @@ export default function FindingsReview() {
             >
               <span className={`inline-flex items-center gap-1.5 justify-self-start rounded-md px-2 py-1 text-[11px] font-bold capitalize ${sevPill[f.severity]}`}><span className={`h-1.5 w-1.5 rounded-full ${sevDot[f.severity]}`} />{f.severity}</span>
               <span className="min-w-0"><span className="block truncate text-[14px] font-semibold text-ink">{f.name}</span><span className="text-[11.5px] text-ink-faint">{f.tool} · {f.cve}</span></span>
-              <span className="hidden truncate font-mono text-[12px] text-ink-muted sm:block">{f.asset}</span>
-              <span className={`hidden text-[11px] font-bold uppercase sm:block ${f.verdict === 'tp' ? 'text-low' : 'text-ink-faint'}`}>{f.verdict === 'tp' ? '● TP' : '○ FP'}</span>
+              <span className="mono hidden truncate text-[12px] text-ink-muted sm:block">{f.asset}</span>
+              <span className={`hidden items-center gap-1.5 text-[11px] font-bold uppercase sm:flex ${f.verdict === 'tp' ? 'text-low' : 'text-ink-faint'}`}><span className={`h-1.5 w-1.5 rounded-full ${f.verdict === 'tp' ? 'bg-low' : 'bg-ink-faint'}`} />{f.verdict}</span>
               <span className={`justify-self-end rounded-pill px-2.5 py-1 text-[11px] font-semibold capitalize sm:justify-self-start ${statusPill[f.status]}`}>{f.status}</span>
             </button>
           ))}
+          {list.length === 0 && <div className="px-5 py-10 text-center text-[13px] text-ink-faint">No {sevFilter} findings.</div>}
         </div>
       )}
 
@@ -84,7 +107,7 @@ export default function FindingsReview() {
             <div className="border-b border-rule p-6">
               <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-bold capitalize ${sevPill[sel.severity]}`}><span className={`h-1.5 w-1.5 rounded-full ${sevDot[sel.severity]}`} />{sel.severity}</span>
               <DrawerTitle className="mt-2.5 text-[21px] font-bold tracking-[-0.02em] text-ink">{sel.name}</DrawerTitle>
-              <div className="mt-1 font-mono text-[13px] text-ink-muted">{sel.asset}</div>
+              <div className="mono mt-1 text-[13px] text-ink-muted">{sel.asset}</div>
               <div className="mt-1 text-[12.5px] text-ink-faint">{sel.tool} · {sel.cve}</div>
             </div>
 
@@ -92,8 +115,8 @@ export default function FindingsReview() {
               <section>
                 <h4 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Verdict</h4>
                 <div className="grid grid-cols-2 gap-2">
-                  <VerdictBtn on={sel.verdict === 'tp'} icon={<Bug size={15} />} label="True positive" tone="low" />
-                  <VerdictBtn on={sel.verdict === 'fp'} icon={<FlaskConical size={15} />} label="False positive" tone="faint" />
+                  <VerdictBtn on={sel.verdict === 'tp'} icon={<Bug size={15} />} label="True positive" tone="low" onClick={() => setVerdict(sel.id, 'tp')} />
+                  <VerdictBtn on={sel.verdict === 'fp'} icon={<FlaskConical size={15} />} label="False positive" tone="faint" onClick={() => setVerdict(sel.id, 'fp')} />
                 </div>
               </section>
               <section>
@@ -107,8 +130,8 @@ export default function FindingsReview() {
             </div>
 
             <div className="sticky bottom-0 flex gap-2.5 border-t border-rule bg-card p-6">
-              <Button variant="outline" size="lg" className="flex-1">Mark fixed</Button>
-              <Button size="lg" className="flex-1">Save</Button>
+              <Button variant="outline" size="lg" className="flex-1" disabled={sel.status === 'fixed'} onClick={() => markFixed(sel.id)}>{sel.status === 'fixed' ? 'Fixed' : 'Mark fixed'}</Button>
+              <Button size="lg" className="flex-1" onClick={() => { toast('Review saved'); setOpen(false) }}>Save</Button>
             </div>
           </DrawerContent>
         )}
@@ -117,9 +140,9 @@ export default function FindingsReview() {
   )
 }
 
-function VerdictBtn({ on, icon, label, tone }: { on: boolean; icon: React.ReactNode; label: string; tone: string }) {
+function VerdictBtn({ on, icon, label, tone, onClick }: { on: boolean; icon: React.ReactNode; label: string; tone: string; onClick: () => void }) {
   return (
-    <button className={`flex items-center justify-center gap-2 rounded-input border px-3 py-3 text-[13px] font-semibold transition-colors ${on ? (tone === 'low' ? 'border-low bg-low-bg text-low' : 'border-rule bg-panel text-ink') : 'border-rule text-ink-muted hover:text-ink'}`}>
+    <button onClick={onClick} className={`flex items-center justify-center gap-2 rounded-input border px-3 py-3 text-[13px] font-semibold transition-colors ${on ? (tone === 'low' ? 'border-low bg-low-bg text-low' : 'border-ink bg-panel text-ink') : 'border-rule text-ink-muted hover:text-ink'}`}>
       {icon} {label}
     </button>
   )

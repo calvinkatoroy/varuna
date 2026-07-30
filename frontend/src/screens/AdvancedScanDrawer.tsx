@@ -43,7 +43,7 @@ const chip = (on: boolean) =>
     on ? 'border-accent bg-accent-soft text-accent-ink' : 'border-rule text-ink-muted hover:text-ink'
   }`
 
-export function AdvancedScanDrawer({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boolean; onOpenChange: (v: boolean) => void; onLaunch?: (target: string) => void }) {
   const [preset, setPreset] = useState<Preset | null>('thorough')
   const [target, setTarget] = useState('https://api.acme.io')
   const [cookie, setCookie] = useState('')
@@ -153,7 +153,7 @@ export function AdvancedScanDrawer({ open, onOpenChange }: { open: boolean; onOp
 
         <div className="sticky bottom-0 flex gap-2.5 border-t border-rule bg-card p-6">
           <DrawerClose asChild><Button variant="outline" size="lg" className="flex-1">Cancel</Button></DrawerClose>
-          <Button size="lg" className="flex-[2]"><Play size={16} className="fill-current" /> Launch scan</Button>
+          <Button size="lg" className="flex-[2]" onClick={() => { onLaunch?.(target); onOpenChange(false) }}><Play size={16} className="fill-current" /> Launch scan</Button>
         </div>
       </DrawerContent>
     </Drawer>

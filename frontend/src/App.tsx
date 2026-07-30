@@ -10,6 +10,7 @@ import { AuthGate } from './screens/AuthGate'
 import TeamBoard from './screens/TeamBoard'
 import FindingsReview from './screens/FindingsReview'
 import { Splash } from './components/Splash'
+import { Toaster } from './lib/toast'
 
 const ACTIVATED = 'varuna-activated'
 
@@ -82,6 +83,7 @@ export default function App() {
           <PrototypeSwitcher />
         </>
       )}
+      <Toaster />
     </>
   )
 }
