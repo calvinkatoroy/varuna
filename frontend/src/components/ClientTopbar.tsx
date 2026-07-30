@@ -4,11 +4,12 @@ import { Bell, CheckCircle2, FileText, LogOut, Shield } from 'lucide-react'
 import { api } from '@/api'
 import { ThemeToggle } from './ThemeToggle'
 import { ClientNav } from './ClientNav'
-import { useLiquidGlassAll } from '@/lib/useLiquidGlass'
 import { useScrollFade } from '@/lib/useScrollFade'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu'
 
-const ctrl = 'ctrl-glass relative grid h-11 w-11 place-items-center rounded-full text-[#F2F5EF] transition-colors hover:bg-white/[.10]'
+// Same material as the bottom PrototypeSwitcher pill (border-rule + bg-card/90 + plain
+// backdrop-blur, theme-aware) - no SVG liquid glass.
+const ctrl = 'relative grid h-11 w-11 place-items-center rounded-full border border-rule bg-card/90 text-ink shadow-[0_12px_40px_rgba(0,0,0,.3)] backdrop-blur transition-colors hover:bg-panel'
 
 // A couple of read-only demo notifications so the bell is not a dead control.
 const notifications = [
@@ -21,7 +22,7 @@ function Notifications() {
     <DropdownMenu>
       <DropdownMenuTrigger aria-label="Notifications" className={ctrl}>
         <Bell size={19} />
-        <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-accent ring-2 ring-[#0d211b]" />
+        <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-accent ring-2 ring-card" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-[280px]">
         <DropdownMenuLabel>Notifications</DropdownMenuLabel>
@@ -46,7 +47,7 @@ function Account() {
   const signOut = () => { localStorage.removeItem('varuna-activated'); location.assign('/') }
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger aria-label="Account" className="ctrl-glass grid h-11 w-11 place-items-center overflow-hidden rounded-full text-sm font-bold text-white" style={{ background: 'linear-gradient(160deg,#f4996d,#F26A43)' }}>
+      <DropdownMenuTrigger aria-label="Account" className="grid h-11 w-11 place-items-center overflow-hidden rounded-full text-sm font-bold text-white shadow-[0_12px_40px_rgba(0,0,0,.3)]" style={{ background: 'linear-gradient(160deg,#f4996d,#F26A43)' }}>
         {initials}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -63,12 +64,11 @@ function Account() {
 
 // The client header: brand + centered nav + working controls. Shared by the cockpit hero and
 // the sub-page shell so every page has the same, functional top bar. The brand fades out fast on
-// scroll (it doesn't need to survive into the shrunk state); the nav pill and every control are
-// real liquid glass (not plain blur) and stay opaque throughout - they're what's left once the
-// hero has fully shrunk.
+// scroll (it doesn't need to survive into the shrunk state); the nav pill and every control use
+// the same plain frosted-glass material as the bottom PrototypeSwitcher and stay opaque
+// throughout - they're what's left once the hero has fully shrunk.
 export function ClientTopbar() {
   const brandFade = useScrollFade<HTMLAnchorElement>(50)
-  useLiquidGlassAll('.ctrl-glass', { scale: -50, blur: 2, mapBlur: 8, saturate: 1.3, chroma: 0, radius: 999 }, [])
 
   return (
     <div className="relative z-10 flex items-center gap-4">
@@ -80,7 +80,7 @@ export function ClientTopbar() {
       </Link>
       <ClientNav />
       <div className="flex gap-2.5">
-        <ThemeToggle className="ctrl-glass" />
+        <ThemeToggle className={ctrl} />
         <Notifications />
         <Account />
       </div>

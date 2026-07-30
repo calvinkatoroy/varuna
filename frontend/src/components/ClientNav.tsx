@@ -1,8 +1,9 @@
 import { Link, useLocation } from 'react-router-dom'
-import { useLiquidGlass } from '@/lib/useLiquidGlass'
 
 // The client pill nav, routes between the four client pages. Shared by the cockpit hero and
-// the sub-page shell so the active state is always correct.
+// the sub-page shell so the active state is always correct. Same material as the bottom
+// PrototypeSwitcher pill (border-rule + bg-card/90 + plain backdrop-blur, theme-aware) - no SVG
+// liquid glass, so it stays legible and consistent whichever theme or backdrop it floats over.
 const items: [string, string][] = [
   ['Overview', '/'],
   ['Proposals', '/proposals'],
@@ -12,9 +13,8 @@ const items: [string, string][] = [
 
 export function ClientNav() {
   const { pathname } = useLocation()
-  const glass = useLiquidGlass<HTMLElement>({ scale: -64, blur: 2, mapBlur: 8, radius: 999, chroma: 0 })
   return (
-    <nav ref={glass} className="liquid mx-auto flex h-11 items-center gap-[3px] rounded-pill bg-white/[.06] p-[5px]">
+    <nav className="mx-auto flex h-11 items-center gap-[3px] rounded-pill border border-rule bg-card/90 p-1 shadow-[0_12px_40px_rgba(0,0,0,.3)] backdrop-blur">
       {items.map(([label, to]) => {
         const on = pathname === to
         return (
@@ -23,7 +23,7 @@ export function ClientNav() {
             to={to}
             style={on ? { viewTransitionName: 'nav-pill' } : undefined}
             className={`flex h-full items-center rounded-pill px-[17px] text-sm leading-none transition-colors ${
-              on ? 'bg-[#F4F6F1] font-semibold text-[#12140F]' : 'font-medium text-[#F2F5EF]/70 hover:text-[#F2F5EF]'
+              on ? 'bg-accent font-semibold text-white' : 'font-medium text-ink-muted hover:text-ink'
             }`}
           >
             {label}
