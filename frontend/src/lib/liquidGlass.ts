@@ -171,16 +171,49 @@ export function applyLiquidGlass(el: HTMLElement, opts: GlassOpts = {}) {
     parts.feImage.setAttribute('height', String(h))
   }
 
+  const full = 'url(#' + id + ') blur(' + o.blur + 'px) saturate(' + o.saturate + ')'
+  const cheap = 'blur(' + Math.max(o.blur * 3, 10) + 'px) saturate(' + o.saturate + ')'
   refresh()
-  el.style.backdropFilter = 'url(#' + id + ') blur(' + o.blur + 'px) saturate(' + o.saturate + ')'
+  el.style.backdropFilter = full
 
   let timer: any = null
   const ro = new ResizeObserver(() => { clearTimeout(timer); timer = setTimeout(refresh, 120) })
   ro.observe(el)
 
-  return {
+  const handle = {
     supported: true,
     refresh,
-    destroy() { ro.disconnect(); clearTimeout(timer); parts.filter.remove(); el.style.backdropFilter = '' },
+    // Swap to a cheap plain blur while actively scrolling: the real SVG-displacement filter
+    // live-samples the backdrop every frame, which is expensive on Chromium and is what caused
+    // the flicker whenever the sticky-shrink hero reflows the page underneath it during scroll.
+    pause() { el.style.backdropFilter = cheap },
+    resume() { el.style.backdropFilter = full },
+    destroy() { unregisterScrollPause(handle); ro.disconnect(); clearTimeout(timer); parts.filter.remove(); el.style.backdropFilter = '' },
   }
+  registerScrollPause(handle)
+  return handle
+}
+
+// One shared window scroll listener pauses every active liquid-glass instance (cheap toggle,
+// no filter regeneration) and resumes them ~140ms after scrolling settles. Centralized so N
+// glass elements don't each attach their own listener.
+const scrollRegistry = new Set<{ pause(): void; resume(): void }>()
+let scrollTimer: any = null
+let scrollListenerBound = false
+function registerScrollPause(h: { pause(): void; resume(): void }) {
+  scrollRegistry.add(h)
+  if (scrollListenerBound || typeof window === 'undefined') return
+  scrollListenerBound = true
+  window.addEventListener(
+    'scroll',
+    () => {
+      scrollRegistry.forEach((r) => r.pause())
+      clearTimeout(scrollTimer)
+      scrollTimer = setTimeout(() => scrollRegistry.forEach((r) => r.resume()), 140)
+    },
+    { passive: true, capture: true },
+  )
+}
+function unregisterScrollPause(h: { pause(): void; resume(): void }) {
+  scrollRegistry.delete(h)
 }

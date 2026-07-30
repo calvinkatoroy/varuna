@@ -59,7 +59,7 @@ function MiniSev({ sev }: { sev: { c: number; h: number; m: number; l: number } 
 
 export default function ClientCockpit() {
   const nav = useNavigate()
-  const hero = useHeroShrink<HTMLElement>()
+  const hero = useHeroShrink<HTMLElement>(70)
   const [d, setD] = useState<any>(null)
   const [proposalOpen, setProposalOpen] = useState(false)
   useEffect(() => { api.get('/api/cockpit').then(setD) }, [])
