@@ -2,43 +2,41 @@
 // exists; the client-posture aggregates (posture/trend/assets) are prototype-only until the
 // backend client-findings aggregation lands (documented follow-up).
 
-export const me = { username: 'acme', role: 'client' }
+export const me = { username: 'acme', name: 'Acme Corp', role: 'client' }
 
+// Engagements are the core entity of the portfolio cockpit. Each absorbs its target "asset":
+// grade, severity breakdown, open/fixed counts, status. Click one to drill into its findings.
 export const engagements = [
-  { id: 'e1', target: 'api.acme.io, Full VA', detail: 'Advanced · nuclei + sqlmap', when: '2h ago', status: 'in_review' },
-  { id: 'e2', target: 'acme.io, Standard VA', detail: 'Delivered · 4 templates', when: 'Jun 18', status: 'delivered' },
-  { id: 'e3', target: 'staging.acme.io', detail: 'Katana → Nuclei running', when: 'now', status: 'scanning' },
+  { id: 'e1', target: 'api.acme.io', mode: 'advanced', status: 'in_review', grade: 'D', sev: { c: 1, h: 2, m: 1, l: 0 }, open: 4, fixed: 0, when: '2h ago' },
+  { id: 'e2', target: 'acme.io', mode: 'standard', status: 'delivered', grade: 'A', sev: { c: 0, h: 0, m: 1, l: 1 }, open: 1, fixed: 1, when: 'Jun 18' },
+  { id: 'e3', target: 'staging.acme.io', mode: 'standard', status: 'scanning', grade: 'C', sev: { c: 1, h: 1, m: 2, l: 1 }, open: 3, fixed: 2, when: 'now' },
 ]
 
-// Mirrors the `findings` list below (11 confirmed: 2 crit / 3 high / 4 med / 2 low, 3 fixed, 8
-// open, 27% resolved) so the cockpit and the Findings page tell one story.
-export const posture = { critical: 2, high: 3, medium: 4, low: 2, open: 8, total: 11, fixed: 3, resolved: 27 }
+// Aggregate posture derived across all engagements, so the cockpit and Findings agree.
+const _sev = (k: 'c' | 'h' | 'm' | 'l') => engagements.reduce((a, e) => a + e.sev[k], 0)
+const _open = engagements.reduce((a, e) => a + e.open, 0)
+const _fixed = engagements.reduce((a, e) => a + e.fixed, 0)
+const _total = _sev('c') + _sev('h') + _sev('m') + _sev('l')
+export const posture = {
+  critical: _sev('c'), high: _sev('h'), medium: _sev('m'), low: _sev('l'),
+  open: _open, total: _total, fixed: _fixed, resolved: Math.round((_fixed / _total) * 100),
+}
 
+// Open findings by severity over 6 months (stacked trend). Last month sums to posture.open (8).
 export const trend = [
-  { month: 'Feb', open: 19 }, { month: 'Mar', open: 16 }, { month: 'Apr', open: 13 },
-  { month: 'May', open: 11 }, { month: 'Jun', open: 9 }, { month: 'Jul', open: 8 },
-]
-
-// Per-host open counts sum to posture.open (8).
-export const assets = [
-  { host: 'api.acme.io', grade: 'D', label: 'Poor', open: 3 },
-  { host: 'acme.io', grade: 'C', label: 'Fair', open: 3 },
-  { host: 'staging.acme.io', grade: 'B', label: 'Fair', open: 1 },
-  { host: 'admin.acme.io', grade: 'A', label: 'Good', open: 1 },
+  { month: 'Feb', critical: 3, high: 6, medium: 6, low: 4 },
+  { month: 'Mar', critical: 3, high: 5, medium: 5, low: 3 },
+  { month: 'Apr', critical: 2, high: 4, medium: 5, low: 2 },
+  { month: 'May', critical: 2, high: 3, medium: 4, low: 2 },
+  { month: 'Jun', critical: 1, high: 2, medium: 4, low: 2 },
+  { month: 'Jul', critical: 1, high: 2, medium: 3, low: 2 },
 ]
 
 export const latestReport = {
   engagement: 'acme.io, Standard VA', delivered: 'Jun 18, 2026', templates: 4, findings: 27, signed: true,
 }
 
-export const team = [
-  { name: 'Riyan', role: 'Lead pentester', status: 'Approved' },
-  { name: 'Aisah', role: 'Reporter', status: 'Reviewed' },
-  { name: 'Hani', role: 'Governance', status: 'In review' },
-]
-
-// Convenience aggregate the cockpit reads in mock mode.
-export const cockpit = { me, engagements, posture, trend, assets, latestReport, team }
+export const cockpit = { me, engagements, posture, trend, latestReport }
 
 // Client's scan proposals (distinct from the cockpit's engagements list).
 export const proposals = [
