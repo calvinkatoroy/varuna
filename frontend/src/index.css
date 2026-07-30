@@ -186,8 +186,16 @@ input[type='checkbox'] {
    properties being animated here - padding, max-height, margin - are LAYOUT properties. Native
    scroll-driven animations only skip main-thread work for transform/opacity; a layout property
    still forces a full layout recalculation on every scroll tick no matter what's driving it. A
-   one-shot class toggle + ordinary CSS transition makes that layout cost happen ONCE per
-   threshold crossing instead of continuously, which is what actually fixes it.
+   one-shot class toggle makes that layout cost happen ONCE per threshold crossing instead of
+   continuously, which is what actually fixes it.
+   Deliberately NO transition on padding/max-height/margin: the hero is `position: sticky`, so
+   the moment ITS occupied height changes, the cards below (plain normal-flow content) shift to
+   match - that's unavoidable. Animating that change over 220ms meant the cards got dragged
+   through a 220ms slide on their OWN timeline, separate from the scroll gesture that triggered
+   it - you'd already stopped scrolling but they kept sliding. Snapping the layout properties
+   instantly means the cards shift ONCE, in the same frame as the scroll crossing, so it reads as
+   part of the scroll rather than a separate animation happening to them. Opacity is layout-safe
+   (doesn't affect anyone's position) so it still transitions smoothly - only opacity here does.
    --hero-pt/--hero-pb (expanded padding) and --collapse/--collapse-mt (expanded height/margin
    of a fading row) are supplied per-usage via inline style. */
 .hero-sticky {
@@ -196,7 +204,6 @@ input[type='checkbox'] {
   z-index: 30;
   padding-top: var(--hero-pt, 20px);
   padding-bottom: var(--hero-pb, 38px);
-  transition: padding 220ms var(--ease-out);
 }
 .hero-sticky.is-shrunk {
   padding-top: 8px;
@@ -206,7 +213,7 @@ input[type='checkbox'] {
   z-index: 0;
   pointer-events: none;
   opacity: 1;
-  transition: opacity 220ms var(--ease-out);
+  transition: opacity 180ms var(--ease-out);
 }
 .hero-sticky.is-shrunk .hero-bg-fade {
   opacity: 0;
@@ -216,7 +223,7 @@ input[type='checkbox'] {
   max-height: var(--collapse, 160px);
   margin-top: var(--collapse-mt, 14px);
   overflow: hidden;
-  transition: opacity 200ms var(--ease-out), max-height 200ms var(--ease-out), margin-top 200ms var(--ease-out);
+  transition: opacity 180ms var(--ease-out);
 }
 .fade-collapse.is-faded {
   opacity: 0;
