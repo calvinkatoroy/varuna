@@ -180,6 +180,18 @@ input[type='checkbox'] {
   from { opacity: 0; transform: translateY(20px); }
 }
 
+/* The hero card: sticky, shrinks its own padding on scroll (see useHeroShrink). Nothing below it
+   is compensated - cards flow freely and just move up as the hero's occupied height shrinks,
+   like ordinary sticky content. Once fully shrunk it holds a small constant height forever; past
+   that point it covers content normally, same as any regular sticky nav bar. */
+.hero-sticky {
+  position: sticky;
+  top: clamp(6px, 1vw, 14px);
+  z-index: 30;
+  padding-bottom: calc(var(--hero-pb, 38px) * (1 - var(--shrink, 0)) + 10px * var(--shrink, 0));
+  padding-top: calc(var(--hero-pt, 20px) * (1 - var(--shrink, 0)) + 8px * var(--shrink, 0));
+}
+
 @keyframes bubIn {
   from { opacity: 0; transform: translateY(10px); }
 }
