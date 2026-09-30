@@ -48,3 +48,7 @@ agent-dist/*
 
 # Repo context doc: local-only (auto-loads from disk, not committed)
 /CLAUDE.md
+
+# --- Build archives ---
+*.rar
+backups/

@@ -99,7 +99,7 @@ docker compose --env-file .env.v2local -f docker-compose.yml -f docker-compose.v
 Seed accounts and a realistic pipeline (inside the `api-public` container, so imports/env match):
 
 ```bash
-docker compose exec api-public python /app/controlplane/seed_account.py --team-defaults
+docker compose exec api-public python /app/controlplane/seed_account.py --team-defaults --dev   # dev: password 'changeme'; omit --dev for random ones
 docker compose exec api-public python /app/controlplane/seed_account.py acme demo1234 client
 docker compose exec api-public python /app/controlplane/seed_demo.py
 ```
@@ -114,8 +114,8 @@ npm run dev                      # :5173, proxies /api and /agent per vite.confi
 ```
 
 Team logins (private plane, `/team`): `riyan` / lead_pentester, `dimas` / pentester,
-`aisah` / reporter, `hani` / governance — all password `changeme`. **Change these before any
-non-local deployment.**
+`aisah` / reporter, `hani` / governance — password `changeme` with `--dev`, otherwise the random
+ones printed at seed time. On any real deployment run `seed_account.py --rotate-defaults`.
 
 ### Frontend, mock mode (no backend)
 

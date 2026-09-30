@@ -83,8 +83,9 @@ Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Varuna"
   **private** plane (`POST http://<tailscale-host>:8010/api/login`); the public API refuses team
   logins and team tokens (NFR-24). For local dev with no private plane only, set
   `VARUNA_PUBLIC_TEAM_LOGIN=1`.
-- Seeded team accounts start with the password `changeme`. The private API prints a startup
-  warning while any remain; change them at once (account menu > Change password, or the
+- `seed_account.py --team-defaults` gives each team account a random password (shown once). The
+  dev-only `--dev` flag uses `changeme`; `--rotate-defaults` replaces any that remain. The private
+  API prints a startup warning while any remain; change them at once (account menu > Change password, or the
   lead pentester's admin API below).
 
 ### Team account administration (lead pentester, private plane)

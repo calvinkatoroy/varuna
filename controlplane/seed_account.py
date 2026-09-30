@@ -3,15 +3,18 @@
 Usage:
   python controlplane/seed_account.py <username> <password> <role>
     role is one of: client, pentester, lead_pentester, reporter, governance, soc
-  python controlplane/seed_account.py --team-defaults
-    seeds the four demo team accounts the frontend's TeamLogin points at in dev
-    (riyan/lead_pentester, dimas/pentester, aisah/reporter, hani/governance), each with
-    password "changeme" - for local/dev use only, never run this against a real deployment.
+  python controlplane/seed_account.py --team-defaults [--dev]
+    seeds the four team accounts (riyan/lead_pentester, dimas/pentester, aisah/reporter,
+    hani/governance) with a RANDOM password each, printed once: copy them now.
+    --dev uses the password "changeme" instead (local testing only).
+  python controlplane/seed_account.py --rotate-defaults
+    gives every team account still on "changeme" a fresh random password, printed once.
 
 Needs Redis reachable (set REDIS_URL for host-run dev, e.g. redis://localhost:6379/0) and
 VARUNA_DB pointing at the same SQLite file the running API services use.
 """
 import os
+import secrets
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "common"))
@@ -34,11 +37,22 @@ def usage() -> None:
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] == ["--team-defaults"]:
+    if sys.argv[1:] in (["--team-defaults"], ["--team-defaults", "--dev"]):
+        dev = len(sys.argv) == 3
         for username, role in TEAM_DEFAULTS:
-            auth.create_account(username, "changeme", role)
-            print(f"created {role} account: {username} / changeme")
-        print("Change these passwords before any non-local deployment.")
+            pw = "changeme" if dev else secrets.token_urlsafe(12)
+            auth.create_account(username, pw, role)
+            print(f"created {role} account: {username} / {pw}")
+        print("Dev passwords: never use outside local testing." if dev else "Shown once. Store them in a password manager.")
+        sys.exit(0)
+
+    if sys.argv[1:] == ["--rotate-defaults"]:
+        weak = auth.default_password_accounts()
+        for username in weak:
+            pw = secrets.token_urlsafe(12)
+            auth.admin_reset_password(username, pw)
+            print(f"{username} / {pw}")
+        print("Shown once. Store them in a password manager." if weak else "No team account uses the default password.")
         sys.exit(0)
 
     if len(sys.argv) != 4 or sys.argv[3] not in ROLES:
