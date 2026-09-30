@@ -298,3 +298,22 @@ def test_board_flags_a_scan_whose_agent_died():
     cards = next(c for c in board.build_board() if c["id"] == "scanning")["cards"]
     meta = next(c["meta"] for c in cards if c["jobId"] == jid)
     assert "katana done" in meta and "stalled" in meta
+
+
+def test_stalled_scans_are_failed_after_the_agent_is_silent_too_long():
+    import datetime
+    import board
+    import tokens
+    redis_store._client = FakeRedis()
+    Hc, Hl = _h("nora", "client"), _h("lead56", "lead_pentester")
+    pid = _prop(Hc).json()["proposal_id"]
+    jid = pub.post(f"/api/proposals/{pid}/approve", headers=Hl).json()["job_id"]
+    job = redis_store.get_job(jid); job["status"] = "running"; redis_store.set_job(job)
+    tokens.issue_agent_token("nora")                                   # agent seen "now"
+    assert board.reap_stalled() == 0                                   # recently seen: leave it
+    later = datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=board.STALL_SECONDS // 60 + 1)
+    assert board.reap_stalled(now=later) == 1
+    assert redis_store.get_job(jid)["status"] == "failed"
+    card = next(c for c in next(x for x in board.build_board() if x["id"] == "scanning")["cards"] if c["jobId"] == jid)
+    assert card["meta"].startswith("Failed:") and "offline" in card["meta"]
+    assert board.reap_stalled(now=later) == 0                          # idempotent

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '@/api'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
@@ -31,7 +32,9 @@ export function ChangePassword({ team, onClose }: { team?: boolean; onClose: () 
     }
   }
 
-  return (
+  // Portal to <body>: the header it is opened from has filters/overflow that would otherwise
+  // become the containing block for `fixed` and clip/offset the dialog.
+  return createPortal(
     <div className="fixed inset-0 z-[60] grid place-items-center bg-shell/60 px-4" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
       <form onSubmit={submit} className="w-full max-w-[400px] space-y-4 rounded-bento-lg border border-rule bg-card p-7 shadow-[0_30px_80px_-20px_rgba(0,0,0,.6)]" role="dialog" aria-label="Change password">
         <h2 className="text-[18px] font-bold tracking-[-0.02em] text-ink">Change password</h2>
@@ -44,6 +47,7 @@ export function ChangePassword({ team, onClose }: { team?: boolean; onClose: () 
           <Button type="submit" className="flex-1" disabled={busy}>Save</Button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
   )
 }

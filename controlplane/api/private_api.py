@@ -244,6 +244,7 @@ def resume_scan(job_id: str, user: dict = Depends(require_team)):
 # --- team pipeline board (v2): kanban view composed from proposals + jobs + reports ---
 @app.get("/api/pipeline/board")
 def pipeline_board(user: dict = Depends(require_team)):
+    board.reap_stalled()   # opportunistic: no scheduler needed, the board is polled while anyone watches
     return board.build_board()
 
 

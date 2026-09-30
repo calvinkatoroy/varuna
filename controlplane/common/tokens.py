@@ -108,5 +108,15 @@ def is_online(username: str, now: datetime.datetime | None = None) -> bool:
     return (now - seen).total_seconds() <= ONLINE_THRESHOLD
 
 
+def offline_seconds(username: str, now: datetime.datetime | None = None) -> float | None:
+    """Seconds since the agent last checked in; None if it never has (or the stamp is unreadable)."""
+    agent = redis_store.get_agent(username)
+    try:
+        seen = datetime.datetime.fromisoformat((agent or {}).get("last_seen") or "")
+    except (ValueError, TypeError):
+        return None
+    return ((now or datetime.datetime.now(datetime.UTC)) - seen).total_seconds()
+
+
 def owns_job(username: str, job: dict | None) -> bool:
     return bool(job) and job.get("submitter") == username
