@@ -97,6 +97,26 @@ POST /api/admin/accounts/{user}/disable | enable
 ```
 A disabled account cannot log in and its live tokens stop working immediately.
 
+### Public domain with valid HTTPS (Cloudflare Tunnel)
+The client plane needs a real hostname. A Cloudflare Tunnel gives a valid certificate, works behind
+CGNAT and opens no inbound port. You need a domain whose DNS is on Cloudflare (free plan is enough).
+
+1. Cloudflare dashboard > Zero Trust > Networks > Tunnels > Create a tunnel (Cloudflared). Copy the token.
+2. In the tunnel, add a Public hostname: `varuna.<your-domain>` -> Service `HTTP` `caddy:80`.
+3. In `.env` set:
+   ```
+   VARUNA_DOMAIN=:80
+   CLOUDFLARE_TUNNEL_TOKEN=<token>
+   VARUNA_CORS_ORIGINS=https://varuna.<your-domain>
+   VARUNA_PUBLIC_URL=https://varuna.<your-domain>
+   ```
+4. `docker compose --profile tunnel up -d --build`
+
+Trial without a domain: `docker compose --profile quicktunnel up -d`, then
+`docker compose logs cloudflared-quick | findstr trycloudflare` for the URL (it changes on every restart).
+Only the public plane goes through the tunnel. Keep the team plane (:8010) on Tailscale; never add it
+to the tunnel. Tailscale Funnel can be switched off once the tunnel works.
+
 ### Upgrading an existing install: containers now run unprivileged
 The control-plane image runs as user `varuna` (uid 10001), not root. A fresh install needs nothing.
 Volumes created by an older (root) image must be handed over once, or the API cannot write to them:

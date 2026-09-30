@@ -103,6 +103,28 @@ services:
     depends_on: [api-public, api-agent]
     restart: unless-stopped
 
+  # Public exposure through Cloudflare (valid HTTPS, works behind CGNAT, no inbound ports).
+  # Named tunnel on your own domain:  docker compose --profile tunnel up -d
+  # Zero-setup trial URL (*.trycloudflare.com, changes on restart):  docker compose --profile quicktunnel up -d
+  # Both need VARUNA_DOMAIN=:80 so Caddy serves plain HTTP behind the tunnel. See DEPLOY.md.
+  cloudflared:
+    image: cloudflare/cloudflared:2025.11.1
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
+    networks: [vapt-net]
+    depends_on: [caddy]
+    restart: unless-stopped
+
+  cloudflared-quick:
+    image: cloudflare/cloudflared:2025.11.1
+    profiles: ["quicktunnel"]
+    command: tunnel --no-autoupdate --url http://caddy:80
+    networks: [vapt-net]
+    depends_on: [caddy]
+    restart: unless-stopped
+
 networks:
   vapt-net:
     driver: bridge
