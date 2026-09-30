@@ -23,6 +23,12 @@ export function setToken(t: string | null) {
   if (t) localStorage.setItem('varuna_jwt', t)
   else localStorage.removeItem('varuna_jwt')
 }
+// Another tab logged out, or a different person logged in there: this tab must not keep acting as the
+// old user (and must never mix one person's screen with another's token). Reloading re-reads the session.
+window.addEventListener('storage', (e) => {
+  if (e.key === 'varuna_jwt' && e.newValue !== token) location.reload()
+})
+
 export function getToken() {
   return token
 }

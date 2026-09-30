@@ -79,6 +79,11 @@ Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Varuna"
 ## v2 operations (accounts, backups, notifications)
 
 ### Planes and logins
+- **Team address:** `http://<tailscale-ip>:8080/team` (Caddy's second listener, published only on the
+  host's Tailscale address by `TAILSCALE_BIND`). It serves the same app with `/api` wired to the
+  private API, so the page and its API share one origin: no CORS, no mixed content. Set
+  `VITE_PRIVATE_API=same` in `.env` for this. The public tunnel targets `:80` only, so the team
+  plane is never reachable through it. Do not add port 8080 or 8010 to the tunnel.
 - Clients sign in on the public plane (`/api/login`). Security-team accounts sign in on the
   **private** plane (`POST http://<tailscale-host>:8010/api/login`); the public API refuses team
   logins and team tokens (NFR-24). For local dev with no private plane only, set
