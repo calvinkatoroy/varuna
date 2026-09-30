@@ -9,6 +9,8 @@ import ClientFindings from './screens/ClientFindings'
 import ClientReports from './screens/ClientReports'
 import { AuthGate } from './screens/AuthGate'
 import { TeamLogin } from './screens/TeamLogin'
+import { TwoFactor } from './components/TwoFactor'
+import { api } from './api'
 import TeamBoard from './screens/TeamBoard'
 import FindingsReview from './screens/FindingsReview'
 import TeamAccounts from './screens/TeamAccounts'
@@ -51,8 +53,15 @@ function RoleRoute({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isMock() && (!user || user.role === 'client')) login('admin', '').catch(() => {})
   }, [user, login])
+  // Policy (VARUNA_REQUIRE_MFA): a team member without two-factor sees only the enrolment dialog.
+  const [mustEnrol, setMustEnrol] = useState<boolean | null>(null)
+  const team = !isMock() && !!user && user.role !== 'client'
+  useEffect(() => {
+    if (team) api.pget('/api/mfa').then((r) => setMustEnrol(r.required && !r.enabled)).catch(() => setMustEnrol(false))
+  }, [team, user?.username])
   if (isMock()) return <>{children}</>
-  if (user && user.role !== 'client') return <>{children}</>
+  if (team && mustEnrol === null) return null
+  if (team) return mustEnrol ? <TwoFactor forced onClose={() => setMustEnrol(false)} /> : <>{children}</>
   return <TeamLogin />
 }
 

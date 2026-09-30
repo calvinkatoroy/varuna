@@ -40,7 +40,7 @@ import store as report_store  # noqa: E402
 import auth  # noqa: E402
 import jwt_auth  # noqa: E402
 import browser  # noqa: E402  (proposal/scan/finding logic is shared; only the auth plane differs)
-from deps import current_user, require_lead, require_pro, require_team  # noqa: E402
+from deps import current_user, mfa_required, require_lead, require_pro, require_team, require_team_setup  # noqa: E402
 
 app = FastAPI(title="Varuna Private API (Tailscale plane)")
 _CORS = os.environ.get("VARUNA_CORS_ORIGINS", "http://localhost:5173").split(",")
@@ -101,7 +101,7 @@ class PasswordBody(BaseModel):
 
 
 @app.post("/api/password")
-def change_password(body: PasswordBody, user: dict = Depends(require_team)):
+def change_password(body: PasswordBody, user: dict = Depends(require_team_setup)):
     try:
         auth.change_password(user["username"], body.current, body.new)
     except auth.BadCredentials as e:
@@ -123,20 +123,20 @@ class MfaDisableBody(BaseModel):
 
 
 @app.get("/api/mfa")
-def mfa_status(user: dict = Depends(require_team)):
+def mfa_status(user: dict = Depends(require_team_setup)):
     acct = db.get_account(user["username"]) or {}
-    return {"enabled": bool(acct.get("totp_enabled"))}
+    return {"enabled": bool(acct.get("totp_enabled")), "required": mfa_required()}
 
 
 @app.post("/api/mfa/setup")
-def mfa_setup(user: dict = Depends(require_team)):
+def mfa_setup(user: dict = Depends(require_team_setup)):
     """New secret (not enforced until confirmed). Shown once here; the app also gets the otpauth URI."""
     secret = auth.mfa_begin(user["username"])
     return {"secret": secret, "uri": totp.otpauth_uri(user["username"], secret)}
 
 
 @app.post("/api/mfa/enable")
-def mfa_enable(body: CodeBody, user: dict = Depends(require_team)):
+def mfa_enable(body: CodeBody, user: dict = Depends(require_team_setup)):
     try:
         auth.mfa_confirm(user["username"], body.code)
     except auth.BadCredentials as e:
@@ -148,7 +148,7 @@ def mfa_enable(body: CodeBody, user: dict = Depends(require_team)):
 
 
 @app.post("/api/mfa/disable")
-def mfa_disable(body: MfaDisableBody, user: dict = Depends(require_team)):
+def mfa_disable(body: MfaDisableBody, user: dict = Depends(require_team_setup)):
     try:
         auth.mfa_disable(user["username"], body.password, body.code)
     except auth.BadCredentials as e:

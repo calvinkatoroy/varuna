@@ -55,9 +55,24 @@ def test_enrolment_needs_a_correct_code_and_only_then_enforces_login():
     assert _login("mfa1").status_code == 200                       # set up but not confirmed: not enforced yet
     assert priv.post("/api/mfa/enable", json={"code": "000000"}, headers=H).status_code == 422
     assert priv.post("/api/mfa/enable", json={"code": totp.code_at(secret)}, headers=H).status_code == 200
-    assert priv.get("/api/mfa", headers=H).json() == {"enabled": True}
+    assert priv.get("/api/mfa", headers=H).json()["enabled"] is True
     r = _login("mfa1")
     assert r.status_code == 401 and r.json()["detail"] == "mfa_required"      # password alone is no longer enough
+
+
+def test_required_policy_locks_unenrolled_team_out_of_everything_but_enrolment(monkeypatch):
+    redis_store._client = FakeRedis()
+    monkeypatch.setenv("VARUNA_REQUIRE_MFA", "1")
+    H = _account("mfa_req")
+    r = priv.get("/api/pipeline/board", headers=H)
+    assert r.status_code == 403 and r.json()["detail"] == "mfa_enrolment_required"
+    assert priv.get("/api/mfa", headers=H).json() == {"enabled": False, "required": True}
+    secret = priv.post("/api/mfa/setup", headers=H).json()["secret"]
+    assert priv.get("/api/pipeline/board", headers=H).status_code == 403     # set up but not confirmed
+    assert priv.post("/api/mfa/enable", json={"code": totp.code_at(secret)}, headers=H).status_code == 200
+    assert priv.get("/api/pipeline/board", headers=H).status_code == 200     # enrolled: unlocked
+    monkeypatch.delenv("VARUNA_REQUIRE_MFA")
+    assert priv.get("/api/pipeline/board", headers=_account("mfa_off")).status_code == 200   # policy off: unchanged
 
 
 def test_login_with_code_and_replay_protection():

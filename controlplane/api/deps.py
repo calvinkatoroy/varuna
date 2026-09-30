@@ -30,10 +30,23 @@ def current_user(authorization: str = Header(default="")) -> dict:
     return user
 
 
-def require_team(user: dict = Depends(current_user)) -> dict:
-    """Any security-team role (v2: pentester/lead/reporter/governance/soc). Clients are denied."""
+def mfa_required() -> bool:
+    """Read per call so the policy can be flipped (and tested) without a restart."""
+    return os.environ.get("VARUNA_REQUIRE_MFA", "").lower() in ("1", "true", "yes")
+
+
+def require_team_setup(user: dict = Depends(current_user)) -> dict:
+    """Team role only, WITHOUT the two-factor gate: for the endpoints a member needs in order to enrol."""
     if not models.is_team(user["role"]):
         raise HTTPException(status_code=403, detail="security team role required")
+    return user
+
+
+def require_team(user: dict = Depends(require_team_setup)) -> dict:
+    """Any security-team role (v2: pentester/lead/reporter/governance/soc). Clients are denied.
+    With VARUNA_REQUIRE_MFA on, a member who has not enrolled two-factor can do nothing else."""
+    if mfa_required() and not (db.get_account(user["username"]) or {}).get("totp_enabled"):
+        raise HTTPException(status_code=403, detail="mfa_enrolment_required")
     return user
 
 

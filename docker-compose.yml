@@ -36,6 +36,7 @@ services:
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
       - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -hex 32)}
       - VARUNA_CORS_ORIGINS=${VARUNA_CORS_ORIGINS:-https://localhost}
+      - VARUNA_REQUIRE_MFA=${VARUNA_REQUIRE_MFA:-}
       - SCAN_TTL_SECONDS=${SCAN_TTL_SECONDS:-86400}
       - REPORTS_DIR=/data/reports
       - VARUNA_DB=/dbdata/varuna.db

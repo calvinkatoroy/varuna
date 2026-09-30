@@ -11,7 +11,7 @@ const label = 'mb-1.5 block text-[12.5px] font-medium text-ink-muted'
 // Two-factor (TOTP) for the signed-in team member: enrol with any authenticator app (Google/
 // Microsoft Authenticator, Authy, 1Password), or turn it off again. No QR library on purpose:
 // every app accepts the setup key typed in, and the otpauth link opens directly on a phone.
-export function TwoFactor({ onClose }: { onClose: () => void }) {
+export function TwoFactor({ onClose, forced }: { onClose: () => void; forced?: boolean }) {
   const [enabled, setEnabled] = useState<boolean | null>(null)
   const [setup, setSetup] = useState<{ secret: string; uri: string } | null>(null)
   const [code, setCode] = useState('')
@@ -26,14 +26,15 @@ export function TwoFactor({ onClose }: { onClose: () => void }) {
     try { await fn() } catch (e: any) { setErr(e.message || 'Something went wrong.') }
   }
   const begin = () => run(async () => setSetup(await api.ppost('/api/mfa/setup')))
-  const enable = () => run(async () => { await api.ppost('/api/mfa/enable', { code }); setEnabled(true); setSetup(null); setCode(''); toast('Two-factor is on.') })
+  const enable = () => run(async () => { await api.ppost('/api/mfa/enable', { code }); setEnabled(true); setSetup(null); setCode(''); toast('Two-factor is on.'); if (forced) onClose() })
   const disable = () => run(async () => { await api.ppost('/api/mfa/disable', { password, code }); setEnabled(false); setCode(''); setPassword(''); toast('Two-factor is off.') })
   const copy = async () => { try { await navigator.clipboard.writeText(setup!.secret); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch {} }
 
   return createPortal(
-    <div className="fixed inset-0 z-[60] grid place-items-center bg-shell/60 px-4" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-shell/60 px-4" onKeyDown={(e) => !forced && e.key === 'Escape' && onClose()}>
       <div className="w-full max-w-[420px] space-y-4 rounded-bento-lg border border-rule bg-card p-7 shadow-[0_30px_80px_-20px_rgba(0,0,0,.6)]" role="dialog" aria-label="Two-factor authentication">
         <h2 className="text-[18px] font-bold tracking-[-0.02em] text-ink">Two-factor authentication</h2>
+        {forced && <p className="text-[13px] font-semibold text-ink">Required for the security team. Set it up to continue.</p>}
 
         {enabled === null && <div className="text-[13px] text-ink-muted">Loading…</div>}
 
@@ -71,7 +72,7 @@ export function TwoFactor({ onClose }: { onClose: () => void }) {
         )}
 
         {err && <div className="text-[12.5px] text-crit">{err}</div>}
-        <Button variant="outline" className="w-full" onClick={onClose}>Close</Button>
+        {!forced && <Button variant="outline" className="w-full" onClick={onClose}>Close</Button>}
       </div>
     </div>,
     document.body,
