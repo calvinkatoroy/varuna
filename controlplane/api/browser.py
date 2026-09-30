@@ -15,6 +15,7 @@ import asyncio
 import json
 import os
 import sys
+import threading
 import uuid
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -37,6 +38,7 @@ import db  # noqa: E402
 import dispatch  # noqa: E402
 import generator  # noqa: E402
 import jwt_auth  # noqa: E402
+import mailer  # noqa: E402
 import notify  # noqa: E402
 import models  # noqa: E402
 import redis_store  # noqa: E402
@@ -99,6 +101,7 @@ class LoginBody(BaseModel):
 class RegisterBody(BaseModel):
     username: str
     password: str
+    email: str = ""          # optional, only used to send a password-reset link
 
 
 class ScanBody(BaseModel):
@@ -153,7 +156,7 @@ def register(body: RegisterBody):
     """Self-service client registration (v2). Client-role only; grants nothing until a proposal
     is approved, so this being public is inert. Team accounts are seeded, never self-registered."""
     try:
-        auth.register_client(body.username, body.password)
+        auth.register_client(body.username, body.password, body.email)
     except auth.UsernameTaken as e:
         raise HTTPException(status_code=409, detail=str(e))
     except auth.AuthError as e:   # bad username/password shape: a validation error, not a conflict
@@ -164,6 +167,53 @@ def register(body: RegisterBody):
 @app.get("/api/me")
 def me(user: dict = Depends(current_user)):
     return user
+
+
+class EmailBody(BaseModel):
+    email: str
+
+
+@app.put("/api/email")
+def set_email(body: EmailBody, user: dict = Depends(current_user)):
+    """A client adds or changes the address their password-reset link goes to (blank removes it)."""
+    if user["role"] != models.ROLE_CLIENT:
+        raise HTTPException(status_code=403, detail="clients only; the lead pentester resets team passwords")
+    try:
+        auth.set_email(user["username"], body.email)
+    except auth.AuthError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"ok": True}
+
+
+class ResetRequestBody(BaseModel):
+    email: str
+
+
+class ResetConfirmBody(BaseModel):
+    token: str
+    new: str
+
+
+@app.post("/api/password-reset/request")
+def password_reset_request(body: ResetRequestBody, x_forwarded_for: str = Header(default="api")):
+    """Always the same answer, so this cannot be used to discover who has an account."""
+    for name, token in auth.start_reset(body.email, x_forwarded_for):
+        link = f"{(os.environ.get('VARUNA_PUBLIC_URL') or 'http://localhost:5173').rstrip('/')}/reset?token={token}"
+        text = (f"Hello {name},\n\nSomeone asked to reset the Varuna password for this account. "
+                f"Open this link within 30 minutes to choose a new one:\n\n{link}\n\n"
+                "If this wasn't you, ignore this email; your password has not changed.\n")
+        threading.Thread(target=mailer.send, args=(body.email.strip(), "Reset your Varuna password", text), daemon=True).start()
+        audit.log("password_reset_requested", actor=name)
+    return {"ok": True}
+
+
+@app.post("/api/password-reset/confirm")
+def password_reset_confirm(body: ResetConfirmBody):
+    try:
+        auth.finish_reset(body.token, body.new)
+    except auth.AuthError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"ok": True}
 
 
 class PasswordBody(BaseModel):

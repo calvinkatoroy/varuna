@@ -9,6 +9,7 @@ import ClientFindings from './screens/ClientFindings'
 import ClientReports from './screens/ClientReports'
 import { AuthGate } from './screens/AuthGate'
 import { TeamLogin } from './screens/TeamLogin'
+import ResetPassword from './screens/ResetPassword'
 import { TwoFactor } from './components/TwoFactor'
 import { api } from './api'
 import TeamBoard from './screens/TeamBoard'
@@ -92,6 +93,7 @@ export default function App() {
       <Splash />
       {ready && (
         <Routes location={displayed}>
+          <Route path="/reset" element={<ResetPassword />} />
           <Route path="/" element={<ClientRoute><ClientCockpit /></ClientRoute>} />
           <Route path="/proposals" element={<ClientRoute><ClientProposals /></ClientRoute>} />
           <Route path="/findings" element={<ClientRoute><ClientFindings /></ClientRoute>} />

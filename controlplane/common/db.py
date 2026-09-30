@@ -114,6 +114,14 @@ CREATE TABLE IF NOT EXISTS findings (
 CREATE INDEX IF NOT EXISTS idx_findings_job ON findings(job_id);
 CREATE INDEX IF NOT EXISTS idx_findings_owner ON findings(owner);
 CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
+
+-- Password-reset links: only a hash of the token is stored; single use, short expiry.
+CREATE TABLE IF NOT EXISTS reset_tokens (
+    token_hash TEXT PRIMARY KEY,
+    username   TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used       INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -123,7 +131,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(accounts)")}
     if "disabled" not in cols:
         conn.execute("ALTER TABLE accounts ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0")
-    for col, ddl in (("totp_secret", "TEXT"), ("totp_enabled", "INTEGER NOT NULL DEFAULT 0"),
+    for col, ddl in (("email", "TEXT"), ("totp_secret", "TEXT"), ("totp_enabled", "INTEGER NOT NULL DEFAULT 0"),
                      ("totp_last_step", "INTEGER NOT NULL DEFAULT 0")):
         if col not in cols:
             conn.execute(f"ALTER TABLE accounts ADD COLUMN {col} {ddl}")
@@ -207,13 +215,37 @@ def list_accounts() -> list[dict]:
 def set_account(username: str, **fields) -> bool:
     """Update password_hash / disabled. True if the account exists."""
     allowed = {k: v for k, v in fields.items()
-               if k in ("password_hash", "disabled", "totp_secret", "totp_enabled", "totp_last_step")}
+               if k in ("password_hash", "disabled", "email", "totp_secret", "totp_enabled", "totp_last_step")}
     if not allowed:
         return False
     sets = ", ".join(f"{k}=?" for k in allowed)
     cur = get_conn().execute(f"UPDATE accounts SET {sets} WHERE username=?", [*allowed.values(), username])
     get_conn().commit()
     return cur.rowcount == 1
+
+
+def client_usernames_by_email(email: str) -> list[str]:
+    """Active client accounts registered with this address (team accounts never reset by email)."""
+    return [r[0] for r in get_conn().execute(
+        "SELECT username FROM accounts WHERE email=? COLLATE NOCASE AND role='client' AND disabled=0", (email,))]
+
+
+def add_reset_token(token_hash: str, username: str, expires_at: int) -> None:
+    """One live link per account: a new request voids the previous one."""
+    c = get_conn()
+    c.execute("DELETE FROM reset_tokens WHERE username=?", (username,))
+    c.execute("INSERT INTO reset_tokens (token_hash, username, expires_at) VALUES (?, ?, ?)", (token_hash, username, expires_at))
+    c.commit()
+
+
+def claim_reset_token(token_hash: str, now: int) -> Optional[str]:
+    """Atomically spend a valid unused token; returns its username, or None."""
+    c = get_conn()
+    cur = c.execute("UPDATE reset_tokens SET used=1 WHERE token_hash=? AND used=0 AND expires_at>?", (token_hash, now))
+    c.commit()
+    if cur.rowcount != 1:
+        return None
+    return c.execute("SELECT username FROM reset_tokens WHERE token_hash=?", (token_hash,)).fetchone()[0]
 
 
 def get_account_ci(username: str) -> Optional[dict]:

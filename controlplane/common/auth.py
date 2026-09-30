@@ -61,7 +61,58 @@ def create_account(username: str, password: str, role: str) -> Account:
     return acct
 
 
-def register_client(username: str, password: str) -> Account:
+def _clean_email(email: str) -> str:
+    import re
+    email = (email or "").strip()
+    if email and (len(email) > 254 or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email)):
+        raise AuthError("that email address doesn't look right")
+    return email
+
+
+def set_email(username: str, email: str) -> None:
+    db.set_account(username, email=_clean_email(email) or None)
+
+
+RESET_TTL = 1800        # a reset link works for 30 minutes
+RESET_LIMIT = 5         # requests per source IP and per address per hour
+
+
+def start_reset(email: str, ip: str) -> list[tuple[str, str]]:
+    """Mint reset tokens for the client accounts on this address -> [(username, raw token)].
+    Empty for unknown/invalid/throttled requests: the caller answers identically either way."""
+    import hashlib
+    import secrets
+    import time
+    email = (email or "").strip().lower()
+    if not email:
+        return []
+    r = redis_store.get_redis()
+    for key in (f"reset_req_ip:{ip}", f"reset_req:{email}"):
+        if r.incr(key) == 1:
+            r.expire(key, 3600)
+        if int(r.get(key) or 0) > RESET_LIMIT:
+            return []
+    out = []
+    for name in db.client_usernames_by_email(email):
+        token = secrets.token_urlsafe(32)
+        db.add_reset_token(hashlib.sha256(token.encode()).hexdigest(), name, int(time.time()) + RESET_TTL)
+        out.append((name, token))
+    return out
+
+
+def finish_reset(token: str, new: str) -> None:
+    """Spend a reset token and set the new password. A weak password is refused BEFORE the token is spent."""
+    import hashlib
+    import time
+    _check_new_password(new)
+    name = db.claim_reset_token(hashlib.sha256((token or "").encode()).hexdigest(), int(time.time()))
+    if not name:
+        raise AuthError("this reset link is invalid or has expired")
+    db.set_account(name, password_hash=hash_password(new))
+    redis_store.get_redis().delete(redis_store.login_fail_key(name))   # they may be locked out from guessing
+
+
+def register_client(username: str, password: str, email: str = "") -> Account:
     """Self-service registration. Always client-role and low-privilege: an account grants
     nothing until a proposal is approved (v2). Team roles are seeded, never self-registered."""
     import re
@@ -75,10 +126,13 @@ def register_client(username: str, password: str) -> Account:
         raise AuthError("password must be at least 8 characters")
     if len(password.encode()) > 72:   # bcrypt hard limit; refuse rather than truncate/crash
         raise AuthError("password must be at most 72 bytes")
+    email = _clean_email(email)
     if db.get_account_ci(username):
         raise UsernameTaken("username already taken")
     acct = Account(username=username, password_hash=hash_password(password), role=ROLE_CLIENT)
     db.upsert_account(acct.username, acct.password_hash, acct.role)
+    if email:
+        db.set_account(username, email=email)
     return acct
 
 

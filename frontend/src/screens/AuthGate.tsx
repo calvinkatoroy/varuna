@@ -48,6 +48,8 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
   const [step, setStep] = useState<Step>('auth')
   const [mode, setMode] = useState<'login' | 'register'>('register')
   const [u, setU] = useState('')
+  const [email, setEmail] = useState('')
+  const [forgot, setForgot] = useState<'' | 'form' | 'sent'>('')
   const [p, setP] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -125,7 +127,7 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
         await login(u, p)
         await resumeFlow(u)
       } else {
-        await register(u, p)
+        await register(u, p, email.trim())
         setStep('proposal')
       }
     } catch (e: any) {
@@ -162,6 +164,30 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
                 </button>
               ))}
             </div>
+            {forgot ? (
+              <form
+                className="space-y-4"
+                onSubmit={async (e) => {
+                  e.preventDefault()
+                  setBusy(true)
+                  try { await api.post('/api/password-reset/request', { email: email.trim() }); setForgot('sent') } catch {} finally { setBusy(false) }
+                }}
+              >
+                {forgot === 'sent' ? (
+                  <p role="status" className="text-[13px] leading-relaxed text-ink-muted">If that address is registered, a reset link is on its way. It works for 30 minutes. Check your spam folder if it does not arrive.</p>
+                ) : (
+                  <>
+                    <p className="text-[13px] leading-relaxed text-ink-muted">Enter the email you registered with and we will send a reset link. No email on file? Ask your lead pentester.</p>
+                    <div>
+                      <label htmlFor="auth-4" className={label}>Email</label>
+                      <input id="auth-4" className={field} type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+                    </div>
+                    <Button type="submit" size="lg" className="w-full" disabled={busy}>Send reset link</Button>
+                  </>
+                )}
+                <button type="button" onClick={() => setForgot('')} className="block min-h-[44px] w-full text-center text-[13px] font-semibold text-accent-ink">Back to log in</button>
+              </form>
+            ) : (
             <form onSubmit={submitAuth} className="space-y-4">
               <div>
                 <label htmlFor="auth-1" className={label}>Username</label>
@@ -171,16 +197,26 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
                 <label htmlFor="auth-2" className={label}>Password</label>
                 <input id="auth-2" className={field} type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="••••••••" required />
               </div>
+              {mode === 'register' && (
+                <div>
+                  <label htmlFor="auth-3" className={label}>Email <span className="font-normal">(optional, only to reset a forgotten password)</span></label>
+                  <input id="auth-3" className={field} type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" />
+                </div>
+              )}
               {err && <div className="text-[12.5px] text-crit">{err}</div>}
               <Button type="submit" size="lg" className="w-full" disabled={busy}>
                 {mode === 'register' ? 'Create account' : 'Log in'} <ArrowRight size={16} />
               </Button>
+              {mode === 'login' && (
+                <button type="button" onClick={() => setForgot('form')} className="block min-h-[44px] w-full text-center text-[13px] font-semibold text-accent-ink">Forgot your password?</button>
+              )}
               <p className="text-center text-[12px] leading-relaxed text-ink-muted">
                 {mode === 'register'
                   ? 'Registering grants access only. The dashboard unlocks once a proposal is approved.'
                   : 'Welcome back.'}
               </p>
             </form>
+            )}
           </>
         )}
 

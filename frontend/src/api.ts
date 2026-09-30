@@ -39,7 +39,7 @@ async function req(base: string, path: string, opts: RequestInit = {}): Promise<
   }
   // Credential endpoints take no token; anything else without one is "not signed in", which is
   // expected before login and must not fire requests or a "session expired" toast.
-  const isAuthCall = path === '/api/login' || path === '/api/register'
+  const isAuthCall = path === '/api/login' || path === '/api/register' || path.startsWith('/api/password-reset/')
   if (!token && !isAuthCall) throw new ApiError(401, '', true)
   try {
     const headers: any = { ...(opts.headers || {}) }
