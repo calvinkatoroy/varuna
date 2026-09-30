@@ -5,6 +5,8 @@ scan (Katana crawl, then Nuclei + SQLMap) on the client's own machine so raw sca
 leaves their network; findings are parsed, correlated, AI-enriched (local Ollama), and carried
 through a human review pipeline before a signed, password-protected report is delivered.
 
+See [USER_GUIDE.md](USER_GUIDE.md) for how clients, the security team and administrators use it.
+
 ## Branch model
 
 - `main` — the live, working single-gate PoC. Deployed and demoable; do not break it.
