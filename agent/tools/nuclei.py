@@ -7,6 +7,7 @@ OOB detection (REQ-21b). Higher rate is a Pro opt-in via `rate`.
 from __future__ import annotations
 
 SAFE_RATE = 50    # conservative default requests/sec (NFR-17); Pro may raise it
+LOCAL_RATE = 150  # local/staging targets (target_class == local) can take a faster scan
 # A heavy or chatty app returns errors/timeouts on many template probes; nuclei's default
 # max-host-error (30) then gives up on the host entirely. Raise it so a heavy target is not
 # abandoned mid-scan.

@@ -1,8 +1,8 @@
 """`.docx` report generation via python-docx (SRS §4.8, REQ-44 to REQ-50).
 
-Executive Summary and Full Technical are implemented here (the vertical slice needs the
-former; the latter is the natural Pro default and gives the sanitizer a contrast test).
-OWASP Web App and ILCS Internal land in Phase G. The Executive Summary is built ONLY from
+Executive Summary, Full Technical, Formal Handover and Raw Findings use the detailed layout in
+detailed.py (cover, document control, scope/methodology, findings register, per-finding pages,
+remediation roadmap, sign-off). OWASP Web App and ILCS Internal are the older simple layouts. The Executive Summary is built ONLY from
 sanitized findings (sanitize.py, REQ-49); Full Technical carries full detail.
 """
 from __future__ import annotations
@@ -17,10 +17,25 @@ from docx import Document
 sys.path.insert(0, os.path.dirname(__file__))                                    # sanitize
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))      # models
 
+import db  # noqa: E402
+import detailed  # noqa: E402
 import models  # noqa: E402
 import sanitize  # noqa: E402
 
-TEMPLATES = ("Full Technical", "OWASP Web App", "Executive Summary", "ILCS Internal")
+TEMPLATES = ("Full Technical", "Formal Handover", "Executive Summary", "Raw Findings",
+             "OWASP Web App", "ILCS Internal")
+
+
+def _ctx(job: dict) -> dict:
+    """Engagement details from the originating proposal (scope, environment, RoE...)."""
+    try:
+        p = db.get_proposal_by_job(job.get("id") or "") or {}
+    except Exception:   # no DB (offline unit use): a report must still generate
+        p = {}
+    return {"client": job.get("submitter") or p.get("submitter"), "purpose": p.get("purpose"),
+            "division": p.get("division"), "environment": p.get("environment"),
+            "test_window": p.get("test_window"), "in_scope": p.get("in_scope"),
+            "out_of_scope": p.get("out_of_scope"), "roe": p.get("roe")}
 
 # Coverage disclaimer: every report MUST carry it so no reader mistakes "no findings" for
 # "fully secure" (SRS §1.4 Coverage and Limitations). Automated scanning covers only part
@@ -77,35 +92,16 @@ def _add_severity_table(doc: Document, findings: list[dict]) -> None:
 
 
 def _executive_summary(job: dict, findings: list[dict]) -> Document:
-    counts = _severity_counts(findings)
-    safe = sanitize.sanitize_findings(findings)   # technical fields never cross (REQ-49)
-
-    doc = Document()
-    doc.add_heading("Executive Summary, Web VAPT", level=0)
-    _add_meta(doc, job)
-
-    doc.add_heading("Business Risk Summary", level=2)
-    doc.add_paragraph(
-        f"This assessment of {job.get('target', 'the target')} identified {len(findings)} "
-        f"finding(s): {counts['critical']} critical, {counts['high']} high, "
-        f"{counts['medium']} medium, {counts['low']} low. Critical and high findings represent "
-        f"the most immediate business risk and should be prioritized for remediation."
-    )
-
-    _add_severity_table(doc, findings)
-
-    doc.add_heading("Key Findings", level=2)
-    for f in safe[:5]:   # findings arrive priority-sorted (correlate.py); top 3-5 (REQ-49)
-        doc.add_heading(f.get("name", "Finding"), level=3)
-        doc.add_paragraph(f"Risk: {f.get('risk_rating') or f.get('severity', '').capitalize()}")
-        if f.get("impact"):
-            doc.add_paragraph(f"Impact: {f['impact']}")
-        if f.get("remediation"):
-            doc.add_paragraph(f"Recommended action: {f['remediation']}")
-
-    _add_coverage(doc)
-
-    doc.add_heading("Recommended Next Steps", level=2)
+    ctx = _ctx(job)
+    # Allow-list first (REQ-49): technical fields never reach this document. Only then add IDs.
+    fs = detailed.ordered(sanitize.sanitize_findings(
+        [f for f in findings if (f.get("verdict") or "tp") != "fp"]))
+    doc = detailed.new_document("Executive Summary")
+    detailed.cover(doc, "Web Application VAPT Report", "Executive Summary", job, ctx)
+    detailed.executive_overview(doc, fs, detailed.counts_of(fs), job, ctx)
+    detailed.roadmap(doc, fs)
+    detailed.coverage(doc, COVERAGE_TITLE, COVERAGE_PARAS)
+    doc.add_heading("Recommended Next Steps", level=1)
     doc.add_paragraph(
         "Prioritize remediation of critical and high findings, re-test after fixes, and "
         "schedule a follow-up assessment to confirm closure."
@@ -134,15 +130,15 @@ def _add_finding_detail(doc: Document, f: dict, level: int = 3) -> None:
 
 
 def _full_technical(job: dict, findings: list[dict]) -> Document:
-    doc = Document()
-    doc.add_heading("Full Technical Report, Web VAPT", level=0)
-    _add_meta(doc, job)
-    _add_coverage(doc)
-    _add_severity_table(doc, findings)
-    doc.add_heading("Findings", level=2)
-    for f in findings:
-        _add_finding_detail(doc, f, level=3)
-    return doc
+    return detailed.full_technical(job, findings, _ctx(job), COVERAGE_PARAS, COVERAGE_TITLE)
+
+
+def _formal_handover(job: dict, findings: list[dict]) -> Document:
+    return detailed.formal_handover(job, findings, _ctx(job), COVERAGE_PARAS, COVERAGE_TITLE)
+
+
+def _raw_findings(job: dict, findings: list[dict]) -> Document:
+    return detailed.raw_findings(job, findings, _ctx(job), COVERAGE_PARAS, COVERAGE_TITLE)
 
 
 def _owasp_web_app(job: dict, findings: list[dict]) -> Document:
@@ -227,6 +223,8 @@ def _ilcs_internal(job: dict, findings: list[dict]) -> Document:
 _BUILDERS = {
     "Executive Summary": _executive_summary,
     "Full Technical": _full_technical,
+    "Formal Handover": _formal_handover,
+    "Raw Findings": _raw_findings,
     "OWASP Web App": _owasp_web_app,
     "ILCS Internal": _ilcs_internal,
 }

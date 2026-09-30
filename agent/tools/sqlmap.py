@@ -9,6 +9,9 @@ safe profile can never enable them, because `dump`/`os_shell` are ignored unless
 from __future__ import annotations
 
 
+THREADS = 4
+
+
 def build(urls_file: str, outdir: str, aggressive: bool = False,
           tamper: str | None = None, cookie: str | None = None,
           dump: bool = False, os_shell: bool = False,
@@ -16,6 +19,7 @@ def build(urls_file: str, outdir: str, aggressive: bool = False,
     cmd = [
         "sqlmap", "-m", urls_file,   # Katana's output (REQ-21)
         "--batch", "--forms",
+        "--threads", str(THREADS),   # detection-only, so parallel requests are safe; ~4x faster per target
         "--output-dir", outdir,
     ]
     if aggressive:

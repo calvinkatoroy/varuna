@@ -106,3 +106,31 @@ if __name__ == "__main__":
             fn()
             print(f"{name} OK")
     print("test_report: all green")
+
+
+FP = {"name": "Outdated jQuery", "severity": "low", "host": "http://t.local", "verdict": "fp",
+      "impact": "n/a", "remediation": "n/a"}
+
+
+def test_detailed_templates_have_their_sections():
+    ft = _text(generator.generate(JOB, FINDINGS + [FP], "Full Technical"))
+    for section in ("Document Control", "Scope and Methodology", "Risk Rating Methodology",
+                    "Findings Summary", "Detailed Findings", "Remediation Roadmap", "VAR-001", "VAR-002",
+                    "https://cwe.mitre.org/data/definitions/89.html", "https://nvd.nist.gov/vuln/detail/CVE-2021-44228"):
+        assert section in ft, f"Full Technical missing {section!r}"
+    assert "Outdated jQuery" not in ft, "false positives must not appear in client reports"
+    fh = _text(generator.generate(JOB, FINDINGS, "Formal Handover"))
+    assert "Sign-off and Acceptance" in fh and "Received by (Client)" in fh
+    assert "SLEEP(5)" not in fh, "handover carries no raw payloads"
+
+
+def test_raw_findings_marks_false_positives():
+    raw = _text(generator.generate(JOB, FINDINGS + [FP], "Raw Findings"))
+    assert "Outdated jQuery" in raw and "FP" in raw and "TP" in raw
+
+
+def test_executive_summary_new_layout_still_leaks_nothing():
+    text = _text(generator.generate(JOB, FINDINGS + [FP], "Executive Summary"))
+    for leaked in ("SLEEP(5)", "CVE-2021-44228", "jndi", "sqlmap", "Sqlmap", "Nuclei", "nuclei", "Katana", "10.0", "Outdated jQuery"):
+        assert leaked not in text, leaked
+    assert "Remediation Roadmap" in text and "overall risk rating is CRITICAL" in text
