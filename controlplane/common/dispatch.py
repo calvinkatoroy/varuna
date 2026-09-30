@@ -53,6 +53,7 @@ def submit_scan(submitter: str, role: str, target: str, tools: list,
         status=models.STATUS_QUEUED, per_tool_status={},
     ).to_dict()
     redis_store.set_job(job)
+    redis_store.add_user_job(submitter, job["id"])
     audit.log(audit.SUBMIT, submitter=submitter, target=target,
               target_class=target_class, role=role, job=job["id"])
 
@@ -68,8 +69,17 @@ def submit_scan(submitter: str, role: str, target: str, tools: list,
     return {"job_id": job["id"], "state": "dispatched"}
 
 
-def dispatch_job(job: dict) -> None:
-    """THE choke point. Re-check the gate + agent liveness, then enqueue. REQ-19a, REQ-76."""
+def dispatch_job(job: dict, pre_approved: bool = False) -> None:
+    """THE choke point. Re-check the gate + agent liveness, then enqueue. REQ-19a, REQ-76.
+
+    pre_approved (v2): a lead-pentester-approved proposal already gated this job. Skip the
+    legacy standard+cloud redis-approval check AND the online refusal, and queue it for the
+    client's agent to pick up whenever it next polls (the client installs the agent AFTER
+    approval, so it is normally offline at approve-time).
+    """
+    if pre_approved:
+        redis_store.enqueue_job(job["submitter"], job["id"])
+        return
     if _is_gated(job["role"], job["target_class"]):
         appr = redis_store.get_approval(job["id"])
         if not appr or appr.get("status") != APPROVED:
@@ -101,6 +111,19 @@ def reject_request(job_id: str, approver: str, reason: str) -> None:
     redis_store.set_approval(job_id, appr)
     redis_store.remove_pending_approval(job_id)
     audit.log(audit.REJECT, approver=approver, job=job_id, reason=reason)
+
+
+def list_jobs(username: str, limit: int = 20) -> list[dict]:
+    """Recent jobs submitted by this user, newest first (for a jobs table, REQ-24 context).
+
+    Skips job ids whose 24h TTL has already expired (redis_store.get_job returns None).
+    """
+    out = []
+    for jid in redis_store.list_user_jobs(username, limit):
+        job = redis_store.get_job(jid)
+        if job:
+            out.append(job)
+    return out
 
 
 def pending_approvals() -> list[dict]:

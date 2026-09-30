@@ -1,0 +1,12 @@
+# Local-only addition: docker-compose.yml normally only exposes api-private (api-public/
+# api-agent are meant to be reached through Caddy). This test skips Caddy entirely, so publish
+# the other two directly to loopback. Not auto-loaded by plain `docker compose up` (only
+# docker-compose.override.yml is) - must be passed explicitly with -f, so it can't affect the
+# real deployment's normal compose invocation.
+services:
+  api-public:
+    ports:
+      - "127.0.0.1:8000:8000"
+  api-agent:
+    ports:
+      - "127.0.0.1:8001:8001"

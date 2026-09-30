@@ -47,7 +47,7 @@ def _queued(user):
 def test_pro_cloud_never_gated():
     reset()
     _agent_online("pentester")
-    res = dispatch.submit_scan("pentester", "pro", CLOUD, ["katana", "nuclei"])
+    res = dispatch.submit_scan("pentester", "pentester", CLOUD, ["katana", "nuclei"])
     assert res["state"] == "dispatched"
     assert _queued("pentester") == res["job_id"], "pro cloud scan should dispatch immediately"
 
@@ -55,7 +55,7 @@ def test_pro_cloud_never_gated():
 def test_standard_local_dispatched_immediately():
     reset()
     _agent_online("staff")
-    res = dispatch.submit_scan("staff", "standard", LOCAL, ["katana", "nuclei", "sqlmap"])
+    res = dispatch.submit_scan("staff", "client", LOCAL, ["katana", "nuclei", "sqlmap"])
     assert res["state"] == "dispatched"
     assert _queued("staff") == res["job_id"]
 
@@ -63,7 +63,7 @@ def test_standard_local_dispatched_immediately():
 def test_standard_cloud_is_gated_not_queued():
     reset()
     _agent_online("staff")
-    res = dispatch.submit_scan("staff", "standard", CLOUD, ["katana"], division="Finance")
+    res = dispatch.submit_scan("staff", "client", CLOUD, ["katana"], division="Finance")
     assert res["state"] == "pending_approval"
     assert _queued("staff") is None, "gated request must NOT be enqueued before approval"
     pend = dispatch.pending_approvals()
@@ -73,7 +73,7 @@ def test_standard_cloud_is_gated_not_queued():
 def test_approve_dispatches_through_choke_point():
     reset()
     _agent_online("staff")
-    res = dispatch.submit_scan("staff", "standard", CLOUD, ["katana"])
+    res = dispatch.submit_scan("staff", "client", CLOUD, ["katana"])
     dispatch.approve_request(res["job_id"], approver="ihsan")
     assert _queued("staff") == res["job_id"], "approved request should reach the agent queue"
     assert dispatch.pending_approvals() == [], "approved request should leave the queue"
@@ -82,7 +82,7 @@ def test_approve_dispatches_through_choke_point():
 def test_reject_discards_never_dispatched():
     reset()
     _agent_online("staff")
-    res = dispatch.submit_scan("staff", "standard", CLOUD, ["katana"])
+    res = dispatch.submit_scan("staff", "client", CLOUD, ["katana"])
     dispatch.reject_request(res["job_id"], approver="ihsan", reason="unauthorized target")
     assert _queued("staff") is None, "rejected request must never be enqueued"
     assert dispatch.pending_approvals() == []
@@ -94,7 +94,7 @@ def test_choke_point_blocks_unapproved_cloud_directly():
     # an unapproved Standard cloud job. This is the REQ-19a defense-in-depth.
     reset()
     _agent_online("staff")
-    job = {"id": "x", "role": "standard", "target_class": classifier.CLASS_CLOUD,
+    job = {"id": "x", "role": "client", "target_class": classifier.CLASS_CLOUD,
            "submitter": "staff"}
     try:
         dispatch.dispatch_job(job)
@@ -108,18 +108,27 @@ def test_offline_agent_rejected_not_queued():
     reset()
     _agent_offline("staff")
     try:
-        dispatch.submit_scan("staff", "standard", LOCAL, ["katana"])
+        dispatch.submit_scan("staff", "client", LOCAL, ["katana"])
     except dispatch.OfflineAgent:
         assert _queued("staff") is None, "offline dispatch must not silently queue (REQ-76)"
         return
     raise AssertionError("offline agent should raise OfflineAgent")
 
 
+def test_list_jobs_newest_first():
+    reset()
+    _agent_online("pentester")
+    r1 = dispatch.submit_scan("pentester", "pentester", CLOUD, ["katana"])
+    r2 = dispatch.submit_scan("pentester", "pentester", CLOUD, ["nuclei"])
+    jobs = dispatch.list_jobs("pentester")
+    assert [j["id"] for j in jobs] == [r2["job_id"], r1["job_id"]]
+
+
 def test_classify_rejected_propagates():
     reset()
     _agent_online("staff")
     try:
-        dispatch.submit_scan("staff", "standard", "http://0x7f000001", ["katana"])
+        dispatch.submit_scan("staff", "client", "http://0x7f000001", ["katana"])
     except classifier.ClassifyRejected:
         return   # fail closed: evasion target rejected before any dispatch
     raise AssertionError("an evasion target must be rejected, not classified")
@@ -131,3 +140,14 @@ if __name__ == "__main__":
             fn()
             print(f"{name} OK")
     print("test_dispatch: all green")
+
+
+def test_pre_approved_enqueues_skipping_gate_and_online():
+    # v2: a lead-approved proposal queues the client's job even with no redis approval and an
+    # offline agent (client installs the agent after approval; the job waits in the queue).
+    reset()
+    _agent_offline("alice")
+    job = {"id": "pa1", "role": "client", "target_class": classifier.CLASS_CLOUD,
+           "submitter": "alice"}
+    dispatch.dispatch_job(job, pre_approved=True)
+    assert _queued("alice") == "pa1"

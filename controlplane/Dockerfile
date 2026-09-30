@@ -3,6 +3,12 @@
 FROM python:3.11-slim
 
 WORKDIR /app
+
+# LibreOffice headless converts the approved review docx -> PDF for protected client delivery
+# (v2 Plan 3). soffice is invoked by common/pdf_deliver.py.
+RUN apt-get update && apt-get install -y --no-install-recommends libreoffice-writer \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY controlplane/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 

@@ -8,10 +8,13 @@ AND per-source-IP with a temporary lockout (NFR-25), this is not optional harden
 """
 from __future__ import annotations
 
+import db
 import redis_store
 from models import Account, ROLES
 
-FAIL_LIMIT = 5          # lock after this many failures in the window
+FAIL_LIMIT = 5          # lock a source IP (or IP+account pair) after this many failures
+USER_FAIL_LIMIT = 25    # account-wide cap across all IPs: high enough that one attacker cannot
+                        # lock a real user out (M7), low enough to stop a distributed guess
 FAIL_WINDOW = 900       # seconds (15 min)
 
 
@@ -45,13 +48,35 @@ def create_account(username: str, password: str, role: str) -> Account:
     if role not in ROLES:
         raise ValueError(f"invalid role: {role}")
     acct = Account(username=username, password_hash=hash_password(password), role=role)
-    redis_store.set_account(acct.to_dict())
+    db.upsert_account(acct.username, acct.password_hash, acct.role)
+    return acct
+
+
+def register_client(username: str, password: str) -> Account:
+    """Self-service registration. Always client-role and low-privilege: an account grants
+    nothing until a proposal is approved (v2). Team roles are seeded, never self-registered."""
+    import re
+    from models import ROLE_CLIENT
+    username = (username or "").strip()
+    if not username or not password:
+        raise AuthError("username and password required")
+    if not re.fullmatch(r"[A-Za-z0-9._-]{3,32}", username):
+        raise AuthError("username must be 3-32 letters, digits, dot, dash or underscore")
+    if len(password) < 8:
+        raise AuthError("password must be at least 8 characters")
+    if len(password.encode()) > 72:   # bcrypt hard limit; refuse rather than truncate/crash
+        raise AuthError("password must be at most 72 bytes")
+    if db.get_account_ci(username):
+        raise AuthError("username already taken")
+    acct = Account(username=username, password_hash=hash_password(password), role=ROLE_CLIENT)
+    db.upsert_account(acct.username, acct.password_hash, acct.role)
     return acct
 
 
 def _record_fail(username: str, ip: str) -> None:
     r = redis_store.get_redis()
-    for key in (redis_store.login_fail_key(username), redis_store.login_fail_ip_key(ip)):
+    for key in (redis_store.login_fail_key(username), redis_store.login_fail_key(f"{username}|{ip}"),
+                redis_store.login_fail_ip_key(ip)):
         if r.incr(key) == 1:
             r.expire(key, FAIL_WINDOW)
 
@@ -59,13 +84,15 @@ def _record_fail(username: str, ip: str) -> None:
 def _is_locked(username: str, ip: str) -> bool:
     r = redis_store.get_redis()
     u = int(r.get(redis_store.login_fail_key(username)) or 0)
+    up = int(r.get(redis_store.login_fail_key(f"{username}|{ip}")) or 0)
     i = int(r.get(redis_store.login_fail_ip_key(ip)) or 0)
-    return u >= FAIL_LIMIT or i >= FAIL_LIMIT
+    return u >= USER_FAIL_LIMIT or up >= FAIL_LIMIT or i >= FAIL_LIMIT
 
 
 def _clear_fails(username: str, ip: str) -> None:
     redis_store.get_redis().delete(
-        redis_store.login_fail_key(username), redis_store.login_fail_ip_key(ip)
+        redis_store.login_fail_key(username), redis_store.login_fail_key(f"{username}|{ip}"),
+        redis_store.login_fail_ip_key(ip)
     )
 
 
@@ -73,7 +100,7 @@ def authenticate(username: str, password: str, ip: str) -> Account:
     """Return the Account on success; raise LockedOut or BadCredentials otherwise."""
     if _is_locked(username, ip):
         raise LockedOut("too many failed attempts; try again later")
-    acct = redis_store.get_account(username)
+    acct = db.get_account(username)
     if not acct or not check_password(password, acct["password_hash"]):
         _record_fail(username, ip)
         raise BadCredentials("invalid username or password")
@@ -96,6 +123,7 @@ if __name__ == "__main__":
         def expire(self, k, s): pass
 
     redis_store._client = FakeRedis()
+    db.reset_for_test(":memory:")
 
     # 5 failures against a missing account → 6th attempt is locked out.
     for _ in range(FAIL_LIMIT):

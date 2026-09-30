@@ -64,6 +64,27 @@ def _classify_ip(ip: ipaddress._BaseAddress) -> str:
     return CLASS_CLOUD if ip.is_global else CLASS_LOCAL
 
 
+def validate_syntax(target: str) -> None:
+    """Cheap submit-time check (no DNS): http(s) only, sane length, real-looking host. Raises
+    ClassifyRejected. Full classification (resolution, local/cloud) still happens at approval."""
+    import re
+    t = (target or "").strip()
+    if len(t) > 2048 or any(ord(ch) < 33 or ord(ch) == 127 for ch in t):
+        raise ClassifyRejected("target must be a single URL or host without spaces")
+    if "://" in t and urlparse(t).scheme not in ("http", "https"):
+        raise ClassifyRejected("only http(s) targets are supported")
+    host = _extract_host(t)
+    try:
+        ipaddress.ip_address(host)
+        return
+    except ValueError:
+        pass
+    if _looks_encoded_ip(host):
+        raise ClassifyRejected(f"encoded/ambiguous numeric host: {host}")
+    if not re.fullmatch(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*", host):
+        raise ClassifyRejected(f"invalid host: {host}")
+
+
 def classify(target: str, resolve=_default_resolve) -> str:
     """Return CLASS_LOCAL or CLASS_CLOUD; raise ClassifyRejected when unsure.
 

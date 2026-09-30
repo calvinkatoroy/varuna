@@ -22,11 +22,13 @@ def job_key(job_id: str) -> str: return f"job:{job_id}"
 def findings_key(job_id: str) -> str: return f"findings:{job_id}"
 def raw_key(job_id: str) -> str: return f"raw:{job_id}"
 def approval_key(job_id: str) -> str: return f"approval:{job_id}"
+def suspended_key(job_id: str) -> str: return f"suspended:{job_id}"
 def account_key(username: str) -> str: return f"account:{username}"
 def agent_key(username: str) -> str: return f"agent:{username}"
 def agent_token_key(token_hash: str) -> str: return f"agent_token:{token_hash}"  # reverse index
 def enroll_token_key(token: str) -> str: return f"enroll:{token}"
 def agentqueue_key(username: str) -> str: return f"agentqueue:{username}"
+def user_jobs_key(username: str) -> str: return f"user_jobs:{username}"
 def login_fail_key(username: str) -> str: return f"login_fail:{username}"
 def login_fail_ip_key(ip: str) -> str: return f"login_fail_ip:{ip}"
 
@@ -71,6 +73,19 @@ def set_raw(job_id: str, raw: dict) -> None:
     get_redis().set(raw_key(job_id), json.dumps(raw), ex=SCAN_TTL_SECONDS)
 
 
+# --- scan suspend/resume (v2, phase-boundary - see agent/scan.py's checkpoint). Ephemeral,
+# same TTL as the job itself: a suspend flag outliving its job would be meaningless. ---
+def set_suspended(job_id: str, suspended: bool) -> None:
+    if suspended:
+        get_redis().set(suspended_key(job_id), "1", ex=SCAN_TTL_SECONDS)
+    else:
+        get_redis().delete(suspended_key(job_id))
+
+
+def is_suspended(job_id: str) -> bool:
+    return get_redis().get(suspended_key(job_id)) is not None
+
+
 def set_approval(job_id: str, entry: dict) -> None:
     get_redis().set(approval_key(job_id), json.dumps(entry), ex=SCAN_TTL_SECONDS)
 
@@ -94,6 +109,21 @@ def remove_pending_approval(job_id: str) -> None:
 
 def list_pending_approvals() -> list:
     return list(get_redis().smembers(APPROVAL_PENDING_KEY))
+
+
+# --- per-user recent-jobs index (so a jobs table can list without scanning all keys) ---
+USER_JOBS_MAX = 50
+
+
+def add_user_job(username: str, job_id: str) -> None:
+    r = get_redis()
+    key = user_jobs_key(username)
+    r.lpush(key, job_id)
+    r.ltrim(key, 0, USER_JOBS_MAX - 1)
+
+
+def list_user_jobs(username: str, limit: int = 20) -> list:
+    return get_redis().lrange(user_jobs_key(username), 0, limit - 1)
 
 
 # --- persistent data (no TTL) ---
@@ -157,8 +187,10 @@ if __name__ == "__main__":
     assert job_key("x") == "job:x"
     assert findings_key("x") == "findings:x"
     assert approval_key("x") == "approval:x"
+    assert suspended_key("x") == "suspended:x"
     assert account_key("calvin") == "account:calvin"
     assert agent_key("calvin") == "agent:calvin"
     assert login_fail_key("calvin") == "login_fail:calvin"
+    assert user_jobs_key("calvin") == "user_jobs:calvin"
     assert AUDIT_KEY == "audit"
     print("redis_store.py key-builder self-check OK")

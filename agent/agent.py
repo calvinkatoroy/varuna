@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 
 import httpx
@@ -26,6 +27,7 @@ load_dotenv()  # repo-root .env, if present (local dev convenience; not required
 BASE = os.environ.get("VARUNA_URL", "http://localhost:8000")
 TOKEN_FILE = os.path.expanduser("~/.varuna-agent-token")
 POLL_INTERVAL = 5
+HEARTBEAT_INTERVAL = 15   # well under the server's 30s online threshold (tokens.ONLINE_THRESHOLD)
 
 
 def _save_token(t: str) -> None:
@@ -49,12 +51,44 @@ def enroll(enrollment_token: str) -> str:
     return data["token"]
 
 
+SUSPEND_POLL_INTERVAL = 5   # phase-boundary suspend/resume: how often to re-check while paused
+
+
+def _wait_while_suspended(job_id: str, headers: dict) -> None:
+    """Called between tool phases (scan.py's checkpoint). Blocks here, not mid-tool, while
+    /agent/jobs/{id}/suspended says so - a network hiccup is treated as "not suspended" so a
+    flaky check-in can never wedge the scan."""
+    while True:
+        try:
+            r = httpx.get(f"{BASE}/agent/jobs/{job_id}/suspended", headers=headers)
+            if r.status_code == 200 and r.json().get("suspended"):
+                print(f"job {job_id} suspended, waiting...")
+                time.sleep(SUSPEND_POLL_INTERVAL)
+                continue
+        except httpx.HTTPError:
+            pass
+        break
+
+
+def _checkpoint(job_id: str, headers: dict, status: dict) -> None:
+    """scan.py's checkpoint: report the phase that's about to start (so live progress has
+    something to show, not just silence until the whole scan finishes), then block while
+    suspended. Best-effort - a dropped status update doesn't fail the scan, it just means one
+    progress frame gets missed; the next phase's checkpoint (or the final report) catches up."""
+    try:
+        httpx.post(f"{BASE}/agent/jobs/{job_id}/status", headers=headers, json={"per_tool_status": status})
+    except httpx.HTTPError:
+        pass
+    _wait_while_suspended(job_id, headers)
+
+
 def handle(job: dict, headers: dict) -> None:
     jid = job["id"]
     print("got job", jid, "->", job.get("target"))
     httpx.post(f"{BASE}/agent/jobs/{jid}/status", headers=headers, json={"status": "running"})
     try:
-        raw, tool_status = scan.run_scan(job)   # Katana -> Nuclei/SQLMap, chained
+        raw, tool_status = scan.run_scan(
+            job, checkpoint=lambda status: _checkpoint(jid, headers, status))   # Katana -> Nuclei/SQLMap, chained
     except Exception as e:
         httpx.post(f"{BASE}/agent/jobs/{jid}/status", headers=headers,
                    json={"status": "failed", "error": str(e)})
@@ -70,6 +104,18 @@ def handle(job: dict, headers: dict) -> None:
     print("job", jid, "failed" if all_failed else "done")
 
 
+def _heartbeat_until(stop: threading.Event, headers: dict) -> None:
+    # /agent/poll only refreshes last_seen when the agent is free; a running scan blocks
+    # the poll loop for as long as run_scan() takes, so without this the dashboard shows
+    # the agent as offline for the entire scan. /agent/heartbeat just touches last_seen,
+    # it never touches the job queue.
+    while not stop.wait(HEARTBEAT_INTERVAL):
+        try:
+            httpx.post(f"{BASE}/agent/heartbeat", headers=headers)
+        except httpx.HTTPError:
+            pass
+
+
 def run(token: str) -> None:
     headers = {"Authorization": f"Bearer {token}"}
     print("agent polling", BASE, "every", POLL_INTERVAL, "s")
@@ -80,15 +126,29 @@ def run(token: str) -> None:
             return
         job = r.json().get("job")
         if job:
-            handle(job, headers)
+            stop = threading.Event()
+            hb = threading.Thread(target=_heartbeat_until, args=(stop, headers), daemon=True)
+            hb.start()
+            try:
+                handle(job, headers)
+            finally:
+                stop.set()
+                hb.join()
         time.sleep(POLL_INTERVAL)
 
 
 if __name__ == "__main__":
-    tok = _load_token()
-    if not tok:
-        if len(sys.argv) < 2:
-            print("usage: python agent.py <enrollment_token>   (first run)")
+    # --enroll enrolls then exits (no poll loop); the installer uses it to enroll before it
+    # registers the background task that actually does the polling.
+    enroll_only = "--enroll" in sys.argv[1:]
+    args = [a for a in sys.argv[1:] if a != "--enroll"]
+    if args:
+        tok = enroll(args[0])   # explicit token arg always (re-)enrolls, even if one is cached
+    else:
+        tok = _load_token()
+        if not tok:
+            print("usage: python agent.py [--enroll] <enrollment_token>   (first run)")
             sys.exit(1)
-        tok = enroll(sys.argv[1])
+    if enroll_only:
+        sys.exit(0)
     run(tok)

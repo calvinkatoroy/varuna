@@ -35,3 +35,16 @@ env/
 Thumbs.db
 .idea/
 .vscode/
+
+# Agent installer bundle (staged by setup.sh; artifacts not tracked)
+agent-dist/*
+!agent-dist/.gitkeep
+
+# Any .env variant/backup (keep only the example)
+.env.*
+!.env.example
+.admin-credentials.txt
+.enroll-token.txt
+
+# Repo context doc: local-only (auto-loads from disk, not committed)
+/CLAUDE.md

@@ -14,14 +14,63 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
-# Roles (SRS §4.11, REQ-66), exactly two, no admin/reviewer.
-ROLE_STANDARD = "standard"
-ROLE_PRO = "pro"
-ROLES = (ROLE_STANDARD, ROLE_PRO)
+# Roles (SRS §4.11 v2): one client role + five security-team roles.
+ROLE_CLIENT = "client"
+ROLE_PENTESTER = "pentester"
+ROLE_LEAD = "lead_pentester"
+ROLE_REPORTER = "reporter"
+ROLE_GOVERNANCE = "governance"
+ROLE_SOC = "soc"
+ROLES = (ROLE_CLIENT, ROLE_PENTESTER, ROLE_LEAD, ROLE_REPORTER, ROLE_GOVERNANCE, ROLE_SOC)
+SECURITY_TEAM = frozenset({ROLE_PENTESTER, ROLE_LEAD, ROLE_REPORTER, ROLE_GOVERNANCE, ROLE_SOC})
+
+# Back-compat aliases (v1 used standard/pro); keep imports resolving during migration.
+ROLE_STANDARD = ROLE_CLIENT
+ROLE_PRO = ROLE_PENTESTER
+
+
+def is_team(role: str) -> bool:
+    return role in SECURITY_TEAM
+
+
+def is_client(role: str) -> bool:
+    return role == ROLE_CLIENT
+
+
+def can_approve(role: str) -> bool:
+    return role == ROLE_LEAD
+
+
+def can_review(role: str) -> bool:
+    return role in (ROLE_REPORTER, ROLE_LEAD, ROLE_GOVERNANCE)
 
 # Target classification (REQ-14).
 CLASS_LOCAL = "local"
 CLASS_CLOUD = "cloud"
+
+# Proposal status (v2): a scan proposal awaits lead-pentester approval before any scan runs.
+PROPOSAL_PENDING = "pending"
+PROPOSAL_APPROVED = "approved"
+PROPOSAL_REJECTED = "rejected"
+PROPOSAL_STATUSES = (PROPOSAL_PENDING, PROPOSAL_APPROVED, PROPOSAL_REJECTED)
+
+# Report review pipeline stages (v2): reporter -> lead -> governance -> delivered.
+REPORT_REPORTER = "in_review_reporter"
+REPORT_LEAD = "in_review_lead"
+REPORT_GOVERNANCE = "in_review_governance"
+REPORT_DELIVERED = "delivered"
+REPORT_STAGES = (REPORT_REPORTER, REPORT_LEAD, REPORT_GOVERNANCE, REPORT_DELIVERED)
+
+
+def report_stage_owner(stage: str) -> frozenset:
+    """Roles allowed to edit/forward at a stage. Lead can also act at the reporter stage
+    (sees all, may edit). Governance forwarding delivers to the client."""
+    return {
+        REPORT_REPORTER: frozenset({ROLE_REPORTER, ROLE_LEAD}),
+        REPORT_LEAD: frozenset({ROLE_LEAD}),
+        REPORT_GOVERNANCE: frozenset({ROLE_GOVERNANCE}),
+    }.get(stage, frozenset())
+
 
 # Overall job status (REQ-23).
 STATUS_QUEUED = "queued"

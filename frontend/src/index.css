@@ -5,27 +5,63 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Agrandir (titles): licensed (Pangram Pangram), not fetchable. Uses a locally-installed copy
+   first. To serve it to everyone, add Agrandir-Bold.woff2 to public/fonts/ AND re-add
+   url('/fonts/Agrandir-Bold.woff2') format('woff2') to src below (a url() with no file returns
+   index.html and floods the console with font decode errors). One weight range so
+   every display weight class renders in Agrandir. Body text uses the Helvetica Neue system stack
+   (mac; falls back to Arial elsewhere), no webfont needed. */
+@font-face {
+  font-family: 'Agrandir';
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  src: local('Agrandir Bold'), local('Agrandir-Bold'), local('Agrandir');
+}
+
 :root {
-  --color-paper: oklch(14% 0.012 250);
-  --color-paper-2: oklch(18% 0.014 250);
-  --color-paper-3: oklch(22% 0.016 250);
-  --color-ink: oklch(94% 0.006 250);
-  --color-ink-muted: oklch(72% 0.02 250);
-  --color-ink-faint: oklch(50% 0.015 250);
-  --color-rule: oklch(30% 0.01 250);
-  --color-accent: oklch(62% 0.16 250);
-  --color-accent-ink: oklch(14% 0.012 250);
-  --color-focus: oklch(72% 0.17 250);
+  /* Varuna v2 studied-DNA (Logivo). DARK is the default; light override below. */
+  color-scheme: dark;
+  --color-shell: #070908;
+  --color-paper: #070908;
+  --color-paper-2: #0E110C;
+  --color-paper-3: #161A12;
+  --color-panel: #0E110C;
+  --color-card: #161A12;
+  --color-card-2: #1C2117;
+  --color-ink: #E8ECE1;
+  --color-ink-muted: #959E8C;
+  --color-ink-faint: #6D7666;
+  --color-rule: #2A2F23;
+  --color-accent: #0B5FA5;
+  --color-accent-ink: #4FB3E8;
+  --color-accent-soft: #12283A;
+  --color-focus: #4FB3E8;
+  --color-cta-bg: #E8ECE1;
+  --color-cta-fg: #12140F;
+  --color-brand-red: #E4312B;
 
-  --color-crit: oklch(64% 0.19 25);
-  --color-high: oklch(66% 0.18 45);
-  --color-med: oklch(75% 0.15 75);
-  --color-low: oklch(72% 0.15 145);
-  --color-info: oklch(70% 0.12 250);
+  --color-crit: #F2565B;
+  --color-high: #EDA64A;
+  --color-med: #DCC646;
+  --color-low: #42C4A2;
+  --color-info: #7D97D8;
+  --color-crit-bg: #3A1D1F;
+  --color-high-bg: #352713;
+  --color-med-bg: #322D11;
+  --color-low-bg: #123029;
 
-  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
-  --font-body: 'Geist', ui-sans-serif, system-ui, sans-serif;
+  /* Dark-mode page background: the hero-style navy + cyan gradient fills the screen (never
+     pure black). --bg-x / --bg-y are nudged by the pointer for a cheap parallax. */
+  --bg-grad:
+    radial-gradient(115% 90% at var(--bg-x, 84%) var(--bg-y, -6%), rgba(34, 211, 197, 0.22), transparent 48%),
+    radial-gradient(100% 100% at 6% 106%, rgba(11, 95, 165, 0.5), transparent 56%),
+    linear-gradient(160deg, #123a57 0%, #0a2a43 40%, #081e30 72%, #060f18 100%);
+
+  --font-display: 'Agrandir', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-display-warm: 'Agrandir', 'Segoe UI', system-ui, sans-serif;
 
   --text-display: clamp(1.75rem, 2vw + 1.25rem, 2.5rem);
 
@@ -33,20 +69,68 @@
   --dur-short: 150ms;
   --dur-med: 220ms;
 
-  --radius-input: 6px;
-  --radius-card: 8px;
+  --radius-input: 12px;
+  --radius-card: 16px;
+  --radius-md: 22px;
+  --radius-lg: 32px;
   --radius-pill: 999px;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-grad: none;
+  --color-shell: #E7ECDF;
+  --color-paper: #E7ECDF;
+  --color-paper-2: #DFE4D6;
+  --color-paper-3: #FFFFFF;
+  --color-panel: #DFE4D6;
+  --color-card: #FFFFFF;
+  --color-card-2: #FBFCF9;
+  --color-ink: #161A18;
+  --color-ink-muted: #6B746C;
+  --color-ink-faint: #9AA298;
+  --color-rule: #DFE4D6;
+  --color-accent: #0B5FA5;
+  --color-accent-ink: #0A3E63;
+  --color-accent-soft: #DCEBF7;
+  --color-focus: #0B5FA5;
+  --color-cta-bg: #101312;
+  --color-cta-fg: #FFFFFF;
+  --color-crit: #E23B3B;
+  --color-high: #E1972E;
+  --color-med: #CDAF23;
+  --color-low: #2FA98C;
+  --color-info: #4E71C4;
+  --color-crit-bg: #F7DEDE;
+  --color-high-bg: #F7E8D3;
+  --color-med-bg: #F5EFCF;
+  --color-low-bg: #D6EEE7;
 }
 
 html,
 body {
   overflow-x: clip;
 }
+/* The gradient lives on the ROOT element so it always fills the whole viewport (the root
+   background is painted across the canvas and can't be clipped by overflow like a body::before
+   was, which left a black void below short pages). Body stays transparent so it shows through. */
+html {
+  min-height: 100%;
+  /* Always reserve the scrollbar gutter so opening a Radix popover/drawer (which locks body
+     scroll and hides the scrollbar) doesn't shift the whole page sideways. */
+  scrollbar-gutter: stable;
+  background-color: var(--color-shell);
+  background-image: var(--bg-grad);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  background-size: cover;
+}
 
 body {
-  @apply bg-paper text-ink;
+  @apply text-ink;
   font-family: var(--font-body);
   font-weight: 350;
+  background: transparent;
 }
 
 h1,
@@ -73,6 +157,94 @@ input[type='checkbox'] {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Page transition on route change (the View Transitions API, driven by react-router).
+   Browsers without support just navigate instantly. Reduced-motion opts out. */
+/* Scoped page transition: only the content BELOW the hero slides (view-transition-name:
+   page-body). The hero morphs gently (default), the active nav pill (view-transition-name:
+   nav-pill) slides between tabs, and everything else (root) is frozen. */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(page-body) {
+    animation: vt-out 240ms var(--ease-out) both;
+  }
+  ::view-transition-new(page-body) {
+    animation: vt-in 380ms var(--ease-out) 170ms both;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+}
+@keyframes vt-out {
+  to { opacity: 0; transform: translateY(-14px); }
+}
+@keyframes vt-in {
+  from { opacity: 0; transform: translateY(20px); }
+}
+
+/* Hero shrink/fade: a threshold class toggle (useScrollThreshold) driving a `position: fixed`
+   card, not `position: sticky`. Sticky was the problem: whenever the sticky element's own
+   occupied height changed - by any amount, animated or instant - the normal-flow cards below it
+   HAD to shift to match, because that's just how block layout works. There is no timing/easing
+   fix for that; it's inherent to sticky + normal flow. Taking the hero fully out of flow with
+   `position: fixed` removes the dependency entirely: its own size changes can no longer affect
+   anything below it, so the cards can be relied on to just scroll like plain content, with zero
+   compensation logic. `main` reserves a constant gap (see ClientCockpit/ClientShell) sized to the
+   hero's collapsed footprint; at rest the taller expanded hero simply overlaps the top of the
+   cards behind it (it has an opaque background, and a higher z-index, so this reads as normal
+   layering, not a bug) and recedes on scroll to reveal them - nothing underneath ever moves.
+   Because the transition is now scoped to one out-of-flow element instead of rippling into a
+   full-page reflow, it's safe to animate padding/max-height with a real transition again.
+   --hero-pt/--hero-pb (expanded padding) and --collapse/--collapse-mt (expanded height/margin
+   of a fading row) are supplied per-usage via inline style. */
+.hero-sticky {
+  position: fixed;
+  top: clamp(6px, 1vw, 14px);
+  left: clamp(10px, 2vw, 28px);
+  right: clamp(10px, 2vw, 28px);
+  max-width: 1380px;
+  margin-inline: auto;
+  z-index: 30;
+  padding-top: var(--hero-pt, 20px);
+  padding-bottom: var(--hero-pb, 38px);
+  transition: padding 200ms var(--ease-out);
+}
+.hero-sticky.is-shrunk {
+  padding-top: 8px;
+  padding-bottom: 10px;
+}
+.hero-bg-fade {
+  z-index: 0;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 180ms var(--ease-out);
+}
+.hero-sticky.is-shrunk .hero-bg-fade {
+  opacity: 0;
+}
+.fade-collapse {
+  opacity: 1;
+  max-height: var(--collapse, 160px);
+  margin-top: var(--collapse-mt, 14px);
+  overflow: hidden;
+  transition: opacity 180ms var(--ease-out), max-height 200ms var(--ease-out), margin-top 200ms var(--ease-out);
+}
+.fade-collapse.is-faded {
+  opacity: 0;
+  max-height: 0;
+  margin-top: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-sticky, .hero-bg-fade, .fade-collapse { transition: none; }
+}
+
+@keyframes bubIn {
+  from { opacity: 0; transform: translateY(10px); }
+}
+.bub-enter { animation: bubIn 0.55s var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) {
+  .bub-enter { animation: none; }
 }
 
 @keyframes status-pulse {
@@ -130,4 +302,102 @@ input[type='checkbox'] {
   .mono {
     font-family: var(--font-mono);
   }
+  /* Depth dressing (specular rim + shadow) without any backdrop-filter. A grid of many tiles
+     each with their own live SVG-refraction backdrop-filter, packed 12px apart, hit a real
+     Chromium compositor limitation where adjacent backdrop-filter regions bleed into each
+     other's rendering - confirmed because it also happened on PLAIN backdrop-blur elements
+     (the header controls), ruling out the SVG filter specifically. Not fixable by tuning
+     scale/blur; the fix is not stacking that many backdrop-filter regions at once. Cards are
+     solid opaque bg-card now (see .glass-card below); this box-shadow keeps their depth. */
+  .liquid {
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.35),
+      inset 0 -1px 1px rgba(255, 255, 255, 0.06),
+      0 10px 34px rgba(0, 0, 0, 0.28);
+  }
+  .glass-card {
+    background: var(--color-card);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+  }
+  /* Dense master-detail / table pages (Dashboard, Findings Review): a deliberate
+     density variant of Workbench, edge-to-edge panels instead of floating cards.
+     See design.md § Density variants. */
+  .data-table {
+    @apply w-full border-collapse text-sm;
+  }
+  .data-table thead th {
+    @apply border-b border-rule py-2xs text-left text-xs font-medium uppercase tracking-wide text-ink-faint;
+  }
+  .data-table tbody td {
+    @apply border-b border-rule py-3xs align-top;
+  }
+  .data-table tbody tr {
+    @apply cursor-pointer transition-colors duration-short ease-out hover:bg-paper-3;
+  }
+}
+
+/* Pilot: warm/soft glass variant, scoped to Dashboard only (design.md: not yet
+   system-wide, see design.md "Pilot: warm/glass Dashboard variant"). Overriding
+   the tokens on this wrapper re-themes every existing token-based class (.btn,
+   .card, .data-table, severity colors) automatically via the CSS custom property
+   cascade, nothing else needed to change. */
+.dashboard-warm {
+  /* sage page wash (outer canvas) */
+  --color-paper: oklch(90% 0.035 150);
+  /* warm cream card surface */
+  --color-paper-2: oklch(97% 0.012 75);
+  --color-paper-3: oklch(93% 0.02 85);
+  --color-ink: oklch(24% 0.02 60);
+  --color-ink-muted: oklch(45% 0.018 60);
+  --color-ink-faint: oklch(62% 0.014 60);
+  --color-rule: oklch(88% 0.015 90);
+  /* primary CTA reads near-black, like the reference's pill buttons */
+  --color-accent: oklch(22% 0.02 60);
+  --color-accent-ink: oklch(97% 0.012 75);
+  --color-focus: oklch(32% 0.03 60);
+
+  --color-crit: oklch(50% 0.19 25);
+  --color-high: oklch(56% 0.17 45);
+  --color-med: oklch(50% 0.15 75);
+  --color-low: oklch(46% 0.13 145);
+  --color-info: oklch(50% 0.12 235);
+
+  --radius-card: 24px;
+  --radius-input: 14px;
+
+  --ease-expo: cubic-bezier(0.1, 0, 0.3, 1);
+
+  background: var(--color-paper);
+  color: var(--color-ink);
+  min-height: 100vh;
+  font-family: var(--font-display-warm), var(--font-body);
+}
+.dashboard-warm .glass {
+  background: color-mix(in oklch, var(--color-paper-2) 92%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid color-mix(in oklch, var(--color-ink) 5%, transparent);
+  border-radius: var(--radius-card);
+  box-shadow: 0 1px 2px color-mix(in oklch, var(--color-ink) 4%, transparent);
+}
+.dashboard-warm .banner {
+  background: var(--color-ink);
+  color: var(--color-paper-2);
+  border-radius: var(--radius-card);
+  /* inverted pill CTAs on the dark banner, same .btn class, cascaded tokens */
+  --color-accent: var(--color-paper-2);
+  --color-accent-ink: var(--color-ink);
+}
+.dashboard-warm .status-bar > div {
+  transition: width 600ms var(--ease-expo);
+}
+.dashboard-warm .font-display,
+.dashboard-warm h1,
+.dashboard-warm h2,
+.dashboard-warm h3 {
+  font-family: var(--font-display-warm);
+}
+.dashboard-warm .status-bar {
+  @apply flex h-2 w-full overflow-hidden rounded-pill;
+  background: var(--color-paper-3);
 }

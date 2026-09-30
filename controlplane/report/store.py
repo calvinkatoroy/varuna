@@ -12,6 +12,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
+import db  # noqa: E402
 import redis_store  # noqa: E402
 
 REPORTS_DIR = os.environ.get("REPORTS_DIR", "report_output")
@@ -47,6 +48,21 @@ def list_reports(user: str) -> list[dict]:
 def list_all_reports() -> list[dict]:
     r = redis_store.get_redis()
     return [json.loads(x) for x in r.lrange(GLOBAL_KEY, 0, -1)]
+
+
+def save_report_file(fname: str, data: bytes) -> None:
+    """Write raw report bytes (a review version or delivered PDF) to the reports volume."""
+    os.makedirs(REPORTS_DIR, exist_ok=True)
+    with open(os.path.join(REPORTS_DIR, fname), "wb") as f:
+        f.write(data)
+
+
+def owner_of(fname: str) -> str | None:
+    """Owner (username) of a report file, from the global index; None if unknown (v2 tenancy)."""
+    for m in list_all_reports():
+        if m.get("file") == fname:
+            return m.get("user")
+    return None
 
 
 def read_report(fname: str) -> bytes:
@@ -90,6 +106,7 @@ def wipe_all() -> dict:
     """Offboarding data-destruction (NFR-28): all findings, reports, scan data, and the audit
     log. Accounts and agent bindings are intentionally NOT touched (remove separately)."""
     counts = redis_store.wipe_scan_data()
+    counts["findings"] = db.wipe_findings()
     redis_store.wipe_audit()
     r = redis_store.get_redis()
     for key in list(r.scan_iter(match="reports:*")):

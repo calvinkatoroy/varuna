@@ -43,7 +43,7 @@ NUCLEI = ('{"template-id":"CVE-2021-44228","info":{"name":"Log4j RCE","severity"
 
 def test_full_system_pipe():
     redis_store._client = FakeRedis()
-    auth.create_account("ihsan", "pw", "pro")
+    auth.create_account("ihsan", "pw", "pentester")
 
     # 1. login (browser API) -> JWT
     jwt = BC.post("/api/login", json={"username": "ihsan", "password": "pw"}).json()["token"]

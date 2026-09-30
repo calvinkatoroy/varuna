@@ -16,6 +16,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "pipeline"))
 
+import db  # noqa: E402
 import redis_store  # noqa: E402
 import models  # noqa: E402
 import parse  # noqa: E402
@@ -33,10 +34,10 @@ def add_manual_finding(job_id: str, fields: dict) -> list[dict]:
     if not job:
         raise ValueError("no such job (it may have expired)")
     manual = models.Finding(tool="manual", **fields).to_dict()
-    combined = redis_store.get_findings(job_id) + [manual]
+    combined = db.get_findings(job_id) + [manual]
     combined = correlate.correlate(combined)          # dedup + tag + priority over the whole set
     combined = ollama.enrich_missing(combined)         # enrich only the not-yet-enriched (REQ-59)
-    redis_store.set_findings(job_id, combined)
+    db.save_findings(job_id, job["submitter"], combined)
     return combined
 
 
@@ -47,7 +48,9 @@ def process_job(job_id: str, raw: dict) -> None:
     findings = parse.parse_all(raw, job)
     findings = correlate.correlate(findings)   # dedup + OWASP/CWE tag + priority
     findings = ollama.enrich_all(findings)     # graceful fallback per finding (REQ-36)
-    redis_store.set_findings(job_id, findings)
+    # Findings are durable (SQLite), unlike the job record they came from - they must outlive
+    # the job's 24h Redis TTL to survive the (possibly multi-day) review pipeline.
+    db.save_findings(job_id, job["submitter"], findings)
     # ponytail: findings-ready is signalled by get_findings() being non-empty, not by job
     # status (the agent owns status). If the tiny status=done-before-findings race ever
     # matters to a UI, have ingest flip a findings_ready flag here.

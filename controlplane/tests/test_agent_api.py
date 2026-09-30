@@ -19,6 +19,7 @@ from _fakeredis import FakeRedis  # noqa: E402
 
 redis_store._client = FakeRedis()   # inject before any endpoint touches Redis
 
+import db  # noqa: E402
 import tokens  # noqa: E402
 import main as api_main  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -28,6 +29,8 @@ client = TestClient(api_main.app)
 
 def reset():
     redis_store._client = FakeRedis()
+    db.reset_for_test(":memory:")   # pytest's autouse conftest fixture does this too; also
+                                     # needed here for this file's standalone __main__ mode
 
 
 def _enroll(username):
@@ -43,7 +46,7 @@ def test_roundtrip():
     assert client.get("/agent/poll", headers=H).json()["job"] is None  # empty queue
 
     job = {"id": "job1", "target": "http://t.local", "target_class": "local",
-           "submitter": "calvin", "role": "pro", "status": "queued", "per_tool_status": {}}
+           "submitter": "calvin", "role": "pentester", "status": "queued", "per_tool_status": {}}
     redis_store.set_job(job)
     redis_store.enqueue_job("calvin", "job1")
 
@@ -85,6 +88,16 @@ def test_cross_job_ownership_rejected():
     H = _enroll("bob")  # bob is not alice
     assert client.post("/agent/jobs/ajob/status", headers=H, json={"status": "done"}).status_code == 403
     assert client.post("/agent/jobs/ajob/findings", headers=H, json={"raw": {}}).status_code == 403
+    assert client.get("/agent/jobs/ajob/suspended", headers=H).status_code == 403
+
+
+def test_suspended_checkin():
+    reset()
+    redis_store.set_job({"id": "sjob", "submitter": "dina", "status": "running", "per_tool_status": {}})
+    H = _enroll("dina")
+    assert client.get("/agent/jobs/sjob/suspended", headers=H).json() == {"suspended": False}
+    redis_store.set_suspended("sjob", True)
+    assert client.get("/agent/jobs/sjob/suspended", headers=H).json() == {"suspended": True}
 
 
 def test_ingest_pipeline_runs_on_upload():
@@ -94,7 +107,7 @@ def test_ingest_pipeline_runs_on_upload():
 
     H = _enroll("calvin")
     job = {"id": "j9", "target": "http://t.local", "target_class": "local",
-           "submitter": "calvin", "role": "pro", "status": "running", "per_tool_status": {}}
+           "submitter": "calvin", "role": "pentester", "status": "running", "per_tool_status": {}}
     redis_store.set_job(job)
 
     nuclei = ('{"template-id":"CVE-2021-44228","info":{"name":"Log4j RCE","severity":"critical",'
@@ -104,7 +117,7 @@ def test_ingest_pipeline_runs_on_upload():
     assert r.status_code == 200
 
     # BackgroundTask ran: raw was parsed -> correlated -> stored as findings.
-    findings = redis_store.get_findings("j9")
+    findings = db.get_findings("j9")
     assert len(findings) == 1, "ingest did not store parsed findings"
     assert findings[0]["cve"] == "CVE-2021-44228"
     assert findings[0]["owasp"] == "A08:2021-Software and Data Integrity Failures"  # correlate tagged it
