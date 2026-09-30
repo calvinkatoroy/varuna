@@ -46,7 +46,7 @@ export function TeamLogin() {
         <form onSubmit={submit} className="space-y-4">
           <div>
             <label htmlFor="team-login-1" className={label}>Username</label>
-            <input id="team-login-1" className={field} value={u} onChange={(e) => setU(e.target.value)} placeholder="admin" required autoFocus />
+            <input id="team-login-1" className={field} autoCapitalize="none" autoCorrect="off" spellCheck={false} value={u} onChange={(e) => setU(e.target.value)} placeholder="admin" required autoFocus />
           </div>
           <div>
             <label htmlFor="team-login-2" className={label}>Password</label>

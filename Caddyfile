@@ -38,6 +38,26 @@
 	}
 }
 
-# The private-plane API (findings, manual input, full reports) is NOT served here. It binds
+# Team plane (NFR-24): the same SPA, but /api goes to the PRIVATE API. Served on its own port,
+# which compose publishes only on the host's Tailscale address, and which the public tunnel never
+# targets (it points at :80). Same origin for page and API: no CORS, no mixed content.
+:8080 {
+	handle /api/* {
+		reverse_proxy api-private:8010
+	}
+	handle {
+		root * /srv/frontend
+		try_files {path} /index.html
+		file_server
+	}
+	header {
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+}
+
+# The private-plane API (findings, manual input, full reports) is NOT served on the public site above. It binds
 # only to the host's Tailscale interface (NFR-24, private_api.py) with no public listener,
 # reachable from tailnet devices at http://<tailscale-host>:8010.

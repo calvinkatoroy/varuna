@@ -159,9 +159,20 @@ def _clear_fails(username: str, ip: str) -> None:
     )
 
 
+def _canonical(username: str) -> str:
+    """The stored spelling of a username: registration treats names case-insensitively, so login
+    must too (phones capitalise the first letter), and the throttle must count every spelling as one account."""
+    username = (username or "").strip()
+    if db.get_account(username):
+        return username
+    ci = db.get_account_ci(username)
+    return ci["username"] if ci else username
+
+
 def authenticate(username: str, password: str, ip: str, otp: str | None = None) -> Account:
     """Return the Account on success; raise LockedOut, BadCredentials or MfaRequired otherwise.
     A wrong/reused/missing code is counted against the same lockout as a wrong password."""
+    username = _canonical(username)
     if _is_locked(username, ip):
         raise LockedOut("too many failed attempts; try again later")
     acct = db.get_account(username)

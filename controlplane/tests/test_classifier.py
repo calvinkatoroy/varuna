@@ -100,3 +100,14 @@ if __name__ == "__main__":
             fn()
             print(f"{name} OK")
     print("test_classifier: all green")
+
+
+def test_absurd_hostnames_and_unfriendly_messages():
+    import pytest
+    import classifier
+    for bad in ("http://" + "a" * 300 + ".com", "http://" + "a" * 64 + ".example.com"):
+        with pytest.raises(classifier.ClassifyRejected, match="too long"):
+            classifier.validate_syntax(bad)
+    with pytest.raises(classifier.ClassifyRejected, match="web address"):
+        classifier.validate_syntax("javascript:alert(1)")
+    classifier.validate_syntax("https://" + "a" * 63 + ".example.com")   # 63-char label is legal

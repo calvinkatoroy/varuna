@@ -34,7 +34,7 @@ function Stepper({ step }: { step: Step }) {
             >
               {i < idx ? <Check size={13} /> : i + 1}
             </span>
-            <span className={`text-[12px] font-medium ${i <= idx ? 'text-ink' : 'text-ink-faint'}`}>{s}</span>
+            <span className={`text-[12px] font-medium ${i <= idx ? 'text-ink' : 'text-ink-faint'} ${i === idx ? '' : 'hidden sm:inline'}`}>{s}</span>
           </div>
           {i < steps.length - 1 && <span className="h-px flex-1 bg-rule" />}
         </div>
@@ -93,6 +93,13 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
     else setStep('install')
   }
 
+  // Already signed in (page reloaded, tab reopened mid-onboarding): pick up where they left off
+  // instead of showing the Register form to someone who has an account.
+  useEffect(() => {
+    if (user?.role === 'client' && step === 'auth' && !isMock()) resumeFlow(user.username).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.username])
+
   // Waiting on the lead pentester: check for approval instead of trusting a button.
   useEffect(() => {
     if (step !== 'pending' || isMock()) return
@@ -142,7 +149,7 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
       <div
         ref={cardRef}
         role="dialog" aria-modal="true" aria-label="Sign in to Varuna"
-        className={`w-full ${step === 'proposal' ? 'max-w-[600px]' : 'max-w-[440px]'} rounded-bento-lg border border-rule bg-card p-8 shadow-[0_30px_80px_-20px_rgba(0,0,0,.6)]`}
+        className={`w-full min-w-0 ${step === 'proposal' ? 'max-w-[600px]' : 'max-w-[440px]'} rounded-bento-lg border border-rule bg-card p-8 shadow-[0_30px_80px_-20px_rgba(0,0,0,.6)]`}
       >
         {/* brand */}
         <div className="mb-6 flex items-center gap-2.5">
@@ -192,7 +199,7 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
             <form onSubmit={submitAuth} className="space-y-4">
               <div>
                 <label htmlFor="auth-1" className={label}>Username</label>
-                <input id="auth-1" className={field} value={u} onChange={(e) => setU(e.target.value)} placeholder="acme" required />
+                <input id="auth-1" className={field} autoCapitalize="none" autoCorrect="off" spellCheck={false} value={u} onChange={(e) => setU(e.target.value)} placeholder="acme" required />
               </div>
               <div>
                 <label htmlFor="auth-2" className={label}>Password</label>

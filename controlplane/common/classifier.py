@@ -70,14 +70,14 @@ def validate_syntax(target: str) -> None:
     import re
     t = (target or "").strip()
     if len(t) > 2048 or any(ord(ch) < 33 or ord(ch) == 127 for ch in t):
-        raise ClassifyRejected("target must be a single URL or host without spaces")
+        raise ClassifyRejected("enter one web address without spaces, like https://app.example.com")
     if "://" in t and urlparse(t).scheme not in ("http", "https"):
-        raise ClassifyRejected("only http(s) targets are supported")
+        raise ClassifyRejected("only http:// or https:// web addresses can be scanned")
     host = _extract_host(t)
     try:   # `javascript:alert(1)` parses as host "javascript" + port "alert(1)": not a real port
         urlparse(t if "://" in t else "http://" + t).port
     except ValueError:
-        raise ClassifyRejected("invalid port in target")
+        raise ClassifyRejected("that does not look like a web address; use a full address like https://app.example.com")
     try:
         ipaddress.ip_address(host)
         return
@@ -87,6 +87,8 @@ def validate_syntax(target: str) -> None:
         raise ClassifyRejected(f"encoded/ambiguous numeric host: {host}")
     if not re.fullmatch(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*", host):
         raise ClassifyRejected(f"invalid host: {host}")
+    if len(host) > 253 or any(len(label) > 63 for label in host.split(".")):   # DNS limits: junk otherwise
+        raise ClassifyRejected("that host name is too long to be real")
 
 
 def classify(target: str, resolve=_default_resolve) -> str:

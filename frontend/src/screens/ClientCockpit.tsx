@@ -145,7 +145,7 @@ export default function ClientCockpit() {
                     <div className="text-[12.5px] text-ink-muted">These need remediation first - review them and mark fixed once resolved.</div>
                   </div>
                 </div>
-                <Button size="sm" className="min-h-[44px] md:min-h-0" onClick={() => nav('/findings', { viewTransition: true })}>Review findings <ArrowUpRight size={15} /></Button>
+                <Button size="sm" className="min-h-[44px] lg:min-h-0" onClick={() => nav('/findings', { viewTransition: true })}>Review findings <ArrowUpRight size={15} /></Button>
               </section>
             )}
 

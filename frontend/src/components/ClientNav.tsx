@@ -13,7 +13,7 @@ const items: [string, string][] = [
 export function ClientNav() {
   const { pathname } = useLocation()
   return (
-    <nav aria-label="Main" className="mx-auto hidden h-12 items-center gap-[3px] lg:h-11 md:flex rounded-pill border border-rule bg-card p-1 shadow-[0_4px_14px_rgba(0,0,0,.16)]">
+    <nav aria-label="Main" className="mx-auto hidden h-[52px] items-center gap-[3px] lg:h-11 md:flex rounded-pill border border-rule bg-card p-1 shadow-[0_4px_14px_rgba(0,0,0,.16)]">
       {items.map(([label, to]) => {
         const on = pathname === to
         return (

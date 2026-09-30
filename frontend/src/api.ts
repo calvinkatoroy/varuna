@@ -12,7 +12,9 @@ import { toast } from './lib/toast'
 export const UNAUTHORIZED_EVENT = 'varuna:unauthorized'
 
 const PUBLIC = (import.meta as any).env.VITE_PUBLIC_API || ''
-const PRIVATE = (import.meta as any).env.VITE_PRIVATE_API || 'http://localhost:8010'
+// 'same' = the team origin serves the private API itself (Caddy :8080), so no cross-origin call.
+const _priv = (import.meta as any).env.VITE_PRIVATE_API
+const PRIVATE = _priv === 'same' ? '' : _priv || 'http://localhost:8010'
 
 let token: string | null = localStorage.getItem('varuna_jwt')
 

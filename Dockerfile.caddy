@@ -8,6 +8,8 @@ COPY frontend/ ./
 # baked at build time. Defaults to the local dev port; set it to the tailnet host in prod.
 ARG VITE_PRIVATE_API=http://localhost:8010
 ENV VITE_PRIVATE_API=${VITE_PRIVATE_API}
+# Production is always the real backend (an unset VITE_MOCK means fixtures), same-origin /api.
+ENV VITE_MOCK=0
 RUN npm run build
 
 FROM caddy:2-alpine

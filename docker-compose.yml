@@ -92,6 +92,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "${TAILSCALE_BIND:-127.0.0.1}:8080:8080"   # team plane: Tailscale address only
     environment:
       - VARUNA_DOMAIN=${VARUNA_DOMAIN:-localhost}
       - CADDY_EMAIL=${CADDY_EMAIL:-admin@example.com}

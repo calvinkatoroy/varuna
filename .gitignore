@@ -52,3 +52,4 @@ agent-dist/*
 # --- Build archives ---
 *.rar
 backups/
+.team-credentials.txt

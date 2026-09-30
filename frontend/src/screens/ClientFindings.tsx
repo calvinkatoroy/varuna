@@ -44,7 +44,7 @@ export default function ClientFindings() {
   const count = (s: string) => list.filter((f) => f.severity === s).length
   const fixed = list.filter((f) => f.status === 'fixed').length
   const openN = list.length - fixed
-  const maxCount = Math.max(1, count('critical'), count('high'), count('medium'), count('low'))
+  const maxCount = Math.max(1, count('critical'), count('high'), count('medium'), count('low'), count('info'))
   const resolvedPct = list.length ? Math.round((fixed / list.length) * 100) : 0
 
   useEffect(() => { if (rows) rise('.entry', 45) }, [rows])
@@ -84,6 +84,7 @@ export default function ClientFindings() {
                 <SegBar label="High" count={count('high')} max={maxCount} tone="high" />
                 <SegBar label="Medium" count={count('medium')} max={maxCount} tone="med" />
                 <SegBar label="Low" count={count('low')} max={maxCount} tone="low" />
+                <SegBar label="Info" count={count('info')} max={maxCount} tone="info" />
               </div>
             </div>
             <div className="flex items-center justify-center border-t border-rule pt-4 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">

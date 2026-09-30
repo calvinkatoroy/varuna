@@ -1,0 +1,15 @@
+# Keep local dev settings, secrets and bulk out of every image build (context is the repo root).
+.git
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+.admin-credentials.txt
+.team-credentials.txt
+backups
+docs
+report_output
+**/__pycache__
+*.rar
+*.docx

@@ -55,12 +55,12 @@ export default function TeamBoard() {
   const { data: cols, error, reload: refetchBoard, setData: setCols } = useApiData<Col[]>(() => api.pget('/api/pipeline/board'))
   const railRef = useRef<RailHandle>(null)
   // Consequential decisions (approve, reject, send back, deliver) take two deliberate taps: the
-  // first arms the button and says what it will do, the second commits. Disarms after 5s or when
+  // first arms the button and says what it will do, the second commits. Disarms after 8s or when
   // another card opens. A mis-tap next to an adjacent button must never be irreversible.
   const [armed, setArmed] = useState<string | null>(null)
   useEffect(() => {
     if (!armed) return
-    const t = setTimeout(() => setArmed(null), 5000)
+    const t = setTimeout(() => setArmed(null), 8000)
     return () => clearTimeout(t)
   }, [armed])
   const twoStep = (key: string, run: () => void) => { if (armed === key) { setArmed(null); run() } else setArmed(key) }
@@ -141,6 +141,16 @@ export default function TeamBoard() {
     () => (cols ?? []).map((c) => ({ ...c, cards: client ? c.cards.filter((k) => k.client === client) : c.cards })),
     [cols, client],
   )
+
+  // First load: open on the first stage that has work in it, not an empty 'Pending approval' with the
+  // real work sitting off-screen (matters most on a phone, where only one stage shows at a time).
+  const landed = useRef(false)
+  useEffect(() => {
+    if (landed.current || !cols) return
+    landed.current = true
+    const i = cols.findIndex((c) => c.cards.length > 0)
+    if (i > 0) setTimeout(() => railRef.current?.scrollToIndex(i), 50)
+  }, [cols])
 
   // Local optimistic move + a real mutation call. The real API splits what used to be one
   // generic "move" into distinct per-transition endpoints (approve/reject live on the public

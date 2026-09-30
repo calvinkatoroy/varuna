@@ -391,3 +391,15 @@ def test_team_gets_live_scan_progress_on_the_private_plane():
         assert priv.get(f"/api/scans/{jid}/events", headers=Hc).status_code == 403          # client: not the team route
     finally:
         os.environ["VARUNA_PUBLIC_TEAM_LOGIN"] = "1"
+
+
+def test_login_ignores_username_case_and_throttle_counts_all_spellings():
+    import pytest
+    auth.register_client("MixedCase", "password1")
+    assert auth.authenticate("mixedcase", "password1", "ip1").username == "MixedCase"
+    assert auth.authenticate("MIXEDCASE", "password1", "ip1").username == "MixedCase"
+    for spelling in ("mixedcase", "MIXEDCASE", "MixedCase", "mIxEdCaSe", "MiXeDcAsE"):      # 5 wrong tries, 5 spellings
+        with pytest.raises(auth.BadCredentials):
+            auth.authenticate(spelling, "wrong-password", "ip2")
+    with pytest.raises(auth.LockedOut):                                                      # still ONE account's counter
+        auth.authenticate("MixedCase", "password1", "ip2")
