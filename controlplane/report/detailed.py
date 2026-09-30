@@ -311,7 +311,7 @@ def findings_register(doc, findings, show_verdict=False) -> None:
             row.append((f.get("verdict") or "tp").upper())
         rows.append(row)
     _table(doc, header, rows, sev_col=2,
-           widths=[2.2, 4.2, 1.9, 3.3, 1.5, 3.4] + ([1.5] if show_verdict else []))
+           widths=[2.0, 4.2, 2.4, 3.1, 1.3, 3.5] + ([1.5] if show_verdict else []))
 
 
 def finding_detail(doc, f, evidence=True, show_verdict=False) -> None:

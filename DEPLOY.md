@@ -75,3 +75,49 @@ Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' 
 Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.ExecutablePath -like "*\Varuna\.venv\*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Varuna"
 ```
+
+## v2 operations (accounts, backups, notifications)
+
+### Planes and logins
+- Clients sign in on the public plane (`/api/login`). Security-team accounts sign in on the
+  **private** plane (`POST http://<tailscale-host>:8010/api/login`); the public API refuses team
+  logins and team tokens (NFR-24). For local dev with no private plane only, set
+  `VARUNA_PUBLIC_TEAM_LOGIN=1`.
+- Seeded team accounts start with the password `changeme`. The private API prints a startup
+  warning while any remain; change them at once (account menu > Change password, or the
+  lead pentester's admin API below).
+
+### Team account administration (lead pentester, private plane)
+```
+GET  /api/admin/accounts
+POST /api/admin/accounts                       {username, password, role}
+POST /api/admin/accounts/{user}/reset-password {password}
+POST /api/admin/accounts/{user}/disable | enable
+```
+A disabled account cannot log in and its live tokens stop working immediately.
+
+### Backups
+```bash
+docker compose exec api-public python /app/controlplane/backup_db.py           # SQLite -> /data/backups (keeps 14)
+docker compose cp api-public:/dbdata/backups ./backups                          # copy off the host
+```
+Also back up the reports volume (`report_output`, generated `.docx` versions and delivered PDFs).
+Schedule the first command daily (Windows Task Scheduler / cron) and copy the files off the machine.
+
+### Notifications (optional)
+Set `NOTIFY_WEBHOOK_URL` (a Slack/Teams/Discord incoming webhook) in `.env` and the team is
+messaged when a proposal arrives or a report reaches a stage. Only event names and short ids are
+sent, never finding detail. Unset = off.
+
+### After a scan finishes
+Findings are enriched and the report is created automatically at the reporter stage for every
+approved proposal. Scans started directly by the team (advanced scan) have no proposal; start
+their review with `POST /api/pipeline/reports {job_id, template}`.
+Templates: Full Technical, Formal Handover, Executive Summary, Raw Findings (plus the older
+OWASP Web App and ILCS Internal layouts).
+
+### Advanced scan options (team only; clients can never set these)
+`opts.deep` adds CVE/vuln Nuclei templates (slow); `opts.rate` overrides the Nuclei rate;
+`opts.auth` logs in first for an authenticated scan:
+`{login_url, username, password, username_field, password_field, json, token_path}`. The login URL
+must be on the scanned host. Credentials live only in the job record (24h TTL).

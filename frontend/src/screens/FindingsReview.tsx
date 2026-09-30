@@ -27,7 +27,7 @@ const statusPill: Record<string, string> = {
 const SEVS = ['critical', 'high', 'medium', 'low']
 
 export default function FindingsReview() {
-  const { data: rows, error, reload, setData: setRows } = useApiData<F[]>(() => api.get('/api/findings'))
+  const { data: rows, error, reload, setData: setRows } = useApiData<F[]>(() => api.pget('/api/findings'))
   const [sel, setSel] = useState<F | null>(null)
   const [open, setOpen] = useState(false)
   const [sevFilter, setSevFilter] = useState<string | null>(null)
@@ -62,7 +62,7 @@ export default function FindingsReview() {
   const markFixed = (id: string) => {
     setRows((rs) => rs?.map((f) => (f.id === id ? { ...f, status: 'fixed' } : f)) ?? rs)
     setSel((s) => (s && s.id === id ? { ...s, status: 'fixed' } : s))
-    api.post(`/api/findings/${id}/status`, { status: 'fixed' }).then(
+    api.ppost(`/api/findings/${id}/status`, { status: 'fixed' }).then(
       () => toast('Marked as fixed'),
       () => {
         setRows((rs) => rs?.map((f) => (f.id === id ? { ...f, status: 'open' } : f)) ?? rs)

@@ -119,13 +119,13 @@ export default function TeamBoard() {
   // becoming an unhandled-promise console warning - the refetch already ran regardless.
   const approve = (c: Card, col: string) => {
     localMove(c.id, col, 'scanning')
-    api.post(`/api/proposals/${c.id}/approve`).then(() => toast(`Approved. Scan queued for ${c.client}.`)).catch(() => {}).finally(refetchBoard)
+    api.ppost(`/api/proposals/${c.id}/approve`).then(() => toast(`Approved. Scan queued for ${c.client}.`)).catch(() => {}).finally(refetchBoard)
     setOpen(false)
   }
   const reject = (c: Card, col: string, reason?: string) => {
     const rejectReason = reason?.trim() || 'No reason recorded.'
     localMove(c.id, col, 'rejected', { rejectReason })
-    api.post(`/api/proposals/${c.id}/reject`, { reason: rejectReason }).then(() => toast(`Proposal rejected: ${c.client}.`)).catch(() => {}).finally(refetchBoard)
+    api.ppost(`/api/proposals/${c.id}/reject`, { reason: rejectReason }).then(() => toast(`Proposal rejected: ${c.client}.`)).catch(() => {}).finally(refetchBoard)
     setOpen(false); setRejectNote('')
   }
   const forward = (c: Card, col: string) => {
@@ -166,7 +166,7 @@ export default function TeamBoard() {
   }
   const launchScan = (opts: ScanOpts) => {
     const tools = ['katana', 'nuclei', ...(opts.sqlmap ? ['sqlmap'] : [])]
-    api.post('/api/scans', { target: opts.target, tools, division: '', opts })
+    api.ppost('/api/scans', { target: opts.target, tools, division: '', opts })
       .then(() => toast(`Scan launched: ${opts.target}`))
       .catch(() => {})
   }

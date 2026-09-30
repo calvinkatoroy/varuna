@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Bell, CheckCircle2, FileText, LogOut, XCircle } from 'lucide-react'
+import { Bell, CheckCircle2, FileText, KeyRound, LogOut, XCircle } from 'lucide-react'
 import { api } from '@/api'
 import { useAuth } from '@/auth'
 import { ThemeToggle } from './ThemeToggle'
 import { ClientNav } from './ClientNav'
 import { BrandMark } from './BrandMark'
+import { ChangePassword } from './ChangePassword'
 import { useScrollThreshold } from '@/lib/useScrollThreshold'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu'
 
@@ -59,10 +60,13 @@ function Notifications() {
 function Account() {
   const { logout } = useAuth()
   const [me, setMe] = useState<{ username: string; role: string } | null>(null)
+  const [pw, setPw] = useState(false)
   useEffect(() => { api.get('/api/me').then(setMe).catch(() => {}) }, [])
   const initials = (me?.username ?? 'AC').slice(0, 2).toUpperCase()
   const signOut = () => { logout(); localStorage.removeItem('varuna-activated'); location.assign('/') }
   return (
+    <>
+    {pw && <ChangePassword onClose={() => setPw(false)} />}
     <DropdownMenu>
       <DropdownMenuTrigger aria-label="Account" className="grid h-11 w-11 place-items-center overflow-hidden rounded-full text-sm font-bold text-white shadow-[0_4px_14px_rgba(0,0,0,.16)]" style={{ background: 'linear-gradient(160deg,#4FB3E8,#0B5FA5)' }}>
         {initials}
@@ -73,9 +77,11 @@ function Account() {
           <div className="text-[12px] capitalize text-ink-muted">{me?.role ?? 'client'}</div>
         </div>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => setPw(true)}><KeyRound size={15} /> Change password</DropdownMenuItem>
         <DropdownMenuItem onClick={signOut} className="text-crit"><LogOut size={15} /> Sign out</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    </>
   )
 }
 

@@ -21,7 +21,7 @@ DEFAULT_CRAWL_DURATION = "3m"   # cap: heavy targets finish and yield coverage, 
 DEFAULT_RATE = 100              # requests/sec (NFR-17)
 
 
-def build(target: str, outfile: str, cookie: str | None = None, headless: bool = False,
+def build(target: str, outfile: str, cookie: str | None = None, header: str | None = None, headless: bool = False,
           depth: int = DEFAULT_DEPTH, crawl_duration: str = DEFAULT_CRAWL_DURATION,
           rate: int = DEFAULT_RATE) -> list[str]:
     cmd = [
@@ -41,4 +41,6 @@ def build(target: str, outfile: str, cookie: str | None = None, headless: bool =
     # auto-submitted (NFR-19).
     if cookie:
         cmd += ["-H", f"Cookie: {cookie}"]   # authenticated crawl (REQ-21a)
+    if header:
+        cmd += ["-H", header]                # e.g. "Authorization: Bearer ..." from a login
     return cmd

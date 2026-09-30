@@ -29,6 +29,18 @@ CWE_OWASP = {
     "CWE-384": "A07:2021-Identification and Authentication Failures",
     "CWE-502": "A08:2021-Software and Data Integrity Failures",
     "CWE-918": "A10:2021-Server-Side Request Forgery",
+    "CWE-693": "A05:2021-Security Misconfiguration",
+    "CWE-1021": "A05:2021-Security Misconfiguration",
+    "CWE-942": "A05:2021-Security Misconfiguration",
+    "CWE-614": "A05:2021-Security Misconfiguration",
+    "CWE-538": "A05:2021-Security Misconfiguration",
+    "CWE-611": "A05:2021-Security Misconfiguration",
+    "CWE-319": "A02:2021-Cryptographic Failures",
+    "CWE-522": "A02:2021-Cryptographic Failures",
+    "CWE-601": "A01:2021-Broken Access Control",
+    "CWE-352": "A01:2021-Broken Access Control",
+    "CWE-798": "A07:2021-Identification and Authentication Failures",
+    "CWE-1336": "A03:2021-Injection",
 }
 
 

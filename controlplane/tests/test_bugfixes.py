@@ -4,11 +4,13 @@ import io
 import os
 import sys
 
+os.environ["VARUNA_PUBLIC_TEAM_LOGIN"] = "1"   # most tests act as team users through the public app
 HERE = os.path.dirname(__file__)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "common"))
 sys.path.insert(0, os.path.join(HERE, "..", "api"))
 sys.path.insert(0, os.path.join(HERE, "..", "pipeline"))
+sys.path.insert(0, os.path.join(HERE, ".."))
 
 import redis_store  # noqa: E402
 from _fakeredis import FakeRedis  # noqa: E402
@@ -120,7 +122,7 @@ def test_attestation_must_be_a_real_boolean():
 def test_register_rules_and_case_collision():                         # M3
     for u, p in (("ab", "password1"), ("a b c", "password1"), ("<script>", "password1"),
                  ("gina", "short"), ("gina", "p" * 100)):
-        assert pub.post("/api/register", json={"username": u, "password": p}).status_code == 409, (u, p)
+        assert pub.post("/api/register", json={"username": u, "password": p}).status_code == 422, (u, p)
     assert pub.post("/api/register", json={"username": "gina", "password": "password1"}).status_code == 200
     assert pub.post("/api/register", json={"username": "GINA", "password": "password1"}).status_code == 409
 
@@ -165,3 +167,88 @@ def test_team_login_only_on_private_plane():                          # M5
         assert priv.post("/api/login", json=creds("acme9")).status_code == 403
     finally:
         os.environ["VARUNA_PUBLIC_TEAM_LOGIN"] = "1"
+
+
+def test_public_plane_refuses_team_tokens_and_private_serves_team_actions():
+    os.environ.pop("VARUNA_PUBLIC_TEAM_LOGIN", None)
+    try:
+        redis_store._client = FakeRedis()
+        Hl = _h("riyan8", "lead_pentester")             # a valid team token
+        Hc = _h("kim", "client")
+        assert pub.get("/api/me", headers=Hl).status_code == 403          # refused on the public plane
+        assert pub.get("/api/me", headers=Hc).status_code == 200
+        assert pub.get("/api/me", headers={"Authorization": "Bearer junk"}).status_code == 401
+        pid = _prop(Hc).json()["proposal_id"]
+        r = priv.post(f"/api/proposals/{pid}/approve", headers=Hl)         # same action, private plane
+        assert r.status_code == 200 and r.json()["status"] == "approved", r.text
+        assert priv.post(f"/api/proposals/{pid}/reject", json={"reason": "x"}, headers=Hl).status_code == 409
+        assert priv.get("/api/findings", headers=Hl).status_code == 200
+        assert priv.post("/api/proposals/x/approve", headers=Hc).status_code == 403   # client denied
+    finally:
+        os.environ["VARUNA_PUBLIC_TEAM_LOGIN"] = "1"
+
+
+def test_change_password_and_disable_and_admin_reset():
+    redis_store._client = FakeRedis()
+    Hc = _h("lena", "client", pw="firstpass1")
+    assert pub.post("/api/password", json={"current": "WRONG", "new": "secondpass1"}, headers=Hc).status_code == 403
+    assert pub.post("/api/password", json={"current": "firstpass1", "new": "short"}, headers=Hc).status_code == 422
+    assert pub.post("/api/password", json={"current": "firstpass1", "new": "secondpass1"}, headers=Hc).status_code == 200
+    assert pub.post("/api/login", json={"username": "lena", "password": "firstpass1"}).status_code == 401
+    assert pub.post("/api/login", json={"username": "lena", "password": "secondpass1"}).status_code == 200
+
+    Hl = _h("boss", "lead_pentester")
+    Hp = _h("pen9", "pentester")
+    assert priv.get("/api/admin/accounts", headers=Hp).status_code == 403                # lead only
+    rows = priv.get("/api/admin/accounts", headers=Hl).json()
+    assert rows and all("password_hash" not in r for r in rows)
+    r = priv.post("/api/admin/accounts", json={"username": "newrep", "password": "reppass123", "role": "reporter"}, headers=Hl)
+    assert r.status_code == 200
+    assert priv.post("/api/admin/accounts", json={"username": "NEWREP", "password": "reppass123", "role": "reporter"}, headers=Hl).status_code == 409
+    assert priv.post("/api/admin/accounts", json={"username": "x1", "password": "reppass123", "role": "reporter"}, headers=Hl).status_code == 422
+    assert priv.post("/api/admin/accounts/lena/reset-password", json={"password": "resetpass1"}, headers=Hl).status_code == 200
+    assert pub.post("/api/login", json={"username": "lena", "password": "resetpass1"}).status_code == 200
+    tok = pub.post("/api/login", json={"username": "lena", "password": "resetpass1"}).json()["token"]
+    assert priv.post("/api/admin/accounts/lena/disable", headers=Hl).status_code == 200
+    assert pub.post("/api/login", json={"username": "lena", "password": "resetpass1"}).status_code == 401      # cannot log in
+    assert pub.get("/api/me", headers={"Authorization": "Bearer " + tok}).status_code == 401                   # live token dies too
+    assert priv.post("/api/admin/accounts/boss/disable", headers=Hl).status_code == 409                        # not yourself
+    assert priv.post("/api/admin/accounts/lena/enable", headers=Hl).status_code == 200
+    assert pub.post("/api/login", json={"username": "lena", "password": "resetpass1"}).status_code == 200
+
+
+def test_default_password_detection_and_backup(tmp_path):
+    auth.create_account("seeded", "changeme", "pentester")
+    auth.create_account("fine", "notdefault1", "reporter")
+    assert auth.default_password_accounts() == ["seeded"]
+    import backup_db
+    backup_db.DB = db._db_path()
+    out = backup_db.backup(str(tmp_path / "b"), keep=2)
+    import sqlite3
+    conn = sqlite3.connect(out)
+    assert conn.execute("select count(*) from accounts").fetchone()[0] >= 2
+    conn.close()   # Windows cannot delete an open file (retention below removes old backups)
+    for _ in range(3):
+        backup_db.backup(str(tmp_path / "b"), keep=2)
+    assert len(list((tmp_path / "b").glob("varuna-*.db"))) == 2, "retention keeps the newest N"
+
+
+def test_finished_scan_starts_review_automatically(tmp_path):
+    import json
+    import ingest
+    import ollama
+    import store as report_store
+    report_store.REPORTS_DIR = str(tmp_path)
+    ollama.OLLAMA_URL = "http://127.0.0.1:1"          # enrichment falls back gracefully
+    redis_store._client = FakeRedis()
+    Hc, Hl = _h("zed", "client"), _h("lead7", "lead_pentester")
+    pid = _prop(Hc).json()["proposal_id"]
+    jid = pub.post(f"/api/proposals/{pid}/approve", headers=Hl).json()["job_id"]
+    nuclei = {"info": {"name": "Exposed metrics", "severity": "medium", "tags": ["exposure"]},
+              "host": "8.8.8.8", "matched-at": "http://8.8.8.8/metrics"}
+    ingest.process_job(jid, {"nuclei": json.dumps(nuclei)})
+    reports = [r for r in db.list_reports() if r["job_id"] == jid]
+    assert len(reports) == 1 and reports[0]["stage"] == models.REPORT_REPORTER and reports[0]["owner"] == "zed"
+    assert len(db.list_report_versions(reports[0]["id"])) == 1
+    ingest.process_job(jid, {"nuclei": json.dumps(nuclei)})       # re-ingest must not duplicate
+    assert len([r for r in db.list_reports() if r["job_id"] == jid]) == 1

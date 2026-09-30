@@ -13,7 +13,7 @@ THREADS = 4
 
 
 def build(urls_file: str, outdir: str, aggressive: bool = False,
-          tamper: str | None = None, cookie: str | None = None,
+          tamper: str | None = None, cookie: str | None = None, header: str | None = None,
           dump: bool = False, os_shell: bool = False,
           level: int = 3, risk: int = 2) -> list[str]:
     cmd = [
@@ -36,4 +36,6 @@ def build(urls_file: str, outdir: str, aggressive: bool = False,
         cmd += ["--tamper", tamper]          # WAF evasion (REQ-21c)
     if cookie:
         cmd += ["--cookie", cookie]          # authenticated context (REQ-21a)
+    if header:
+        cmd += ["--headers", header]
     return cmd

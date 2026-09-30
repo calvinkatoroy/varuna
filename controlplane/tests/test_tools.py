@@ -226,3 +226,27 @@ def test_filter_targets_keeps_only_the_authorized_host_and_fills_blank_params():
     n, q = scan.filter_targets(urls, "http://127.0.0.1:3000")
     assert all(u.startswith("http://127.0.0.1:3000") for u in n + q), "third-party / other-port URLs must never be scanned"
     assert "http://127.0.0.1:3000/rest/products/search?q=1" in n, "blank params get a value to fuzz"
+
+
+def test_authenticate_returns_bearer_header_and_refuses_off_host_login():
+    class R:
+        status_code = 200
+        def json(self):
+            return {"authentication": {"token": "abc"}}
+
+    auth = {"login_url": "/login", "username": "u", "password": "p", "json": True,
+            "token_path": "authentication.token"}
+    s = scan.authenticate(auth, "http://t.local:3000", post=lambda url, **kw: R())
+    assert s["header"] == "Authorization: Bearer abc"
+    try:
+        scan.authenticate({**auth, "login_url": "http://evil.example/x"}, "http://t.local:3000",
+                          post=lambda url, **kw: R())
+        raise AssertionError("credentials must never go to another host")
+    except RuntimeError:
+        pass
+
+
+def test_auth_header_reaches_every_tool():
+    h = "Authorization: Bearer abc"
+    assert h in katana.build("t", "o", header=h) and h in nuclei.build("u", "o", header=h)
+    assert h in sqlmap.build("u", "o", header=h)

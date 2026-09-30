@@ -24,8 +24,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setReady(true)
       return
     }
+    // Team tokens are refused on the public plane (403); fall back to the private plane's /me.
     api
       .get('/api/me')
+      .catch((e) => (e?.status === 403 ? api.pget('/api/me') : Promise.reject(e)))
       .then((me) => setUser(me))
       .catch(() => setToken(null))
       .finally(() => setReady(true))
@@ -35,7 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function login(username: string, password: string, team = false) {
     const { token } = await (team ? api.ppost : api.post)('/api/login', { username, password })
     setToken(token)
-    setUser(await api.get('/api/me'))
+    setUser(await (team ? api.pget : api.get)('/api/me'))
   }
 
   async function register(username: string, password: string) {

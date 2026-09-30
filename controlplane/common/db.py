@@ -119,6 +119,10 @@ CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    # Migrations for databases created before a column existed (CREATE IF NOT EXISTS won't add it).
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(accounts)")}
+    if "disabled" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0")
     conn.commit()
 
 
@@ -184,9 +188,26 @@ def upsert_account(username: str, password_hash: str, role: str) -> None:
 
 def get_account(username: str) -> Optional[dict]:
     row = get_conn().execute(
-        "SELECT username, password_hash, role FROM accounts WHERE username=?", (username,)
+        "SELECT username, password_hash, role, disabled FROM accounts WHERE username=?", (username,)
     ).fetchone()
     return dict(row) if row else None
+
+
+def list_accounts() -> list[dict]:
+    """Account roster for admin screens: never includes password hashes."""
+    return [dict(r) for r in get_conn().execute(
+        "SELECT username, role, disabled, created_at FROM accounts ORDER BY role, username").fetchall()]
+
+
+def set_account(username: str, **fields) -> bool:
+    """Update password_hash / disabled. True if the account exists."""
+    allowed = {k: v for k, v in fields.items() if k in ("password_hash", "disabled")}
+    if not allowed:
+        return False
+    sets = ", ".join(f"{k}=?" for k in allowed)
+    cur = get_conn().execute(f"UPDATE accounts SET {sets} WHERE username=?", [*allowed.values(), username])
+    get_conn().commit()
+    return cur.rowcount == 1
 
 
 def get_account_ci(username: str) -> Optional[dict]:

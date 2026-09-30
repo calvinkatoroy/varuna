@@ -48,6 +48,7 @@ export async function mockRequest(method: string, path: string, body?: any): Pro
     currentUser = acct ?? fx.me
     return { token: 'mock.jwt.' + currentUser.role }
   }
+  if (m === 'POST' && path === '/api/password') return { ok: true }
   if (m === 'POST' && path === '/api/register') {
     currentUser = fx.me
     return { token: 'mock.jwt.client' }

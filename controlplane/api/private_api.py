@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import sys
 import zipfile
 
@@ -25,6 +26,7 @@ from pydantic import BaseModel  # noqa: E402
 import secrets  # noqa: E402
 
 import audit  # noqa: E402
+import notify  # noqa: E402
 import board  # noqa: E402
 import db  # noqa: E402
 import generator  # noqa: E402
@@ -36,7 +38,8 @@ import report_pipeline  # noqa: E402
 import store as report_store  # noqa: E402
 import auth  # noqa: E402
 import jwt_auth  # noqa: E402
-from deps import current_user, require_pro, require_team  # noqa: E402
+import browser  # noqa: E402  (proposal/scan/finding logic is shared; only the auth plane differs)
+from deps import current_user, require_lead, require_pro, require_team  # noqa: E402
 
 app = FastAPI(title="Varuna Private API (Tailscale plane)")
 _CORS = os.environ.get("VARUNA_CORS_ORIGINS", "http://localhost:5173").split(",")
@@ -46,6 +49,14 @@ DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.docu
 
 def _mime(fname: str) -> str:
     return "application/pdf" if fname.endswith(".pdf") else DOCX_MIME
+
+
+@app.on_event("startup")
+def _warn_default_passwords() -> None:
+    weak = auth.default_password_accounts()
+    if weak:
+        print(f"WARNING: team accounts still use the default password 'changeme': {', '.join(weak)}. "
+              "Change them (POST /api/password or the admin reset) before any non-local use.", flush=True)
 
 
 class LoginBody(BaseModel):
@@ -71,6 +82,106 @@ def login(body: LoginBody, x_forwarded_for: str = Header(default="api")):
 @app.get("/api/me")
 def me(user: dict = Depends(current_user)):
     return user
+
+
+class PasswordBody(BaseModel):
+    current: str
+    new: str
+
+
+@app.post("/api/password")
+def change_password(body: PasswordBody, user: dict = Depends(require_team)):
+    try:
+        auth.change_password(user["username"], body.current, body.new)
+    except auth.BadCredentials as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except auth.AuthError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    audit.log("password_changed", actor=user["username"])
+    return {"ok": True}
+
+
+# --- account administration (lead pentester): provision/disable team accounts and reset
+# passwords without shell access to the server. ---
+class AccountBody(BaseModel):
+    username: str
+    password: str
+    role: str
+
+
+class ResetBody(BaseModel):
+    password: str
+
+
+@app.get("/api/admin/accounts")
+def admin_accounts(user: dict = Depends(require_lead)):
+    return db.list_accounts()
+
+
+@app.post("/api/admin/accounts")
+def admin_create_account(body: AccountBody, user: dict = Depends(require_lead)):
+    if body.role not in models.ROLES:
+        raise HTTPException(status_code=422, detail="unknown role")
+    if not re.fullmatch(r"[A-Za-z0-9._-]{3,32}", body.username):
+        raise HTTPException(status_code=422, detail="username must be 3-32 letters, digits, dot, dash or underscore")
+    if db.get_account_ci(body.username):
+        raise HTTPException(status_code=409, detail="username already taken")
+    try:
+        auth._check_new_password(body.password)
+    except auth.AuthError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    auth.create_account(body.username, body.password, body.role)
+    audit.log("account_created", actor=user["username"], account=body.username, role=body.role)
+    return {"username": body.username, "role": body.role}
+
+
+@app.post("/api/admin/accounts/{username}/reset-password")
+def admin_reset_password(username: str, body: ResetBody, user: dict = Depends(require_lead)):
+    try:
+        auth.admin_reset_password(username, body.password)
+    except auth.AuthError as e:
+        raise HTTPException(status_code=404 if "no such" in str(e) else 422, detail=str(e))
+    audit.log("password_reset", actor=user["username"], account=username)
+    return {"ok": True}
+
+
+@app.post("/api/admin/accounts/{username}/{action}")
+def admin_set_disabled(username: str, action: str, user: dict = Depends(require_lead)):
+    if action not in ("disable", "enable"):
+        raise HTTPException(status_code=404, detail="unknown action")
+    if action == "disable" and username == user["username"]:
+        raise HTTPException(status_code=409, detail="you cannot disable your own account")
+    if not db.set_account(username, disabled=1 if action == "disable" else 0):
+        raise HTTPException(status_code=404, detail="no such account")
+    audit.log(f"account_{action}d", actor=user["username"], account=username)
+    return {"ok": True}
+
+
+# --- team actions that used to live on the public plane (NFR-24): same logic as browser.py,
+# served here so team tokens are not needed on the internet-facing API at all. ---
+@app.post("/api/proposals/{pid}/approve")
+def approve_proposal(pid: str, user: dict = Depends(require_lead)):
+    return browser.approve_proposal(pid, user)
+
+
+@app.post("/api/proposals/{pid}/reject")
+def reject_proposal(pid: str, body: browser.RejectBody, user: dict = Depends(require_lead)):
+    return browser.reject_proposal(pid, body, user)
+
+
+@app.post("/api/scans")
+def submit_scan(body: browser.ScanBody, user: dict = Depends(require_team)):
+    return browser.submit_scan(body, user)
+
+
+@app.get("/api/findings")
+def list_findings(user: dict = Depends(require_team)):
+    return browser.list_findings(user)
+
+
+@app.post("/api/findings/{fid}/status")
+def set_finding_status(fid: str, body: browser.FindingStatusBody, user: dict = Depends(require_team)):
+    return browser.set_finding_status(fid, body, user)
 
 
 @app.get("/api/findings/{job_id}")
@@ -207,14 +318,9 @@ def pipeline_create(body: PipelineCreateBody, user: dict = Depends(require_team)
     if not job:
         raise HTTPException(status_code=404, detail="no such job")
     try:
-        data = generator.generate(job, db.get_findings(body.job_id), body.template)
+        rid = ingest.start_review(job, body.template, editor=user["username"])
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    rid = db.create_report(job_id=body.job_id, owner=job["submitter"], template=body.template)
-    fname = f"{rid}_v1.docx"
-    report_store.save_report_file(fname, data)
-    db.add_report_version(rid, filename=fname, editor=user["username"], note="auto-generated v1")
-    audit.log("report_created", actor=user["username"], report=rid, job=body.job_id)
     return {"report_id": rid, "stage": models.REPORT_REPORTER}
 
 
@@ -297,6 +403,7 @@ def pipeline_forward(rid: str, user: dict = Depends(require_team)):
     else:
         db.set_report(rid, stage=new_stage)
     audit.log("report_forward", actor=user["username"], report=rid, stage=new_stage)
+    notify.notify(f"Report {rid[:8]} is now at {new_stage}")
     return {"report_id": rid, "stage": new_stage}
 
 
@@ -342,4 +449,5 @@ def pipeline_sendback(rid: str, user: dict = Depends(require_team)):
         raise HTTPException(status_code=409, detail=str(e))
     db.set_report(rid, stage=new_stage)
     audit.log("report_sendback", actor=user["username"], report=rid, stage=new_stage)
+    notify.notify(f"Report {rid[:8]} was sent back to {new_stage}")
     return {"report_id": rid, "stage": new_stage}

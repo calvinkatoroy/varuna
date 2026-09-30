@@ -129,6 +129,40 @@ def filter_targets(urls, seed: str) -> tuple[list[str], list[str]]:
     return nuclei_t, list(dict.fromkeys(with_params + pages[:MAX_FORM_PAGES]))
 
 
+def authenticate(auth: dict, seed: str, post=None) -> dict:
+    """Log in once (team-supplied credentials, advanced scans only) and return session material
+    for the tools: {"cookie": "a=b; c=d", "header": "Authorization: Bearer ..."} (either may be
+    absent). auth: login_url, username, password, username_field/password_field (default
+    username/password), json (send JSON instead of a form), token_path (dotted path to a bearer
+    token in the JSON response, e.g. "authentication.token"). The login URL must be on the
+    scanned host: credentials are never sent anywhere else."""
+    import httpx
+    login = auth.get("login_url") or ""
+    if not login.startswith("http"):
+        login = seed.rstrip("/") + "/" + login.lstrip("/")
+    lp, sp = urlsplit(login), urlsplit(seed)
+    if (lp.hostname, lp.port) != (sp.hostname, sp.port):
+        raise RuntimeError("login_url must be on the scanned host")
+    body = {auth.get("username_field", "username"): auth.get("username", ""),
+            auth.get("password_field", "password"): auth.get("password", "")}
+    with httpx.Client(timeout=20, follow_redirects=True, verify=False) as c:
+        r = (post or c.post)(login, **({"json": body} if auth.get("json") else {"data": body}))
+        if r.status_code >= 400:
+            raise RuntimeError(f"login failed (HTTP {r.status_code})")
+        out = {}
+        cookies = "; ".join(f"{k}={v}" for k, v in c.cookies.items())
+        if cookies:
+            out["cookie"] = cookies
+        if auth.get("token_path"):
+            node = r.json()
+            for part in auth["token_path"].split("."):
+                node = node[part]
+            out["header"] = f"Authorization: Bearer {node}"
+        if not out:
+            raise RuntimeError("login returned no session cookie or token")
+        return out
+
+
 def normalize_target(target: str) -> str:
     """Tools' own resolvers fail on the name `localhost` on some hosts (Nuclei reports "no
     address found" and silently scans nothing), so scan the loopback IP instead."""
@@ -176,6 +210,11 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None,
     workdir = workdir or tempfile.mkdtemp(prefix="varuna-")
     opts = job.get("opts", {})
     cookie = opts.get("cookie") or None
+    header = None
+    if opts.get("auth"):   # log in first; a failed login fails the scan rather than scanning anonymously
+        sess = authenticate(opts["auth"], job["target"] if "://" in job["target"] else "http://" + job["target"])
+        cookie = "; ".join(x for x in (cookie, sess.get("cookie")) if x) or None
+        header = sess.get("header")
     tools = job.get("tools", [])
     seed = normalize_target(job["target"])
     raw: dict = {}
@@ -186,7 +225,7 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None,
     print(f"[{seed}] running katana (up to {KATANA_TIMEOUT}s)...")
     try:
         raw["katana"] = run(katana.build(
-            seed, katana_out, cookie=cookie,
+            seed, katana_out, cookie=cookie, header=header,
             headless=opts.get("headless", False),
             depth=opts.get("depth", katana.DEFAULT_DEPTH),
             crawl_duration=opts.get("crawl_duration", katana.DEFAULT_CRAWL_DURATION),
@@ -219,16 +258,40 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None,
     # Local/staging targets tolerate a faster Nuclei; public ones keep the conservative rate (NFR-17).
     rate = opts.get("rate") or (nuclei.LOCAL_RATE if job.get("target_class") == "local" else nuclei.SAFE_RATE)
 
-    def _nuclei():
-        print(f"[{seed}] running nuclei on {len(nuclei_targets)} target(s) (up to {TOOL_TIMEOUT}s)...")
+    def _nuclei_dast():
+        print(f"[{seed}] running nuclei (DAST) on {len(nuclei_targets)} target(s) (up to {TOOL_TIMEOUT}s)...")
         try:
-            out = run(nuclei.build(
+            return run(nuclei.build(
                 targets_file, os.path.join(workdir, "nuclei.jsonl"),
-                interactsh=opts.get("interactsh"), cookie=cookie, rate=int(rate),
+                interactsh=opts.get("interactsh"), cookie=cookie, header=header, rate=int(rate),
             ))
-            return "nuclei", out, "done"
         except Exception:
-            return "nuclei", None, "failed"   # REQ-55: does not cancel SQLMap
+            return None
+
+    def _nuclei_surface():
+        # Host-level checks (exposed files, misconfiguration, tech) once against the origin.
+        origin_file = os.path.join(workdir, "origin.txt")
+        p = urlsplit(seed)
+        with open(origin_file, "w") as f:
+            f.write(f"{p.scheme}://{p.netloc}" + chr(10))
+        print(f"[{seed}] running nuclei (surface{', deep' if opts.get('deep') else ''}) on the origin...")
+        try:
+            return run(nuclei.build(
+                origin_file, os.path.join(workdir, "nuclei_surface.jsonl"), cookie=cookie, header=header,
+                rate=int(rate), surface=True, deep=bool(opts.get("deep", False)),
+            ))
+        except Exception:
+            return None
+
+    def _nuclei():
+        # Two passes, one after the other: run together, the broad surface pass loaded a
+        # single-process target enough that DAST's SQL-injection probes timed out and the
+        # critical finding vanished. The tool is "done" if either produced output (an empty
+        # string is a clean result), "failed" only if both broke.
+        outs = [_nuclei_dast(), _nuclei_surface()]
+        if all(o is None for o in outs):
+            return "nuclei", None, "failed"
+        return "nuclei", chr(10).join(o for o in outs if o), "done"
 
     def _sqlmap():
         print(f"[{seed}] running sqlmap on {len(sqlmap_targets)} target(s) (up to {TOOL_TIMEOUT}s)...")
@@ -237,7 +300,7 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None,
                 sqlmap_file, os.path.join(workdir, "sqlmap"),
                 aggressive=bool(opts.get("aggressive", False)),
                 dump=bool(opts.get("dump", False)), os_shell=bool(opts.get("os_shell", False)),
-                tamper=opts.get("tamper"), cookie=cookie,
+                tamper=opts.get("tamper"), cookie=cookie, header=header,
             ))
             return "sqlmap", out, "done"
         except Exception:

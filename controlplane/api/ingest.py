@@ -15,6 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "pipeline"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "report"))
 
 import db  # noqa: E402
 import redis_store  # noqa: E402
@@ -22,6 +23,10 @@ import models  # noqa: E402
 import parse  # noqa: E402
 import correlate  # noqa: E402
 import ollama  # noqa: E402
+import audit  # noqa: E402
+import generator  # noqa: E402
+import notify  # noqa: E402
+import store as report_store  # noqa: E402
 
 
 def add_manual_finding(job_id: str, fields: dict) -> list[dict]:
@@ -41,6 +46,19 @@ def add_manual_finding(job_id: str, fields: dict) -> list[dict]:
     return combined
 
 
+def start_review(job: dict, template: str = "Full Technical", editor: str = "system") -> str:
+    """Generate v1 of the report and place it at the reporter stage (SCANNED -> IN_REVIEW_REPORTER).
+    The owner is the client who owns the job (tenancy). Raises ValueError for an unknown template."""
+    data = generator.generate(job, db.get_findings(job["id"]), template)
+    rid = db.create_report(job_id=job["id"], owner=job["submitter"], template=template)
+    fname = f"{rid}_v1.docx"
+    report_store.save_report_file(fname, data)
+    db.add_report_version(rid, filename=fname, editor=editor, note="auto-generated v1")
+    audit.log("report_created", actor=editor, report=rid, job=job["id"])
+    notify.notify(f"New report {rid[:8]} is ready for the reporter")
+    return rid
+
+
 def process_job(job_id: str, raw: dict) -> None:
     job = redis_store.get_job(job_id)
     if not job:
@@ -51,6 +69,13 @@ def process_job(job_id: str, raw: dict) -> None:
     # Findings are durable (SQLite), unlike the job record they came from - they must outlive
     # the job's 24h Redis TTL to survive the (possibly multi-day) review pipeline.
     db.save_findings(job_id, job["submitter"], findings)
+    # An approved proposal's scan goes straight into review: nobody has to remember to start it.
+    # (Direct team scans have no proposal; the team starts those via POST /api/pipeline/reports.)
+    if db.get_proposal_by_job(job_id) and not [r for r in db.list_reports() if r["job_id"] == job_id]:
+        try:
+            start_review(job)
+        except Exception as e:   # a report-generation failure must not lose the findings
+            print(f"WARNING: could not start review for job {job_id}: {e}", flush=True)
     # ponytail: findings-ready is signalled by get_findings() being non-empty, not by job
     # status (the agent owns status). If the tiny status=done-before-findings race ever
     # matters to a UI, have ingest flip a findings_ready flag here.

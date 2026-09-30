@@ -37,6 +37,7 @@ import db  # noqa: E402
 import dispatch  # noqa: E402
 import generator  # noqa: E402
 import jwt_auth  # noqa: E402
+import notify  # noqa: E402
 import models  # noqa: E402
 import redis_store  # noqa: E402
 import store as report_store  # noqa: E402
@@ -53,6 +54,21 @@ _CORS = os.environ.get("VARUNA_CORS_ORIGINS", "http://localhost:5173").split(","
 app.add_middleware(CORSMiddleware, allow_origins=_CORS, allow_methods=["*"], allow_headers=["*"])
 
 MAX_BODY = 1_000_000   # bytes; every JSON body here is small forms
+
+
+@app.middleware("http")
+async def clients_only(request, call_next):
+    """NFR-24: the internet-facing plane serves clients. A valid team token is refused here (it
+    works on the private plane), so stolen/phished team credentials gain nothing public."""
+    if request.url.path.startswith("/api/") and os.environ.get("VARUNA_PUBLIC_TEAM_LOGIN") != "1":
+        token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+        try:
+            role = jwt_auth.verify(token)["role"] if token else None
+        except Exception:
+            role = None   # invalid/expired: the endpoint's own auth returns the 401
+        if role and models.is_team(role):
+            return JSONResponse(status_code=403, content={"detail": "security team accounts use the private plane"})
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -132,14 +148,33 @@ def register(body: RegisterBody):
     is approved, so this being public is inert. Team accounts are seeded, never self-registered."""
     try:
         auth.register_client(body.username, body.password)
-    except auth.AuthError as e:
+    except auth.UsernameTaken as e:
         raise HTTPException(status_code=409, detail=str(e))
+    except auth.AuthError as e:   # bad username/password shape: a validation error, not a conflict
+        raise HTTPException(status_code=422, detail=str(e))
     return {"token": jwt_auth.login(body.username, body.password, "api")}
 
 
 @app.get("/api/me")
 def me(user: dict = Depends(current_user)):
     return user
+
+
+class PasswordBody(BaseModel):
+    current: str
+    new: str
+
+
+@app.post("/api/password")
+def change_password(body: PasswordBody, user: dict = Depends(current_user)):
+    try:
+        auth.change_password(user["username"], body.current, body.new)
+    except auth.BadCredentials as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except auth.AuthError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    audit.log("password_changed", actor=user["username"])
+    return {"ok": True}
 
 
 @app.get("/api/cockpit")
@@ -168,6 +203,7 @@ def submit_proposal(body: ProposalBody, user: dict = Depends(current_user)):
     elif any(t not in FULL_STACK for t in p["tools"]):
         raise HTTPException(status_code=422, detail=f"tools must be a subset of {FULL_STACK}")
     pid = db.create_proposal(p)
+    notify.notify(f"New scan proposal from {user['username']} awaiting lead approval ({pid[:8]})")
     return {"proposal_id": pid, "status": models.PROPOSAL_PENDING}
 
 
