@@ -54,6 +54,10 @@ def _mime(fname: str) -> str:
 
 @app.on_event("startup")
 def _warn_default_passwords() -> None:
+    secret = jwt_auth.JWT_SECRET
+    if secret == "dev-only-change-me" or len(secret) < 32:
+        print("WARNING: JWT_SECRET is the built-in dev value or shorter than 32 characters. Anyone who knows it can forge "
+              "logins. Set a long random value (openssl rand -hex 32).", flush=True)
     no_mfa = [a["username"] for a in db.list_accounts() if a["role"] != "client" and not a["totp_enabled"]]
     if no_mfa:
         print(f"NOTE: team accounts without two-factor: {', '.join(no_mfa)}. Enable it from the account menu.", flush=True)
@@ -233,6 +237,12 @@ def reject_proposal(pid: str, body: browser.RejectBody, user: dict = Depends(req
 @app.post("/api/scans")
 def submit_scan(body: browser.ScanBody, user: dict = Depends(require_team)):
     return browser.submit_scan(body, user)
+
+
+@app.get("/api/scans/{job_id}/events")
+async def scan_events(job_id: str, user: dict = Depends(require_team)):
+    """Live scan progress for the team (the public plane refuses team tokens, NFR-24)."""
+    return await browser.scan_events(job_id, user)
 
 
 @app.get("/api/findings")

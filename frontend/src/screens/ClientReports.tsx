@@ -6,6 +6,7 @@ import { ClientShell } from '@/components/ClientShell'
 import { ErrorRetry } from '@/components/ErrorRetry'
 import { useApiData } from '@/lib/useApiData'
 import { rise } from '@/lib/motion'
+import { bare, when } from '@/lib/format'
 
 type Report = { id: string; engagement: string; delivered: string; findings: number; templates: string[]; signed: boolean }
 const chip = 'rounded-md border border-rule bg-panel px-2 py-1 text-[11.5px] text-ink-muted'
@@ -67,9 +68,9 @@ export default function ClientReports() {
             <section className="entry grid grid-cols-1 gap-6 rounded-bento border border-rule bg-card p-6 lg:grid-cols-[1.5fr_1fr]" style={{ opacity: 0 }}>
               <div className="min-w-0">
                 <span className="text-[11.5px] font-medium uppercase tracking-[0.12em] text-accent-ink">Latest report</span>
-                <h2 className="mt-2 text-[clamp(22px,3vw,30px)] font-bold leading-tight tracking-[-0.02em] text-ink">{featured.engagement}</h2>
+                <h2 className="mt-2 text-[clamp(22px,3vw,30px)] font-bold leading-tight tracking-[-0.02em] text-ink">{bare(featured.engagement)}</h2>
                 <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-ink-muted">
-                  <span>Delivered {featured.delivered}</span>
+                  <span>Delivered {when(featured.delivered)}</span>
                   <span>{featured.findings} findings</span>
                   {featured.signed && <span className="flex items-center gap-1.5 text-low"><ShieldCheck size={14} /> Governance signed</span>}
                 </div>
@@ -92,8 +93,8 @@ export default function ClientReports() {
                   <li key={r.id}>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-rule px-4 py-3 last:border-b-0 sm:px-5 sm:py-4">
                       <div className="min-w-0 basis-full sm:basis-0 sm:flex-1">
-                        <b className="block break-words text-[15px] font-medium leading-snug text-ink sm:truncate">{r.engagement}</b>
-                        <span className="text-[12px] text-ink-faint">{r.delivered}, {r.findings} findings, {r.templates.length} templates</span>
+                        <b className="block break-words text-[15px] font-medium leading-snug text-ink sm:truncate">{bare(r.engagement)}</b>
+                        <span className="text-[12px] text-ink-faint">{when(r.delivered)}, {r.findings} findings, {r.templates.length} templates</span>
                       </div>
                       <Password id={r.id} />
                       <Button variant="outline" size="sm" className="ml-auto min-h-[44px] sm:min-h-0" onClick={() => download(r.id)}>{got[r.id] ? <><Check size={15} /> Got it</> : <><Download size={15} /> PDF</>}</Button>

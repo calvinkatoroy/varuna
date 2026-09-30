@@ -5,6 +5,7 @@ import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ClientTopbar } from '@/components/ClientTopbar'
 import { ClientDock } from '@/components/ClientDock'
+import { bare, when } from '@/lib/format'
 import { AgentStatus } from '@/components/AgentStatus'
 import { ErrorRetry } from '@/components/ErrorRetry'
 import { PostureBubbles } from '@/components/viz/PostureBubbles'
@@ -25,7 +26,7 @@ const statusPill: Record<string, string> = {
   scanning: 'bg-[rgba(125,151,216,.16)] text-info', pending: 'bg-med-bg text-med',
 }
 const statusLabel: Record<string, string> = { in_review: 'In review', delivered: 'Delivered', scanning: 'Scanning', pending: 'Pending' }
-const mono = (host: string) => host.replace(/^www\./, '').split('.')[0].slice(0, 2).toUpperCase()
+const mono = (host: string) => bare(host).split(/[.:/]/)[0].slice(0, 2).toUpperCase()
 
 function Drill({ label, to }: { label: string; to?: string }) {
   const nav = useNavigate()
@@ -158,7 +159,7 @@ export default function ClientCockpit() {
                     <span className="grid h-9 w-9 flex-none place-items-center rounded-[9px] bg-panel font-display text-[12px] font-bold text-ink">{mono(e.target)}</span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <b className="truncate text-[14.5px] font-semibold text-ink">{e.target}</b>
+                        <b className="truncate text-[14.5px] font-semibold text-ink" title={e.target}>{bare(e.target)}</b>
                         <span className="flex-none rounded-md bg-panel px-1.5 py-0.5 text-[10px] font-bold uppercase text-ink-muted">{e.mode}</span>
                       </div>
                       <div className="mt-2 flex items-center gap-2.5">
@@ -186,7 +187,7 @@ export default function ClientCockpit() {
                 <>
                   <TileHead title="Latest Report" sub={`${d.latestReport.findings} findings · governance signed`} to="/reports" />
                   <div className="mb-5 mt-1 flex flex-col">
-                    {[['Engagement', d.latestReport.engagement], ['Delivered', d.latestReport.delivered], ['Templates', `${d.latestReport.templates} available`]].map(([l, v], i) => (
+                    {[['Engagement', bare(d.latestReport.engagement)], ['Delivered', when(d.latestReport.delivered)], ['Templates', `${d.latestReport.templates} available`]].map(([l, v], i) => (
                       <div key={l} className={`flex items-center justify-between gap-3 py-[9px] ${i ? 'border-t border-rule' : ''}`}>
                         <span className="text-[13px] text-ink-muted">{l}</span>
                         <b className="text-[13.5px] font-semibold text-ink">{v}</b>

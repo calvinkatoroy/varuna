@@ -372,3 +372,22 @@ def test_view_once_password_is_shown_once_even_under_concurrency():
     with cf.ThreadPoolExecutor(8) as ex:
         codes = list(ex.map(lambda _: pub.get(f"/api/reports/{rid}/password", headers=Hc).status_code, range(8)))
     assert codes.count(200) == 1 and codes.count(403) == 7, codes
+
+
+def test_team_gets_live_scan_progress_on_the_private_plane():
+    """Regression: with team tokens refused on the public plane, the review drawer's live progress
+    (which streamed from the public API) silently 403'd. The team has its own stream now."""
+    os.environ.pop("VARUNA_PUBLIC_TEAM_LOGIN", None)
+    try:
+        redis_store._client = FakeRedis()
+        Hc, Hl = _h("sse1", "client"), _h("lead_sse", "lead_pentester")
+        pid = _prop(Hc).json()["proposal_id"]
+        jid = priv.post(f"/api/proposals/{pid}/approve", headers=Hl).json()["job_id"]
+        job = redis_store.get_job(jid); job["status"] = "done"; redis_store.set_job(job)
+        assert pub.get(f"/api/scans/{jid}/events", headers=Hl).status_code == 403          # public: refused
+        with priv.stream("GET", f"/api/scans/{jid}/events", headers=Hl) as r:              # private: streams
+            body = "".join(r.iter_text())
+        assert r.status_code == 200 and '"status": "done"' in body
+        assert priv.get(f"/api/scans/{jid}/events", headers=Hc).status_code == 403          # client: not the team route
+    finally:
+        os.environ["VARUNA_PUBLIC_TEAM_LOGIN"] = "1"

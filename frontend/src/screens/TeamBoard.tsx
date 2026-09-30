@@ -54,11 +54,22 @@ const ctrl = 'grid h-11 w-11 place-items-center rounded-full bg-white/[.16] text
 export default function TeamBoard() {
   const { data: cols, error, reload: refetchBoard, setData: setCols } = useApiData<Col[]>(() => api.pget('/api/pipeline/board'))
   const railRef = useRef<RailHandle>(null)
+  // Consequential decisions (approve, reject, send back, deliver) take two deliberate taps: the
+  // first arms the button and says what it will do, the second commits. Disarms after 5s or when
+  // another card opens. A mis-tap next to an adjacent button must never be irreversible.
+  const [armed, setArmed] = useState<string | null>(null)
+  useEffect(() => {
+    if (!armed) return
+    const t = setTimeout(() => setArmed(null), 5000)
+    return () => clearTimeout(t)
+  }, [armed])
+  const twoStep = (key: string, run: () => void) => { if (armed === key) { setArmed(null); run() } else setArmed(key) }
   // Progressive disclosure: a busy stage can hold hundreds of cards. Show the newest few and let
   // the reviewer ask for the rest, instead of an endless scroll (and a heavy page on a phone).
   const [more, setMore] = useState<Record<string, boolean>>({})
   const [stage, setStage] = useState(0)
   const [sel, setSel] = useState<{ card: Card; col: string } | null>(null)
+  useEffect(() => { setArmed(null) }, [sel])
   const [open, setOpen] = useState(false)
   const [scanOpen, setScanOpen] = useState(false)
   const [client, setClient] = useState<string | null>(null)
@@ -323,10 +334,7 @@ export default function TeamBoard() {
                     <DropdownMenuContent>
                       <DropdownMenuLabel>{col.title}</DropdownMenuLabel>
                       {col.id === 'pending' && (
-                        <>
-                          <DropdownMenuItem onClick={() => approve(c, col.id)} className="text-low focus:bg-low-bg"><Check size={15} /> Approve proposal</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => reject(c, col.id)} className="text-crit focus:bg-crit-bg"><XIcon size={15} /> Reject</DropdownMenuItem>
-                        </>
+                        <DropdownMenuItem onClick={() => { setSel({ card: c, col: col.id }); setOpen(true) }} className="font-semibold"><Check size={15} /> Review and decide</DropdownMenuItem>
                       )}
                       {col.id === 'scanning' && (
                         <DropdownMenuItem onClick={() => toggleSuspend(c, col.id)} className={c.suspended ? 'text-low focus:bg-low-bg' : 'text-med focus:bg-med-bg'}>
@@ -334,10 +342,7 @@ export default function TeamBoard() {
                         </DropdownMenuItem>
                       )}
                       {isReview(col.id) && (
-                        <>
-                          <DropdownMenuItem onClick={() => forward(c, col.id)}><ArrowRight size={15} /> Forward stage</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => back(c, col.id)}><ArrowLeft size={15} /> Send back</DropdownMenuItem>
-                        </>
+                        <DropdownMenuItem onClick={() => { setSel({ card: c, col: col.id }); setOpen(true) }} className="font-semibold"><Eye size={15} /> Open review</DropdownMenuItem>
                       )}
                       {col.id === 'delivered' && <DropdownMenuItem onClick={() => reissuePassword(c)}><KeyRound size={15} /> Re-issue password</DropdownMenuItem>}
                       <DropdownMenuSeparator />
@@ -413,7 +418,7 @@ export default function TeamBoard() {
                   <h4 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Live progress</h4>
                   {sel.card.jobId ? (
                     <div className="rounded-input border border-rule bg-panel p-4">
-                      <ScanProgress jobId={sel.card.jobId} base={api.publicBase} />
+                      <ScanProgress jobId={sel.card.jobId} base={api.privateBase} />
                       <p className="mt-3 text-[12px] text-ink-faint">Findings land once the full scan finishes.</p>
                     </div>
                   ) : (
@@ -440,7 +445,7 @@ export default function TeamBoard() {
 
               {sel.col === 'pending' && (
                 <section>
-                  <h4 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Reason for rejecting <span className="normal-case text-ink-faint">(optional. The client will see this.)</span></h4>
+                  <h4 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Reason for rejecting <span className="normal-case text-ink-faint">(required to reject. The client will see this.)</span></h4>
                   <textarea
                     value={rejectNote}
                     onChange={(e) => setRejectNote(e.target.value)}
@@ -456,15 +461,23 @@ export default function TeamBoard() {
             <div className="sticky bottom-0 flex gap-2.5 border-t border-rule bg-card p-6">
               {sel.col === 'pending' && (
                 <>
-                  <Button variant="outline" size="lg" className="flex-1" onClick={() => reject(sel.card, sel.col, rejectNote)}><XIcon size={16} /> Reject</Button>
-                  <Button size="lg" className="flex-1" onClick={() => approve(sel.card, sel.col)}><Check size={16} /> Approve</Button>
+                  <Button variant="outline" size="lg" className="flex-1" disabled={rejectNote.trim().length < 5} title={rejectNote.trim().length < 5 ? 'Write a reason first: the client sees it' : undefined} onClick={() => twoStep('reject', () => reject(sel.card, sel.col, rejectNote))}>
+                    <XIcon size={16} /> {armed === 'reject' ? 'Tap again to reject' : 'Reject'}
+                  </Button>
+                  <Button size="lg" className="flex-1" onClick={() => twoStep('approve', () => approve(sel.card, sel.col))}>
+                    <Check size={16} /> {armed === 'approve' ? 'Tap again to approve' : 'Approve'}
+                  </Button>
                 </>
               )}
               {sel.col === 'rejected' && <DrawerClose asChild><Button size="lg" className="w-full">Close</Button></DrawerClose>}
               {isReview(sel.col) && (
                 <>
-                  <Button variant="outline" size="lg" className="flex-1" onClick={() => back(sel.card, sel.col)}><ArrowLeft size={16} /> Send back</Button>
-                  <Button size="lg" className="flex-1" onClick={() => forward(sel.card, sel.col)}>Forward <ArrowRight size={16} /></Button>
+                  <Button variant="outline" size="lg" className="flex-1" onClick={() => twoStep('back', () => back(sel.card, sel.col))}><ArrowLeft size={16} /> {armed === 'back' ? 'Tap again to send back' : 'Send back'}</Button>
+                  <Button size="lg" className="flex-1" onClick={() => twoStep('forward', () => forward(sel.card, sel.col))}>
+                    {sel.col === 'in_review_governance'
+                      ? (armed === 'forward' ? 'Tap again to deliver' : 'Deliver to client')
+                      : (armed === 'forward' ? 'Tap again to forward' : 'Forward')} <ArrowRight size={16} />
+                  </Button>
                 </>
               )}
               {sel.col === 'delivered' && (

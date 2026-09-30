@@ -51,6 +51,8 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
   const [p, setP] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  // Set when every proposal so far was rejected: the client must see why, and can try again.
+  const [notice, setNotice] = useState('')
   const [copied, setCopied] = useState(false)
   const [enrollToken, setEnrollToken] = useState('')
   const cardRef = useRef<HTMLDivElement>(null)
@@ -76,8 +78,13 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
 
   // Where a returning user actually is in onboarding, decided by the server, not assumed.
   async function resumeFlow(username: string) {
-    const props: { status: string }[] = await api.get('/api/proposals')
+    const props: { status: string; reason?: string }[] = await api.get('/api/proposals')
     if (!props.length) return setStep('proposal')
+    if (!props.some(isApproved) && !props.some((x) => x.status === 'pending')) {
+      const last = props.find((x) => x.status === 'rejected')
+      setNotice(`Your last proposal was not approved${last?.reason ? `: ${last.reason}` : '.'} Fix what they asked for and submit a new one.`)
+      return setStep('proposal')
+    }
     if (!props.some(isApproved)) return setStep('pending')
     const agent = await api.get('/api/agent')
     if (agent.registered) onActivate(username)
@@ -88,8 +95,13 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
   useEffect(() => {
     if (step !== 'pending' || isMock()) return
     const t = setInterval(() => {
-      api.get('/api/proposals').then((ps: { status: string }[]) => {
-        if (ps.some(isApproved)) setStep('install')
+      api.get('/api/proposals').then((ps: { status: string; reason?: string }[]) => {
+        if (ps.some(isApproved)) return setStep('install')
+        if (ps.length && !ps.some((x) => x.status === 'pending')) {   // decided against: show why, allow a retry
+          const last = ps.find((x) => x.status === 'rejected')
+          setNotice(`Your proposal was not approved${last?.reason ? `: ${last.reason}` : '.'} Fix what they asked for and submit a new one.`)
+          setStep('proposal')
+        }
       }).catch(() => {})
     }, 5000)
     return () => clearInterval(t)
@@ -176,6 +188,7 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
           <>
             <Stepper step={step} />
             <h2 className="text-[19px] font-bold tracking-[-0.02em] text-ink">Submit a scan proposal</h2>
+            {notice && <p role="status" className="mb-2 mt-2 rounded-input border border-crit-bg bg-crit-bg p-3 text-[13px] leading-relaxed text-crit">{notice}</p>}
             <p className="mb-4 mt-1 text-[13px] text-ink-muted">Your lead pentester verifies this before any scan runs.</p>
             <div className="max-h-[58vh] overflow-y-auto pr-1">
               <ProposalForm

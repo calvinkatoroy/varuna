@@ -96,6 +96,15 @@ POST /api/admin/accounts/{user}/disable | enable
 ```
 A disabled account cannot log in and its live tokens stop working immediately.
 
+### Upgrading an existing install: containers now run unprivileged
+The control-plane image runs as user `varuna` (uid 10001), not root. A fresh install needs nothing.
+Volumes created by an older (root) image must be handed over once, or the API cannot write to them:
+```bash
+docker compose run --rm --user root api-public chown -R 10001:10001 /dbdata /data/reports
+```
+Python dependency versions are pinned in `controlplane/requirements.lock`; refresh it when you change
+`requirements.txt` (`docker compose run --rm api-public pip freeze > controlplane/requirements.lock`).
+
 ### Two-factor login for the team (TOTP)
 Team members turn it on from the account menu (Two-factor authentication): paste the setup key into
 any authenticator app (Google/Microsoft Authenticator, Authy, 1Password) and confirm with a code.

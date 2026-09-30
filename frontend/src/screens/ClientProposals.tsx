@@ -11,6 +11,7 @@ import { SegBar } from '@/components/viz/SegBar'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
 import { useApiData } from '@/lib/useApiData'
 import { rise } from '@/lib/motion'
+import { bare, when } from '@/lib/format'
 import { NewProposalDrawer } from './NewProposalDrawer'
 
 const stageHint: Record<string, string> = {
@@ -101,10 +102,10 @@ export default function ClientProposals() {
                       <span className="text-[12px] text-ink-muted">{meta[p.status].label}</span>
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[15.5px] font-medium text-ink">{p.target}</span>
+                      <span className="block truncate text-[15.5px] font-medium text-ink" title={p.target}>{bare(p.target)}</span>
                       <span className="mt-0.5 block truncate text-[12px] text-ink-faint">{p.purpose}, {p.division}</span>
                     </span>
-                    <span className="mono hidden flex-none text-[12px] text-ink-faint sm:block">{p.when}</span>
+                    <span className="mono hidden flex-none text-[12px] text-ink-faint sm:block">{when(p.when)}</span>
                     <span className="grid h-8 w-8 flex-none place-items-center rounded-full border border-rule text-ink-faint opacity-0 transition-opacity duration-200 group-hover:text-ink group-hover:opacity-100"><ArrowUpRight size={15} /></span>
                   </button>
                 </li>
@@ -124,7 +125,7 @@ export default function ClientProposals() {
                 {meta[sel.status].label}
               </span>
               <DrawerTitle className="mt-2.5 text-[22px] font-bold tracking-[-0.02em] text-ink">{sel.target}</DrawerTitle>
-              <p className="mono mt-1 text-[13px] text-ink-muted">Submitted {sel.when}</p>
+              <p className="mono mt-1 text-[13px] text-ink-muted">Submitted {when(sel.when)}</p>
             </div>
             <div className="flex-1 space-y-5 p-6">
               <div className="rounded-input border border-rule bg-panel p-4 text-[13.5px] leading-relaxed text-ink">{stageHint[sel.status]}</div>
