@@ -31,7 +31,7 @@
   --color-card-2: #1C2117;
   --color-ink: #E8ECE1;
   --color-ink-muted: #959E8C;
-  --color-ink-faint: #6D7666;
+  --color-ink-faint: #8A9482;   /* was #6D7666: 3.6:1 on the card, failed for real text */
   --color-rule: #2A2F23;
   --color-accent: #0B5FA5;
   --color-accent-ink: #4FB3E8;
@@ -39,7 +39,7 @@
   --color-focus: #4FB3E8;
   --color-cta-bg: #E8ECE1;
   --color-cta-fg: #12140F;
-  --color-brand-red: #E4312B;
+  --color-brand-red: #D42B24;   /* was #E4312B: white on it was 4.0:1, now 4.7:1 */
 
   --color-crit: #F2565B;
   --color-high: #EDA64A;
@@ -88,7 +88,7 @@
   --color-card-2: #FBFCF9;
   --color-ink: #161A18;
   --color-ink-muted: #6B746C;
-  --color-ink-faint: #9AA298;
+  --color-ink-faint: #6F786B;   /* was #9AA298: 2.5:1 on white */
   --color-rule: #DFE4D6;
   --color-accent: #0B5FA5;
   --color-accent-ink: #0A3E63;
@@ -400,4 +400,38 @@ input[type='checkbox'] {
 .dashboard-warm .status-bar {
   @apply flex h-2 w-full overflow-hidden rounded-pill;
   background: var(--color-paper-3);
+}
+
+/* ------------------------------------------------------------------------------------------
+   Humane layout layer: hidden scrollbars with gesture affordances, phone/tablet adaptations.
+   ------------------------------------------------------------------------------------------ */
+
+/* Overflowing rails never show a scrollbar track; SwipeRail supplies momentum, snap, edge fades
+   and directional arrows instead. */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.rail { -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scroll-behavior: smooth; }
+.rail-mask-start { -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 36px); mask-image: linear-gradient(90deg, transparent 0, #000 36px); }
+.rail-mask-end { -webkit-mask-image: linear-gradient(270deg, transparent 0, #000 36px); mask-image: linear-gradient(270deg, transparent 0, #000 36px); }
+.rail-mask-both { -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 36px, #000 calc(100% - 36px), transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 36px, #000 calc(100% - 36px), transparent 100%); }
+@keyframes railNudge { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(3px); } }
+.rail-nudge { animation: railNudge 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .rail { scroll-behavior: auto; } .rail-nudge { animation: none; } }
+
+/* Keep the bottom dock clear of the phone's home indicator. */
+.safe-bottom { padding-bottom: max(env(safe-area-inset-bottom), 0px); }
+
+@media (max-width: 767px) {
+  /* The fixed, shrink-on-scroll hero assumes the greeting fits on one line. On a phone it wraps,
+     overlapped the content below, and its controls fell off-screen. Let it be a normal card. */
+  .hero-sticky, .hero-sticky.is-shrunk {
+    position: relative; top: auto; left: auto; right: auto; max-width: none; margin-inline: 0;
+    padding-top: var(--hero-pt, 20px); padding-bottom: var(--hero-pb, 28px); transition: none;
+  }
+  .hero-sticky.is-shrunk .hero-bg-fade { opacity: 1; }
+  .fade-collapse.is-faded { opacity: 1; max-height: var(--collapse, 160px); margin-top: var(--collapse-mt, 14px); }
+  .hero-spacer { display: none; }
+
+  /* Text floor: nothing readable below 12px on a phone (the dense desktop sizes stay on desktop). */
+  .text-\[10px\], .text-\[10\.5px\], .text-\[11px\], .text-\[11\.5px\] { font-size: 12px; }
 }

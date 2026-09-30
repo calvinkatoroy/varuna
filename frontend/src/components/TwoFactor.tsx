@@ -54,7 +54,7 @@ export function TwoFactor({ onClose }: { onClose: () => void }) {
               <code className="min-w-0 flex-1 break-all font-mono text-[13px] tracking-wider text-ink" data-testid="mfa-secret">{setup.secret}</code>
               <button type="button" onClick={copy} aria-label="Copy key" className="text-ink-muted hover:text-ink">{copied ? <Check size={15} /> : <Copy size={15} />}</button>
             </div>
-            <a href={setup.uri} className="block text-[12px] font-semibold text-accent">Open in authenticator app (on a phone)</a>
+            <a href={setup.uri} className="block text-[12px] font-semibold text-accent-ink">Open in authenticator app (on a phone)</a>
             <input className={field} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="123456" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
             <Button className="w-full" disabled={code.length !== 6} onClick={enable}>Turn on</Button>
           </>

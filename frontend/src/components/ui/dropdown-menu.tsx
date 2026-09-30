@@ -13,9 +13,10 @@ export function DropdownMenuContent({ className, ...props }: React.ComponentProp
     <DM.Portal>
       <DM.Content
         sideOffset={6}
+        collisionPadding={12}
         align="start"
         className={cn(
-          'z-[60] min-w-[210px] rounded-bento border border-rule bg-card p-1.5 shadow-[0_16px_50px_rgba(0,0,0,.35)]',
+          'z-[60] min-w-[210px] max-w-[calc(100vw-24px)] rounded-bento border border-rule bg-card p-1.5 shadow-[0_16px_50px_rgba(0,0,0,.35)]',
           'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95',
           className,
         )}
@@ -29,7 +30,7 @@ export function DropdownMenuItem({ className, ...props }: React.ComponentProps<t
   return (
     <DM.Item
       className={cn(
-        'flex cursor-pointer items-center gap-2.5 rounded-input px-3 py-2 text-[13px] font-medium text-ink outline-none transition-colors focus:bg-panel data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+        'flex min-h-[44px] cursor-pointer items-center gap-2.5 rounded-input px-3 py-2 text-[13px] md:min-h-0 font-medium text-ink outline-none transition-colors focus:bg-panel data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
         className,
       )}
       {...props}

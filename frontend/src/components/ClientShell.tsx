@@ -1,4 +1,5 @@
 import { ClientTopbar } from './ClientTopbar'
+import { ClientDock } from './ClientDock'
 import { useScrollThreshold } from '@/lib/useScrollThreshold'
 
 const BAND =
@@ -15,7 +16,7 @@ export function ClientShell({
   const shrink = useScrollThreshold<HTMLElement>(60, 'is-shrunk')
   const fade = useScrollThreshold<HTMLDivElement>(55, 'is-faded')
   return (
-    <div className="mx-auto max-w-[1380px] p-[clamp(10px,2vw,28px)]">
+    <div className="mx-auto max-w-[1380px] p-[clamp(10px,2vw,28px)] pb-[92px] md:pb-[clamp(10px,2vw,28px)]">
       <header
         ref={shrink}
         className="hero-sticky relative isolate flex flex-col overflow-hidden rounded-bento-lg px-[clamp(18px,2.6vw,34px)] text-[#F2F5EF]"
@@ -33,8 +34,9 @@ export function ClientShell({
       </header>
       {/* Invisible spacer reserving room for the hero at its EXPANDED size - fixed height, never
           toggles a class, never transitions - see ClientCockpit for why. */}
-      <div aria-hidden className="pointer-events-none" style={{ height: 178 }} />
+      <div aria-hidden className="hero-spacer pointer-events-none" style={{ height: 178 }} />
       <main className="mt-3.5 rounded-bento-lg bg-panel p-3.5" style={{ viewTransitionName: 'page-body' }}>{children}</main>
+      <ClientDock />
     </div>
   )
 }

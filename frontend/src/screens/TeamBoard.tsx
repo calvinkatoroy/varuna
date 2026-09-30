@@ -15,6 +15,7 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { AdvancedScanDrawer, toApiOpts, type ScanOpts } from './AdvancedScanDrawer'
+import { SwipeRail, type RailHandle } from '@/components/SwipeRail'
 import { ErrorRetry } from '@/components/ErrorRetry'
 import { ScanProgress } from '@/components/ScanProgress'
 import { useApiData } from '@/lib/useApiData'
@@ -36,6 +37,7 @@ const stageName: Record<string, string> = {
   pending: 'Pending', scanning: 'Scanning', in_review_reporter: 'Reporter',
   in_review_lead: 'Lead', in_review_governance: 'Governance', delivered: 'Delivered', rejected: 'Rejected',
 }
+const CARD_LIMIT = 8
 const isReview = (s: string) => s.startsWith('in_review')
 type Version = { version_no: number; editor: string; note: string; created_at: string }
 // SQLite's datetime('now') comes back as "YYYY-MM-DD HH:MM:SS" (UTC, no offset) - not directly
@@ -51,6 +53,11 @@ const ctrl = 'grid h-11 w-11 place-items-center rounded-full bg-white/[.16] text
 
 export default function TeamBoard() {
   const { data: cols, error, reload: refetchBoard, setData: setCols } = useApiData<Col[]>(() => api.pget('/api/pipeline/board'))
+  const railRef = useRef<RailHandle>(null)
+  // Progressive disclosure: a busy stage can hold hundreds of cards. Show the newest few and let
+  // the reviewer ask for the rest, instead of an endless scroll (and a heavy page on a phone).
+  const [more, setMore] = useState<Record<string, boolean>>({})
+  const [stage, setStage] = useState(0)
   const [sel, setSel] = useState<{ card: Card; col: string } | null>(null)
   const [open, setOpen] = useState(false)
   const [scanOpen, setScanOpen] = useState(false)
@@ -112,7 +119,7 @@ export default function TeamBoard() {
     if (!cols) return []
     const items: { icon: React.ReactNode; tone: string; text: string }[] = []
     const pending = cols.find((c) => c.id === 'pending')?.cards[0]
-    if (pending) items.push({ icon: <FileText size={15} />, tone: 'text-accent', text: `New proposal: ${pending.client}` })
+    if (pending) items.push({ icon: <FileText size={15} />, tone: 'text-accent-ink', text: `New proposal: ${pending.client}` })
     const scanning = cols.find((c) => c.id === 'scanning')?.cards[0]
     if (scanning) items.push({ icon: <Activity size={15} />, tone: 'text-info', text: `Scanning: ${scanning.client} (${scanning.meta})` })
     const rejected = cols.find((c) => c.id === 'rejected')?.cards[0]
@@ -210,19 +217,19 @@ export default function TeamBoard() {
         </div>
         <div className="hidden h-6 w-px bg-white/15 sm:block" />
         <div className="flex items-center gap-1 rounded-pill bg-white/[.16] p-1">
-          <span className="rounded-pill bg-[#F4F6F1] px-3.5 py-1.5 text-[13px] font-semibold text-[#12140F]">Board</span>
-          <Link to="/team/findings" className="rounded-pill px-3.5 py-1.5 text-[13px] font-medium text-[#F2F5EF]/70">Findings</Link>
+          <span aria-current="page" className="rounded-pill bg-[#F4F6F1] px-4 py-3 text-[13px] font-semibold text-[#12140F] md:px-3.5 md:py-1.5">Board</span>
+          <Link to="/team/findings" className="rounded-pill px-4 py-3 text-[13px] font-medium text-[#F2F5EF]/70 md:px-3.5 md:py-1.5">Findings</Link>
         </div>
         <div>
           <div className="flex items-center gap-2 text-[12.5px] text-[#F2F5EF]/70"><Lock size={13} /> Private plane · Tailscale · Security team</div>
           <h1 className="text-[22px] font-bold tracking-[-0.02em]">Review Pipeline</h1>
         </div>
         <div className="ml-auto flex max-w-full flex-wrap items-center gap-2.5">
-          <button onClick={() => setScanOpen(true)} className="flex items-center gap-2 whitespace-nowrap rounded-pill bg-[#F4F6F1] px-4 py-2.5 text-[13px] font-semibold text-[#12140F] transition-opacity hover:opacity-90">
-            <Plus size={15} /> New scan
+          <button onClick={() => setScanOpen(true)} aria-label="New scan" className="flex h-11 min-w-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-pill bg-[#F4F6F1] px-3 text-[13px] font-semibold text-[#12140F] transition-opacity hover:opacity-90 sm:px-4">
+            <Plus size={16} /> <span className="hidden sm:inline">New scan</span>
           </button>
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-2 whitespace-nowrap rounded-pill bg-white/[.16] px-4 py-2.5 text-[13px] font-medium text-[#F2F5EF]">
+            <DropdownMenuTrigger className="flex h-11 items-center gap-2 whitespace-nowrap rounded-pill bg-white/[.16] px-4 text-[13px] font-medium text-[#F2F5EF]">
               <Filter size={15} /> {client ?? 'All clients'} <ChevronDown size={14} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -231,7 +238,7 @@ export default function TeamBoard() {
               {clients.map((cl) => <DropdownMenuItem key={cl} onClick={() => setClient(cl)}>{cl}</DropdownMenuItem>)}
             </DropdownMenuContent>
           </DropdownMenu>
-          <ThemeToggle className={ctrl} />
+          <ThemeToggle className={`${ctrl} hidden md:grid`} />
           <DropdownMenu>
             <DropdownMenuTrigger aria-label="Notifications" className={`relative ${ctrl}`}>
               <Bell size={18} />
@@ -258,19 +265,40 @@ export default function TeamBoard() {
       ) : !cols ? (
         <div className="p-10 text-ink-faint">Loading…</div>
       ) : (
-        <div className="mt-3.5 flex gap-3 overflow-x-auto p-1">
+        <>
+        {/* The stage rail: the review journey as a strip you can tap or swipe along. The lit chip
+            is where you are; its counts show where work is waiting. Replaces a bare 2,000px
+            scrollbar that gave no sense of place. */}
+        <div role="tablist" aria-label="Review stages" className="no-scrollbar rail -mx-1 mt-3.5 flex gap-1.5 overflow-x-auto px-1 pb-1.5 pt-1">
+          {view.map((col, i) => (
+            <button
+              key={col.id}
+              id={`stage-chip-${i}`}
+              role="tab"
+              aria-selected={i === stage}
+              onClick={() => railRef.current?.scrollToIndex(i)}
+              className={`relative flex min-h-[44px] flex-none items-center gap-2 rounded-pill px-4 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus ${i === stage ? 'bg-card text-ink' : 'text-ink-muted hover:text-ink'}`}
+            >
+              <span className={`h-2 w-2 rounded-full ${dot[col.accent]}`} />
+              {col.title}
+              <span className={`rounded-pill px-2 py-0.5 text-[12px] ${i === stage ? 'bg-panel text-ink' : 'bg-card text-ink-muted'}`}>{col.cards.length}</span>
+              <span aria-hidden className={`absolute inset-x-4 bottom-0 h-[3px] rounded-t-full transition-all duration-300 ${dot[col.accent]} ${i === stage ? 'opacity-100' : 'scale-x-0 opacity-0'}`} />
+            </button>
+          ))}
+        </div>
+        <SwipeRail ref={railRef} label="Board columns. Swipe sideways to change stage." onActiveChange={(i) => { setStage(i); document.getElementById(`stage-chip-${i}`)?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }) }} className="gap-3 p-1">
           {view.map((col) => (
-            <div key={col.id} className="flex w-[280px] flex-none flex-col">
-              <div className="mb-2.5 flex items-center gap-2 px-1">
+            <div key={col.id} className="flex w-[86vw] max-w-[340px] flex-none snap-start flex-col md:w-[280px]">
+              <div className="mb-2.5 hidden items-center gap-2 px-1 md:flex">
                 <span className={`h-2 w-2 rounded-full ${dot[col.accent]}`} />
                 <h3 className="text-[13.5px] font-bold text-ink">{col.title}</h3>
                 <span className="ml-auto rounded-pill bg-card px-2 py-0.5 text-[11.5px] font-semibold text-ink-muted">{col.cards.length}</span>
               </div>
               <div className="flex flex-col gap-2.5">
-                {col.cards.map((c) => (
+                {col.cards.slice(0, more[col.id] ? col.cards.length : CARD_LIMIT).map((c, idx) => (
                   <DropdownMenu key={c.id}>
                     <DropdownMenuTrigger asChild>
-                      <button style={{ opacity: 0 }} className="pcard glass-card liquid rounded-bento p-3.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                      <button style={idx < CARD_LIMIT ? { opacity: 0 } : undefined} className="pcard glass-card liquid rounded-bento p-3.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate text-[13.5px] font-semibold text-ink">{c.client}</span>
                           <span className={`flex-none rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase ${c.mode === 'advanced' ? 'bg-accent-soft text-accent-ink' : 'bg-panel text-ink-muted'}`}>{c.mode}</span>
@@ -317,11 +345,17 @@ export default function TeamBoard() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 ))}
-                {col.cards.length === 0 && <div className="rounded-bento border border-dashed border-rule px-3.5 py-6 text-center text-[12px] text-ink-faint">Nothing here</div>}
+                {!more[col.id] && col.cards.length > CARD_LIMIT && (
+                  <button onClick={() => setMore({ ...more, [col.id]: true })} className="min-h-[44px] rounded-bento border border-dashed border-rule px-3.5 text-[13px] font-semibold text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                    Show {col.cards.length - CARD_LIMIT} more
+                  </button>
+                )}
+                {col.cards.length === 0 && <div className="rounded-bento border border-dashed border-rule px-3.5 py-6 text-center text-[12px] text-ink-faint">Nothing here yet</div>}
               </div>
             </div>
           ))}
-        </div>
+        </SwipeRail>
+        </>
       )}
 
       {/* review drawer */}
@@ -352,7 +386,7 @@ export default function TeamBoard() {
                   <div className="mb-2.5 flex items-center justify-between">
                     <h4 className="text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Versions</h4>
                     <input ref={fileRef} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" onChange={onPickFile} />
-                    <button onClick={() => fileRef.current?.click()} className="flex items-center gap-1.5 text-[12px] font-semibold text-accent hover:opacity-80"><Upload size={13} /> Upload new</button>
+                    <button onClick={() => fileRef.current?.click()} className="flex items-center gap-1.5 text-[12px] font-semibold text-accent-ink hover:opacity-80"><Upload size={13} /> Upload new</button>
                   </div>
                   <div className="mb-3 flex items-center gap-2">
                     <select value={tpl} onChange={(e) => setTpl(e.target.value)} aria-label="Report template" className="min-w-0 flex-1 rounded-input border border-rule bg-panel px-3 py-2 text-[12.5px] text-ink outline-none focus:border-accent">
@@ -393,7 +427,7 @@ export default function TeamBoard() {
               {sel.col === 'delivered' && (
                 <section>
                   <h4 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Delivery</h4>
-                  <div className="flex items-center gap-3 rounded-input border border-rule bg-panel p-3.5 text-[13px]"><FileText size={18} className="text-accent" /> Protected PDF sent · view-once password.</div>
+                  <div className="flex items-center gap-3 rounded-input border border-rule bg-panel p-3.5 text-[13px]"><FileText size={18} className="text-accent-ink" /> Protected PDF sent · view-once password.</div>
                 </section>
               )}
 
@@ -406,11 +440,12 @@ export default function TeamBoard() {
 
               {sel.col === 'pending' && (
                 <section>
-                  <h4 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Reject reason <span className="normal-case text-ink-faint">(optional, shown to no one but the team)</span></h4>
+                  <h4 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Reason for rejecting <span className="normal-case text-ink-faint">(optional. The client will see this.)</span></h4>
                   <textarea
                     value={rejectNote}
                     onChange={(e) => setRejectNote(e.target.value)}
-                    placeholder="e.g. authorization could not be verified for this target"
+                    aria-label="Reason for rejecting this proposal"
+                    placeholder="e.g. We could not verify you own this target. Reply with proof of ownership."
                     rows={2}
                     className="w-full resize-none rounded-input border border-rule bg-panel px-3.5 py-3 text-[13px] text-ink placeholder:text-ink-faint outline-none focus:border-accent"
                   />

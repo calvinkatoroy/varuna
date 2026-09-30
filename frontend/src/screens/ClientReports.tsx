@@ -16,14 +16,25 @@ const chip = 'rounded-md border border-rule bg-panel px-2 py-1 text-[11.5px] tex
 function Password({ id }: { id: string }) {
   const [pw, setPw] = useState<string | null>(null)
   const [err, setErr] = useState(false)
-  if (pw) return <span className="mono flex items-center gap-1.5 text-[12.5px] font-medium text-accent-ink"><Lock size={13} /> {pw}</span>
-  if (err) return <span className="text-[12.5px] text-ink-faint">Already viewed - ask governance to re-issue.</span>
+  const [copied, setCopied] = useState(false)
+  if (pw) {
+    const copy = async () => { try { await navigator.clipboard.writeText(pw); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch {} }
+    return (
+      <span className="flex min-h-[44px] flex-wrap items-center gap-x-3 gap-y-1">
+        <code className="mono select-all rounded-md bg-panel px-2.5 py-1.5 text-[13px] font-medium text-accent-ink">{pw}</code>
+        <button type="button" onClick={copy} className="min-h-[44px] rounded-md px-2 text-[12.5px] font-semibold text-ink-muted hover:text-ink">{copied ? 'Copied' : 'Copy'}</button>
+        <span className="w-full text-[12px] text-ink-faint sm:w-auto">Shown once. Copy it now.</span>
+      </span>
+    )
+  }
+  if (err) return <span className="text-[12.5px] text-ink-faint">Already viewed. Ask governance to re-issue it.</span>
   return (
     <button
       onClick={() => api.get(`/api/reports/${id}/password`).then((r) => setPw(r.password)).catch(() => setErr(true))}
-      className="flex items-center gap-1.5 text-[12.5px] font-medium text-ink-muted transition-colors hover:text-ink"
+      className="flex min-h-[44px] items-center gap-2 rounded-md px-1 text-[13px] font-medium text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+      title="The password is shown once; copy it when it appears"
     >
-      <Lock size={13} /> Password
+      <Lock size={14} /> Show password (once)
     </button>
   )
 }
@@ -55,7 +66,7 @@ export default function ClientReports() {
           {featured && (
             <section className="entry grid grid-cols-1 gap-6 rounded-bento border border-rule bg-card p-6 lg:grid-cols-[1.5fr_1fr]" style={{ opacity: 0 }}>
               <div className="min-w-0">
-                <span className="text-[11.5px] font-medium uppercase tracking-[0.12em] text-accent">Latest report</span>
+                <span className="text-[11.5px] font-medium uppercase tracking-[0.12em] text-accent-ink">Latest report</span>
                 <h2 className="mt-2 text-[clamp(22px,3vw,30px)] font-bold leading-tight tracking-[-0.02em] text-ink">{featured.engagement}</h2>
                 <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-ink-muted">
                   <span>Delivered {featured.delivered}</span>
@@ -79,13 +90,13 @@ export default function ClientReports() {
               <ul>
                 {rest.map((r) => (
                   <li key={r.id}>
-                    <div className="flex flex-wrap items-center gap-4 border-b border-rule px-5 py-4 last:border-b-0">
-                      <div className="min-w-0 flex-1">
-                        <b className="block truncate text-[15px] font-medium text-ink">{r.engagement}</b>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-rule px-4 py-3 last:border-b-0 sm:px-5 sm:py-4">
+                      <div className="min-w-0 basis-full sm:basis-0 sm:flex-1">
+                        <b className="block break-words text-[15px] font-medium leading-snug text-ink sm:truncate">{r.engagement}</b>
                         <span className="text-[12px] text-ink-faint">{r.delivered}, {r.findings} findings, {r.templates.length} templates</span>
                       </div>
                       <Password id={r.id} />
-                      <Button variant="outline" size="sm" onClick={() => download(r.id)}>{got[r.id] ? <><Check size={15} /> Got it</> : <><Download size={15} /> PDF</>}</Button>
+                      <Button variant="outline" size="sm" className="ml-auto min-h-[44px] sm:min-h-0" onClick={() => download(r.id)}>{got[r.id] ? <><Check size={15} /> Got it</> : <><Download size={15} /> PDF</>}</Button>
                     </div>
                   </li>
                 ))}

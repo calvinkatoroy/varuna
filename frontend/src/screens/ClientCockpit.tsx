@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowUpRight, Play } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ClientTopbar } from '@/components/ClientTopbar'
+import { ClientDock } from '@/components/ClientDock'
 import { AgentStatus } from '@/components/AgentStatus'
 import { ErrorRetry } from '@/components/ErrorRetry'
 import { PostureBubbles } from '@/components/viz/PostureBubbles'
@@ -30,7 +31,7 @@ function Drill({ label, to }: { label: string; to?: string }) {
   const nav = useNavigate()
   return (
     <button aria-label={label} onClick={(e) => { press(e.currentTarget); if (to) nav(to, { viewTransition: true }) }}
-      className="grid h-9 w-9 flex-none place-items-center rounded-full border border-rule bg-panel text-ink transition-colors hover:border-ink hover:bg-ink hover:text-card">
+      className="grid h-11 w-11 flex-none place-items-center rounded-full border border-rule bg-panel text-ink transition-colors hover:border-ink hover:bg-ink hover:text-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:h-9 md:w-9">
       <ArrowUpRight size={15} />
     </button>
   )
@@ -82,7 +83,7 @@ export default function ClientCockpit() {
   // that returns an entirely different tree while loading has no page-body-named element yet,
   // so a page transition landing here has nothing to cross-fade to and flashes instead.
   return (
-    <div className="mx-auto max-w-[1380px] p-[clamp(10px,2vw,28px)]">
+    <div className="mx-auto max-w-[1380px] p-[clamp(10px,2vw,28px)] pb-[92px] md:pb-[clamp(10px,2vw,28px)]">
       {/* HERO: one merged card, position: fixed - out of document flow entirely, so its own
           size changes (shrink on scroll) can never move anything below it. It shrinks its own
           padding on scroll; the content row (greeting/subtitle/actions) fades out fast, well
@@ -120,7 +121,7 @@ export default function ClientCockpit() {
           toggles a class, never transitions. Since the hero is position: fixed (out of flow),
           nothing here pushes on it; this just stops the (also fixed) hero from overlapping the
           cards while expanded. Because its own height never changes, it can't cause a snap. */}
-      <div aria-hidden className="pointer-events-none" style={{ height: 202 }} />
+      <div aria-hidden className="hero-spacer pointer-events-none" style={{ height: 202 }} />
 
       {/* BENTO */}
       <main className="mt-3.5 grid grid-cols-1 gap-3 lg:grid-cols-3 lg:grid-rows-[auto_1fr]" style={{ viewTransitionName: 'page-body' }}>
@@ -142,7 +143,7 @@ export default function ClientCockpit() {
                     <div className="text-[12.5px] text-ink-muted">These need remediation first - review them and mark fixed once resolved.</div>
                   </div>
                 </div>
-                <Button size="sm" onClick={() => nav('/findings', { viewTransition: true })}>Review findings <ArrowUpRight size={15} /></Button>
+                <Button size="sm" className="min-h-[44px] md:min-h-0" onClick={() => nav('/findings', { viewTransition: true })}>Review findings <ArrowUpRight size={15} /></Button>
               </section>
             )}
 
@@ -211,6 +212,7 @@ export default function ClientCockpit() {
         )}
       </main>
       <NewProposalDrawer open={proposalOpen} onOpenChange={setProposalOpen} />
+      <ClientDock />
     </div>
   )
 }

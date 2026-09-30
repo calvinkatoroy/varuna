@@ -83,16 +83,16 @@ export default function FindingsReview() {
         </div>
         <div className="hidden h-6 w-px bg-white/15 sm:block" />
         <div className="flex items-center gap-1 rounded-pill bg-white/[.16] p-1">
-          <Link to="/team" className="rounded-pill px-3.5 py-1.5 text-[13px] font-medium text-[#F2F5EF]/70">Board</Link>
-          <span className="rounded-pill bg-[#F4F6F1] px-3.5 py-1.5 text-[13px] font-semibold text-[#12140F]">Findings</span>
+          <Link to="/team" className="rounded-pill px-4 py-3 text-[13px] font-medium text-[#F2F5EF]/70 md:px-3.5 md:py-1.5">Board</Link>
+          <span aria-current="page" className="rounded-pill bg-[#F4F6F1] px-4 py-3 text-[13px] font-semibold text-[#12140F] md:px-3.5 md:py-1.5">Findings</span>
         </div>
         <div>
           <div className="text-[12.5px] text-[#F2F5EF]/70">{client || 'Loading…'}</div>
           <h1 className="text-[22px] font-bold tracking-[-0.02em]">Findings review</h1>
         </div>
-        <div className="ml-auto flex items-center gap-2.5">
+        <div className="ml-auto flex max-w-full flex-wrap items-center gap-2.5">
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-2 rounded-pill bg-white/[.16] px-4 py-2.5 text-[13px] font-medium text-[#F2F5EF]">
+            <DropdownMenuTrigger className="flex h-11 items-center gap-2 rounded-pill bg-white/[.16] px-4 text-[13px] font-medium text-[#F2F5EF]">
               <Filter size={15} /> {client || 'Loading…'} <ChevronDown size={14} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -100,7 +100,7 @@ export default function FindingsReview() {
             </DropdownMenuContent>
           </DropdownMenu>
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-2 rounded-pill bg-white/[.16] px-4 py-2.5 text-[13px] font-medium capitalize text-[#F2F5EF]">
+            <DropdownMenuTrigger className="flex h-11 items-center gap-2 rounded-pill bg-white/[.16] px-4 text-[13px] font-medium capitalize text-[#F2F5EF]">
               <Filter size={15} /> {sevFilter ?? 'All severities'} <ChevronDown size={14} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -109,7 +109,7 @@ export default function FindingsReview() {
               {SEVS.map((s) => <DropdownMenuItem key={s} onClick={() => setSevFilter(s)} className="capitalize">{s}</DropdownMenuItem>)}
             </DropdownMenuContent>
           </DropdownMenu>
-          <ThemeToggle className="grid h-11 w-11 place-items-center rounded-full bg-white/[.16] text-[#F2F5EF] transition-colors hover:bg-white/25" />
+          <ThemeToggle className="hidden h-11 w-11 place-items-center rounded-full bg-white/[.16] text-[#F2F5EF] transition-colors hover:bg-white/25 md:grid" />
           <TeamAccount />
         </div>
       </header>
@@ -167,7 +167,7 @@ export default function FindingsReview() {
                 <pre className="overflow-x-auto rounded-input border border-rule bg-panel p-3 font-mono text-[12px] leading-relaxed text-ink">{sel.evidence}</pre>
               </section>
               <section>
-                <h4 className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint"><ShieldCheck size={13} className="text-accent" /> AI remediation</h4>
+                <h4 className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint"><ShieldCheck size={13} className="text-accent-ink" /> AI remediation</h4>
                 <p className="text-[13.5px] leading-relaxed text-ink">{sel.remediation ?? 'Not yet enriched.'}</p>
               </section>
             </div>

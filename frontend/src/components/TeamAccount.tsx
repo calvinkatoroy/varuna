@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { KeyRound, LogOut, ShieldCheck, Users } from 'lucide-react'
+import { KeyRound, LogOut, Moon, ShieldCheck, Users } from 'lucide-react'
 import { api } from '@/api'
 import { useAuth } from '@/auth'
 import { ChangePassword } from './ChangePassword'
 import { TwoFactor } from './TwoFactor'
+import { toggleTheme } from '@/lib/theme'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from './ui/dropdown-menu'
@@ -32,6 +33,7 @@ export function TeamAccount() {
         <div className="px-3 py-2"><div className="text-[14px] font-semibold text-ink">{me?.name ?? me?.username ?? 'Team'}</div><div className="text-[12px] text-ink-muted">{me ? roleLabel[me.role] ?? me.role : ''}</div></div>
         <DropdownMenuSeparator />
         {me?.role === 'lead_pentester' && <DropdownMenuItem onClick={() => location.assign('/team/accounts')}><Users size={15} /> Team accounts</DropdownMenuItem>}
+        <DropdownMenuItem onClick={toggleTheme} className="md:hidden"><Moon size={15} /> Switch light / dark</DropdownMenuItem>
         <DropdownMenuItem onClick={() => setPw(true)}><KeyRound size={15} /> Change password</DropdownMenuItem>
         <DropdownMenuItem onClick={() => setTf(true)}><ShieldCheck size={15} /> Two-factor authentication</DropdownMenuItem>
         <DropdownMenuItem onClick={signOut} className="text-crit"><LogOut size={15} /> Sign out</DropdownMenuItem>
