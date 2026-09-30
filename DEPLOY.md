@@ -117,6 +117,12 @@ Templates: Full Technical, Formal Handover, Executive Summary, Raw Findings (plu
 OWASP Web App and ILCS Internal layouts).
 
 ### Advanced scan options (team only; clients can never set these)
+The advanced-scan drawer sends a flat options object that the server validates and clamps
+(`controlplane/common/scanopts.py`: unknown keys dropped, ranges enforced). SQLMap level above 2,
+risk above 1, `--dump` and `--os-shell` are refused unless the caller is the lead pentester and
+has opted in to aggressive mode (safe-profile lock). Reviewers can also upload an edited .docx
+as the next report version and regenerate a report in another template from the review drawer;
+the lead manages team accounts at `/team/accounts`.
 `opts.deep` adds CVE/vuln Nuclei templates (slow); `opts.rate` overrides the Nuclei rate;
 `opts.auth` logs in first for an authenticated scan:
 `{login_url, username, password, username_field, password_field, json, token_path}`. The login URL

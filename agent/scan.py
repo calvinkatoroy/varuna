@@ -264,6 +264,7 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None,
             return run(nuclei.build(
                 targets_file, os.path.join(workdir, "nuclei.jsonl"),
                 interactsh=opts.get("interactsh"), cookie=cookie, header=header, rate=int(rate),
+                severity=",".join(opts["severity"]) if opts.get("severity") else nuclei.DEFAULT_SEVERITY,
             ))
         except Exception:
             return None
@@ -278,7 +279,8 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None,
         try:
             return run(nuclei.build(
                 origin_file, os.path.join(workdir, "nuclei_surface.jsonl"), cookie=cookie, header=header,
-                rate=int(rate), surface=True, deep=bool(opts.get("deep", False)),
+                rate=int(rate), surface=True, deep=bool(opts.get("deep", False)), tags=opts.get("tags"),
+                severity=",".join(opts["severity"]) if opts.get("severity") else nuclei.DEFAULT_SEVERITY,
             ))
         except Exception:
             return None
@@ -301,6 +303,7 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None,
                 aggressive=bool(opts.get("aggressive", False)),
                 dump=bool(opts.get("dump", False)), os_shell=bool(opts.get("os_shell", False)),
                 tamper=opts.get("tamper"), cookie=cookie, header=header,
+                level=opts.get("level"), risk=opts.get("risk"), technique=opts.get("technique"),
             ))
             return "sqlmap", out, "done"
         except Exception:

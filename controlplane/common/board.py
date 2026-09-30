@@ -49,8 +49,11 @@ def _proposal_card(p: dict) -> dict:
 def _scanning_card(p: dict) -> dict:
     job = redis_store.get_job(p["job_id"]) if p.get("job_id") else None
     per_tool = (job or {}).get("per_tool_status", {})
+    online = tokens.is_online(p["submitter"])
     meta = ", ".join(f"{t} {s}" for t, s in per_tool.items()) or (
-        "Queued" if tokens.is_online(p["submitter"]) else "Waiting for client agent")
+        "Queued" if online else "Waiting for client agent")
+    if (job or {}).get("status") == "running" and not online:
+        meta += " - agent offline, scan stalled"   # the client's agent died mid-scan; team should chase it
     return {
         "id": p["id"], "client": p["submitter"], "target": p["target"], "mode": p["mode"],
         "sev": _sev_counts(p.get("job_id")), "meta": meta,

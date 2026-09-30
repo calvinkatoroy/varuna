@@ -376,6 +376,37 @@ def pipeline_upload_version(rid: str, file: UploadFile = File(...), note: str = 
     return {"report_id": rid, "version_no": vno, "file": fname}
 
 
+class TemplateBody(BaseModel):
+    template: str
+
+
+@app.get("/api/templates")
+def list_templates(user: dict = Depends(require_team)):
+    return list(generator.TEMPLATES)
+
+
+@app.post("/api/pipeline/reports/{rid}/template")
+def pipeline_change_template(rid: str, body: TemplateBody, user: dict = Depends(require_team)):
+    """Regenerate the report from the current findings in another template, as a NEW version
+    (history is kept; earlier edits stay downloadable). Only the role that owns the stage."""
+    r = _require_report(rid)
+    if not report_pipeline.can_act(r["stage"], user["role"]):
+        raise HTTPException(status_code=403, detail="you do not own this review stage")
+    job = redis_store.get_job(r["job_id"]) or {"id": r["job_id"], "target": "", "submitter": r["owner"]}
+    try:
+        data = generator.generate(job, db.get_findings(r["job_id"]), body.template)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    next_no = ((db.latest_version(rid) or {}).get("version_no") or 0) + 1
+    fname = f"{rid}_v{next_no}.docx"
+    report_store.save_report_file(fname, data)
+    vno = db.add_report_version(rid, filename=fname, editor=user["username"],
+                                note=f"regenerated as {body.template}")
+    db.set_report(rid, template=body.template)
+    audit.log("report_template", actor=user["username"], report=rid, template=body.template)
+    return {"report_id": rid, "version_no": vno, "template": body.template}
+
+
 @app.get("/api/pipeline/reports/{rid}/versions/{n}/download")
 def pipeline_download_version(rid: str, n: int, user: dict = Depends(require_team)):
     v = next((v for v in db.list_report_versions(rid) if v["version_no"] == n), None)

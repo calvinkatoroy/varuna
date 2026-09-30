@@ -138,6 +138,33 @@ export function streamEvents(base: string, path: string, onMessage: (data: any) 
   return () => controller.abort()
 }
 
+// Multipart upload (a reviewer's edited .docx). Same failure handling as req(): a 401 ends the
+// session, other errors surface the server's message.
+export async function upload(base: string, path: string, file: File): Promise<any> {
+  if (isMock()) return { ok: true }
+  if (!token) throw new ApiError(401, '', true)
+  try {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch(base + path, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
+    if (res.status === 401) {
+      setToken(null)
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
+      throw new ApiError(401, 'Session expired - please log in again.')
+    }
+    if (!res.ok) {
+      let detail = res.statusText
+      try { detail = (await res.json()).detail || detail } catch {}
+      throw new ApiError(res.status, detail)
+    }
+    return res.json()
+  } catch (e) {
+    if (e instanceof ApiError && e.silent) throw e
+    toast(e instanceof ApiError ? e.message : 'Network error - check your connection.')
+    throw e
+  }
+}
+
 export async function download(base: string, path: string, filename: string) {
   // Bypasses req() (needs a raw Response to read as a blob, not JSON), so it needs its own
   // copy of the same failure handling - otherwise a failed download (file missing, report not

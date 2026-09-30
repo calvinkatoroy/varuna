@@ -252,3 +252,49 @@ def test_finished_scan_starts_review_automatically(tmp_path):
     assert len(db.list_report_versions(reports[0]["id"])) == 1
     ingest.process_job(jid, {"nuclei": json.dumps(nuclei)})       # re-ingest must not duplicate
     assert len([r for r in db.list_reports() if r["job_id"] == jid]) == 1
+
+
+def test_reviewer_can_switch_template_and_history_is_kept(tmp_path):
+    import store as report_store
+    report_store.REPORTS_DIR = str(tmp_path)
+    Hrep, Hpen = _h("aisah2", "reporter"), _h("pen22", "pentester")
+    redis_store._client = FakeRedis()
+    rid = db.create_report(job_id="jt", owner="dan")
+    db.save_findings("jt", "dan", [{"name": "X", "severity": "high", "host": "h"}])
+    assert "Formal Handover" in priv.get("/api/templates", headers=Hrep).json()
+    assert priv.post(f"/api/pipeline/reports/{rid}/template", json={"template": "Formal Handover"}, headers=Hpen).status_code == 403
+    assert priv.post(f"/api/pipeline/reports/{rid}/template", json={"template": "Nope"}, headers=Hrep).status_code == 422
+    r = priv.post(f"/api/pipeline/reports/{rid}/template", json={"template": "Formal Handover"}, headers=Hrep)
+    assert r.status_code == 200 and r.json()["version_no"] == 1
+    assert db.get_report(rid)["template"] == "Formal Handover"
+    priv.post(f"/api/pipeline/reports/{rid}/template", json={"template": "Raw Findings"}, headers=Hrep)
+    assert [v["version_no"] for v in db.list_report_versions(rid)] == [1, 2]
+
+
+def test_refusals_from_middleware_still_carry_cors_headers():
+    """A browser hides a response without CORS headers behind a network error, so the SPA could
+    not tell 403 (team token on the public plane) from a dead server and logged the user out."""
+    os.environ.pop("VARUNA_PUBLIC_TEAM_LOGIN", None)
+    try:
+        origin = browser._CORS[0]   # whichever origin this environment allows
+        Hl = {**_h("riyan99", "lead_pentester"), "Origin": origin}
+        r = pub.get("/api/me", headers=Hl)
+        assert r.status_code == 403 and r.headers.get("access-control-allow-origin") == origin
+        big = pub.post("/api/proposals", content=b"x" * 2_000_000, headers={**_h("cors1", "client"), "Origin": origin})
+        assert big.status_code == 413 and big.headers.get("access-control-allow-origin") == origin
+    finally:
+        os.environ["VARUNA_PUBLIC_TEAM_LOGIN"] = "1"
+
+
+def test_board_flags_a_scan_whose_agent_died():
+    import board
+    redis_store._client = FakeRedis()
+    Hc, Hl = _h("mona", "client"), _h("lead55", "lead_pentester")
+    pid = _prop(Hc).json()["proposal_id"]
+    jid = pub.post(f"/api/proposals/{pid}/approve", headers=Hl).json()["job_id"]
+    job = redis_store.get_job(jid)
+    job.update(status="running", per_tool_status={"katana": "done", "nuclei": "running"})
+    redis_store.set_job(job)                                   # no agent heartbeat: offline
+    cards = next(c for c in board.build_board() if c["id"] == "scanning")["cards"]
+    meta = next(c["meta"] for c in cards if c["jobId"] == jid)
+    assert "katana done" in meta and "stalled" in meta

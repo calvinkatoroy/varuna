@@ -40,6 +40,7 @@ import jwt_auth  # noqa: E402
 import notify  # noqa: E402
 import models  # noqa: E402
 import redis_store  # noqa: E402
+import scanopts  # noqa: E402
 import store as report_store  # noqa: E402
 import tenancy  # noqa: E402
 import tokens  # noqa: E402
@@ -51,8 +52,6 @@ app = FastAPI(title="Varuna Browser API (public plane)")
 
 # Explicit CORS: only the configured frontend origin(s) may call the API (C-6 security posture).
 _CORS = os.environ.get("VARUNA_CORS_ORIGINS", "http://localhost:5173").split(",")
-app.add_middleware(CORSMiddleware, allow_origins=_CORS, allow_methods=["*"], allow_headers=["*"])
-
 MAX_BODY = 1_000_000   # bytes; every JSON body here is small forms
 
 
@@ -80,6 +79,11 @@ async def limit_body(request, call_next):
     if too_big:
         return JSONResponse(status_code=413, content={"detail": "request body too large"})
     return await call_next(request)
+
+
+# CORS goes on LAST so it is the outermost layer: the 403/413 answers from the middlewares above
+# must carry CORS headers too, or the browser reports a network error instead of the status.
+app.add_middleware(CORSMiddleware, allow_origins=_CORS, allow_methods=["*"], allow_headers=["*"])
 
 FULL_STACK = ["katana", "nuclei", "sqlmap"]
 SSE_POLL_INTERVAL = 1.5   # seconds between checks for a changed job record
@@ -290,11 +294,16 @@ def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
     # Direct submit is the security team's advanced path only.
     if models.is_client(user["role"]):
         raise HTTPException(status_code=403, detail="clients submit a scan proposal for approval")
-    if not redis_store.get_agent(user["username"]):
-        raise HTTPException(status_code=409, detail="no agent registered; install your agent first")
     # Standard is locked to the full safe-profile stack; Pro chooses (defaults to full).
     tools = FULL_STACK if models.is_client(user["role"]) else (body.tools or FULL_STACK)
-    opts = {} if models.is_client(user["role"]) else body.opts
+    if any(t not in FULL_STACK for t in tools):
+        raise HTTPException(status_code=422, detail=f"tools must be a subset of {FULL_STACK}")
+    try:   # allow-list + clamp; destructive options are lead-pentester-only (safe-profile lock)
+        opts = {} if models.is_client(user["role"]) else scanopts.sanitize(body.opts, user["role"])
+    except scanopts.BadOpts as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not redis_store.get_agent(user["username"]):   # after validation: bad input gets its own error first
+        raise HTTPException(status_code=409, detail="no agent registered; install your agent first")
     try:
         return dispatch.submit_scan(user["username"], user["role"], body.target,
                                     tools, opts=opts, division=body.division)

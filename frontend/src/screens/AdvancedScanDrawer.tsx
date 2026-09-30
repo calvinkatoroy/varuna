@@ -44,9 +44,25 @@ const chip = (on: boolean) =>
   }`
 
 export type ScanOpts = {
-  target: string; cookie?: string; depth: number; crawl_duration: number; headless: boolean
+  target: string; cookie?: string; depth: number; crawl_duration: number; headless: boolean; deep: boolean
+  auth?: { login_url: string; username: string; password: string; username_field: string; password_field: string; json: boolean; token_path: string }
   nuclei: { severity: string[]; rate_limit: number; tags: string[] }
   sqlmap: { level: number; risk: number; techniques: string; dump: boolean; os_shell: boolean } | false
+}
+
+// The GUI keeps a grouped shape for readability; the API/agent take one flat options object
+// (validated and clamped server-side, controlplane/common/scanopts.py). Destructive switches
+// count as the explicit aggressive opt-in; the server only honours them for the lead pentester.
+export function toApiOpts(o: ScanOpts): Record<string, unknown> {
+  const s = o.sqlmap
+  const aggressive = !!s && (s.level > 2 || s.risk > 1 || s.dump || s.os_shell)
+  return {
+    depth: o.depth, crawl_duration: o.crawl_duration, headless: o.headless, deep: o.deep,
+    rate: o.nuclei.rate_limit, severity: o.nuclei.severity, tags: o.nuclei.tags,
+    ...(o.cookie ? { cookie: o.cookie } : {}),
+    ...(o.auth ? { auth: o.auth } : {}),
+    ...(s ? { level: s.level, risk: s.risk, technique: s.techniques, ...(aggressive ? { aggressive: true } : {}), ...(s.dump ? { dump: true } : {}), ...(s.os_shell ? { os_shell: true } : {}) } : {}),
+  }
 }
 
 export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boolean; onOpenChange: (v: boolean) => void; onLaunch?: (opts: ScanOpts) => void }) {
@@ -55,7 +71,11 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
   const [cookie, setCookie] = useState('')
   const [depth, setDepth] = useState(3)
   const [duration, setDuration] = useState(300)
-  const [headless, setHeadless] = useState(true)
+  // Headless is off by default: it needs a working Chrome on the agent and can stall the crawl.
+  const [headless, setHeadless] = useState(false)
+  const [deep, setDeep] = useState(false)
+  const [authOn, setAuthOn] = useState(false)
+  const [login, setLogin] = useState({ login_url: '', username: '', password: '', username_field: 'username', password_field: 'password', json: false, token_path: '' })
   const [sev, setSev] = useState<Set<string>>(new Set(['medium', 'high', 'critical']))
   const [rate, setRate] = useState(150)
   const [tags, setTags] = useState<Set<string>>(new Set(['cves', 'misconfig', 'exposures']))
@@ -82,11 +102,12 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
 
   const opts = useMemo<ScanOpts>(
     () => ({
-      target, cookie: cookie || undefined, depth, crawl_duration: duration, headless,
+      target, cookie: cookie || undefined, depth, crawl_duration: duration, headless, deep,
+      auth: authOn && login.login_url && login.username ? login : undefined,
       nuclei: { severity: [...sev], rate_limit: rate, tags: [...tags] },
       sqlmap: sqlOn ? { level, risk, techniques: [...techs].join(''), dump, os_shell: osShell } : false,
     }),
-    [target, cookie, depth, duration, headless, sev, rate, tags, sqlOn, level, risk, techs, dump, osShell],
+    [target, cookie, depth, duration, headless, deep, authOn, login, sev, rate, tags, sqlOn, level, risk, techs, dump, osShell],
   )
 
   return (
@@ -107,7 +128,17 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
         <div className="flex-1">
           <Section icon={<Search size={16} />} title="Target & auth">
             <input className="w-full rounded-input border border-rule bg-panel px-3.5 py-3 text-[13px] text-ink outline-none focus:border-accent" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="https://api.acme.io" />
-            <input className="w-full rounded-input border border-rule bg-panel px-3.5 py-3 text-[13px] text-ink outline-none focus:border-accent" value={cookie} onChange={(e) => setCookie(e.target.value)} placeholder="Cookie / Authorization header (authenticated scan)" />
+            <input className="w-full rounded-input border border-rule bg-panel px-3.5 py-3 text-[13px] text-ink outline-none focus:border-accent" value={cookie} onChange={(e) => setCookie(e.target.value)} placeholder="Cookie (authenticated scan)" />
+            <div className="flex items-center justify-between"><span className="text-[13px] text-ink-muted">Log in first (form or JSON)</span><Switch checked={authOn} onCheckedChange={setAuthOn} /></div>
+            {authOn && (
+              <div className="space-y-2.5 rounded-input border border-rule bg-panel/60 p-3.5">
+                {([['login_url', 'Login URL or path (/rest/user/login)'], ['username', 'Username'], ['password', 'Password'], ['username_field', 'Username field name'], ['password_field', 'Password field name'], ['token_path', 'Token path in JSON reply (optional, e.g. authentication.token)']] as const).map(([k, ph]) => (
+                  <input key={k} type={k === 'password' ? 'password' : 'text'} autoComplete="off" className="w-full rounded-input border border-rule bg-card px-3 py-2.5 text-[13px] text-ink outline-none focus:border-accent" value={(login as any)[k]} onChange={(e) => setLogin({ ...login, [k]: e.target.value })} placeholder={ph} />
+                ))}
+                <div className="flex items-center justify-between"><span className="text-[13px] text-ink-muted">Send as JSON</span><Switch checked={login.json} onCheckedChange={(v) => setLogin({ ...login, json: v })} /></div>
+                <div className="text-[11.5px] text-ink-muted">The login URL must be on the scanned host. Credentials are kept in the job record for 24 hours only.</div>
+              </div>
+            )}
           </Section>
 
           <Section icon={<Search size={16} />} title="Discovery" sub="Katana crawl">
@@ -121,6 +152,7 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
               <div className="mb-2 text-[13px] text-ink-muted">Severity</div>
               <div className="flex flex-wrap gap-2">{SEVS.map((s) => <button key={s} onClick={() => toggle(sev, s, setSev)} className={chip(sev.has(s))}>{s}</button>)}</div>
             </div>
+            <div className="flex items-center justify-between"><span className="text-[13px] text-ink-muted">Include CVE / vuln templates (slower)</span><Switch checked={deep} onCheckedChange={setDeep} /></div>
             <SliderRow label="Rate limit" value={rate} suffix="/s" min={10} max={300} step={10} onChange={setRate} />
             <div>
               <div className="mb-2 text-[13px] text-ink-muted">Template tags</div>
@@ -145,9 +177,9 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
           {/* aggressive, gated */}
           <Section icon={<Sparkles size={16} />} title="Aggressive" sub="Destructive, gated by the safe-profile lock">
             <div className="rounded-input border border-dashed border-rule bg-panel/60 p-4">
-              <div className="mb-3 flex items-center gap-2 text-[12px] font-semibold text-accent-ink"><Lock size={14} /> Requires lead-pentester approval + explicit opt-in</div>
-              <div className="flex items-center justify-between opacity-60"><span className="text-[13px] text-ink-muted">SQLMap --dump (extract DB)</span><Switch checked={dump} onCheckedChange={setDump} disabled /></div>
-              <div className="mt-3 flex items-center justify-between opacity-60"><span className="text-[13px] text-ink-muted">SQLMap --os-shell (RCE)</span><Switch checked={osShell} onCheckedChange={setOsShell} disabled /></div>
+              <div className="mb-3 flex items-center gap-2 text-[12px] font-semibold text-accent-ink"><Lock size={14} /> Lead pentester only. Level above 2, risk above 1, and these switches are refused for other roles.</div>
+              <div className="flex items-center justify-between"><span className="text-[13px] text-ink-muted">SQLMap --dump (extract DB)</span><Switch checked={dump} onCheckedChange={setDump} disabled={!sqlOn} /></div>
+              <div className="mt-3 flex items-center justify-between"><span className="text-[13px] text-ink-muted">SQLMap --os-shell (RCE)</span><Switch checked={osShell} onCheckedChange={setOsShell} disabled={!sqlOn} /></div>
             </div>
           </Section>
 

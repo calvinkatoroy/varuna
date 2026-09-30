@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { KeyRound, LogOut } from 'lucide-react'
+import { KeyRound, LogOut, Users } from 'lucide-react'
 import { api } from '@/api'
 import { useAuth } from '@/auth'
 import { ChangePassword } from './ChangePassword'
@@ -28,6 +28,7 @@ export function TeamAccount() {
       <DropdownMenuContent align="end">
         <div className="px-3 py-2"><div className="text-[14px] font-semibold text-ink">{me?.name ?? me?.username ?? 'Team'}</div><div className="text-[12px] text-ink-muted">{me ? roleLabel[me.role] ?? me.role : ''}</div></div>
         <DropdownMenuSeparator />
+        {me?.role === 'lead_pentester' && <DropdownMenuItem onClick={() => location.assign('/team/accounts')}><Users size={15} /> Team accounts</DropdownMenuItem>}
         <DropdownMenuItem onClick={() => setPw(true)}><KeyRound size={15} /> Change password</DropdownMenuItem>
         <DropdownMenuItem onClick={signOut} className="text-crit"><LogOut size={15} /> Sign out</DropdownMenuItem>
       </DropdownMenuContent>

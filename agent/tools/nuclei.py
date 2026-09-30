@@ -22,11 +22,14 @@ DEEP_TAGS = SURFACE_TAGS + ",cve,vuln"
 EXCLUDE_TAGS = "dos,intrusive,brute-force,bruteforce,fuzz,dast"
 
 
-def build(urls_file: str, outfile: str, severity: str = "critical,high,medium,low,info",
+DEFAULT_SEVERITY = "critical,high,medium,low,info"
+
+
+def build(urls_file: str, outfile: str, severity: str = DEFAULT_SEVERITY,
           dast: bool = True, interactsh: str | None = None,
           rate: int = SAFE_RATE, cookie: str | None = None, header: str | None = None,
           max_host_error: int = MAX_HOST_ERROR, surface: bool = False,
-          deep: bool = False) -> list[str]:
+          deep: bool = False, tags: list[str] | None = None) -> list[str]:
     cmd = [
         "nuclei", "-l", urls_file,          # Katana's output (REQ-21)
         "-jsonl", "-o", outfile,
@@ -35,7 +38,7 @@ def build(urls_file: str, outfile: str, severity: str = "critical,high,medium,lo
         "-mhe", str(max_host_error),        # tolerate a heavy app's errors before skipping it
     ]
     if surface:
-        cmd += ["-tags", DEEP_TAGS if deep else SURFACE_TAGS, "-etags", EXCLUDE_TAGS,
+        cmd += ["-tags", ",".join(tags) if tags else (DEEP_TAGS if deep else SURFACE_TAGS), "-etags", EXCLUDE_TAGS,
                 "-timeout", "5", "-retries", "0", "-c", "10", "-ni"]   # -ni: no OOB callbacks
     elif dast:
         cmd.append("-dast")                 # reflected/DOM fuzzing (REQ-21b)
