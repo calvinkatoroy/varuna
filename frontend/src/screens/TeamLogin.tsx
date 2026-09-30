@@ -18,15 +18,18 @@ export function TeamLogin() {
   const [p, setP] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [needCode, setNeedCode] = useState(false)
+  const [code, setCode] = useState('')
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setErr('')
     setBusy(true)
     try {
-      await login(u, p, true)
+      await login(u, p, true, code || undefined)
     } catch (e: any) {
-      setErr(e.message || 'failed')
+      if (e.message === 'mfa_required') { setNeedCode(true); setErr('Enter the 6-digit code from your authenticator app.') }
+      else setErr(e.message || 'failed')
     } finally {
       setBusy(false)
     }
@@ -49,6 +52,12 @@ export function TeamLogin() {
             <label className={label}>Password</label>
             <input className={field} type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="••••••••" required />
           </div>
+          {needCode && (
+            <div>
+              <label className={label}>Authenticator code</label>
+              <input className={field} inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} placeholder="123456" required autoFocus />
+            </div>
+          )}
           {err && <div className="text-[12.5px] text-crit">{err}</div>}
           <Button type="submit" size="lg" className="w-full" disabled={busy}>Log in <ArrowRight size={16} /></Button>
         </form>

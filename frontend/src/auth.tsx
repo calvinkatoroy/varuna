@@ -6,7 +6,7 @@ type User = { username: string; role: string } | null
 interface AuthCtx {
   user: User
   ready: boolean
-  login: (username: string, password: string, team?: boolean) => Promise<void>
+  login: (username: string, password: string, team?: boolean, code?: string) => Promise<void>
   register: (username: string, password: string) => Promise<void>
   logout: () => void
 }
@@ -24,18 +24,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setReady(true)
       return
     }
+    // Team tokens are refused on the public plane (403); fall back to the private plane's /me.
     api
       .get('/api/me')
+      .catch((e) => (e?.status === 403 ? api.pget('/api/me') : Promise.reject(e)))
       .then((me) => setUser(me))
       .catch(() => setToken(null))
       .finally(() => setReady(true))
   }, [])
 
   // Team accounts authenticate on the private plane (NFR-24); clients on the public one.
-  async function login(username: string, password: string, team = false) {
-    const { token } = await (team ? api.ppost : api.post)('/api/login', { username, password })
+  async function login(username: string, password: string, team = false, code?: string) {
+    const { token } = await (team ? api.ppost : api.post)('/api/login', { username, password, ...(code ? { code } : {}) })
     setToken(token)
-    setUser(await api.get('/api/me'))
+    setUser(await (team ? api.pget : api.get)('/api/me'))
   }
 
   async function register(username: string, password: string) {

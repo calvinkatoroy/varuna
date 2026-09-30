@@ -51,7 +51,9 @@ services:
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
       - SCAN_TTL_SECONDS=${SCAN_TTL_SECONDS:-86400}
       - VARUNA_DB=/dbdata/varuna.db
-    volumes: [varuna_db:/dbdata]
+      - REPORTS_DIR=/data/reports   # ingest generates the v1 review report when findings are ready
+      - NOTIFY_WEBHOOK_URL=${NOTIFY_WEBHOOK_URL:-}
+    volumes: [report_output:/data/reports, varuna_db:/dbdata]
 
   # Private-plane API (findings/reports/manual). Bound ONLY to the host's Tailscale interface,
   # no public listener (NFR-24). Set TAILSCALE_BIND to the VM's tailscale IP in .env; it

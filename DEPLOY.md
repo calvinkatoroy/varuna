@@ -75,3 +75,64 @@ Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' 
 Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.ExecutablePath -like "*\Varuna\.venv\*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Varuna"
 ```
+
+## v2 operations (accounts, backups, notifications)
+
+### Planes and logins
+- Clients sign in on the public plane (`/api/login`). Security-team accounts sign in on the
+  **private** plane (`POST http://<tailscale-host>:8010/api/login`); the public API refuses team
+  logins and team tokens (NFR-24). For local dev with no private plane only, set
+  `VARUNA_PUBLIC_TEAM_LOGIN=1`.
+- Seeded team accounts start with the password `changeme`. The private API prints a startup
+  warning while any remain; change them at once (account menu > Change password, or the
+  lead pentester's admin API below).
+
+### Team account administration (lead pentester, private plane)
+```
+GET  /api/admin/accounts
+POST /api/admin/accounts                       {username, password, role}
+POST /api/admin/accounts/{user}/reset-password {password}
+POST /api/admin/accounts/{user}/disable | enable
+```
+A disabled account cannot log in and its live tokens stop working immediately.
+
+### Two-factor login for the team (TOTP)
+Team members turn it on from the account menu (Two-factor authentication): paste the setup key into
+any authenticator app (Google/Microsoft Authenticator, Authy, 1Password) and confirm with a code.
+From then on a password alone cannot sign in: the login asks for the 6-digit code. Codes are
+standard RFC 6238 (30 s, 6 digits), tolerate one step of clock drift, cannot be replayed, and wrong
+codes count toward the same lockout as wrong passwords. A lost phone is recovered by the lead
+pentester (`POST /api/admin/accounts/{user}/reset-mfa`, or "Reset 2FA" on `/team/accounts`). The
+private API prints which team accounts still lack two-factor at startup. Clients do not use it.
+
+### Backups
+```bash
+docker compose exec api-public python /app/controlplane/backup_db.py           # SQLite -> /data/backups (keeps 14)
+docker compose cp api-public:/dbdata/backups ./backups                          # copy off the host
+```
+Also back up the reports volume (`report_output`, generated `.docx` versions and delivered PDFs).
+Schedule the first command daily (Windows Task Scheduler / cron) and copy the files off the machine.
+
+### Notifications (optional)
+Set `NOTIFY_WEBHOOK_URL` (a Slack/Teams/Discord incoming webhook) in `.env` and the team is
+messaged when a proposal arrives or a report reaches a stage. Only event names and short ids are
+sent, never finding detail. Unset = off.
+
+### After a scan finishes
+Findings are enriched and the report is created automatically at the reporter stage for every
+approved proposal. Scans started directly by the team (advanced scan) have no proposal; start
+their review with `POST /api/pipeline/reports {job_id, template}`.
+Templates: Full Technical, Formal Handover, Executive Summary, Raw Findings (plus the older
+OWASP Web App and ILCS Internal layouts).
+
+### Advanced scan options (team only; clients can never set these)
+The advanced-scan drawer sends a flat options object that the server validates and clamps
+(`controlplane/common/scanopts.py`: unknown keys dropped, ranges enforced). SQLMap level above 2,
+risk above 1, `--dump` and `--os-shell` are refused unless the caller is the lead pentester and
+has opted in to aggressive mode (safe-profile lock). Reviewers can also upload an edited .docx
+as the next report version and regenerate a report in another template from the review drawer;
+the lead manages team accounts at `/team/accounts`.
+`opts.deep` adds CVE/vuln Nuclei templates (slow); `opts.rate` overrides the Nuclei rate;
+`opts.auth` logs in first for an authenticated scan:
+`{login_url, username, password, username_field, password_field, json, token_path}`. The login URL
+must be on the scanned host. Credentials live only in the job record (24h TTL).

@@ -87,6 +87,7 @@ def handle(job: dict, headers: dict) -> None:
     print("got job", jid, "->", job.get("target"))
     httpx.post(f"{BASE}/agent/jobs/{jid}/status", headers=headers, json={"status": "running"})
     try:
+        scan.check_reachable(job["target"])
         raw, tool_status = scan.run_scan(
             job, checkpoint=lambda status: _checkpoint(jid, headers, status))   # Katana -> Nuclei/SQLMap, chained
     except Exception as e:

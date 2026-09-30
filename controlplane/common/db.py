@@ -119,6 +119,14 @@ CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    # Migrations for databases created before a column existed (CREATE IF NOT EXISTS won't add it).
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(accounts)")}
+    if "disabled" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0")
+    for col, ddl in (("totp_secret", "TEXT"), ("totp_enabled", "INTEGER NOT NULL DEFAULT 0"),
+                     ("totp_last_step", "INTEGER NOT NULL DEFAULT 0")):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE accounts ADD COLUMN {col} {ddl}")
     conn.commit()
 
 
@@ -184,9 +192,28 @@ def upsert_account(username: str, password_hash: str, role: str) -> None:
 
 def get_account(username: str) -> Optional[dict]:
     row = get_conn().execute(
-        "SELECT username, password_hash, role FROM accounts WHERE username=?", (username,)
+        "SELECT username, password_hash, role, disabled, totp_secret, totp_enabled, totp_last_step "
+        "FROM accounts WHERE username=?", (username,)
     ).fetchone()
     return dict(row) if row else None
+
+
+def list_accounts() -> list[dict]:
+    """Account roster for admin screens: never includes password hashes."""
+    return [dict(r) for r in get_conn().execute(
+        "SELECT username, role, disabled, totp_enabled, created_at FROM accounts ORDER BY role, username").fetchall()]
+
+
+def set_account(username: str, **fields) -> bool:
+    """Update password_hash / disabled. True if the account exists."""
+    allowed = {k: v for k, v in fields.items()
+               if k in ("password_hash", "disabled", "totp_secret", "totp_enabled", "totp_last_step")}
+    if not allowed:
+        return False
+    sets = ", ".join(f"{k}=?" for k in allowed)
+    cur = get_conn().execute(f"UPDATE accounts SET {sets} WHERE username=?", [*allowed.values(), username])
+    get_conn().commit()
+    return cur.rowcount == 1
 
 
 def get_account_ci(username: str) -> Optional[dict]:
@@ -324,6 +351,23 @@ def set_report(rid: str, **fields) -> None:
     args.append(rid)
     get_conn().execute(f"UPDATE reports SET {', '.join(sets)} WHERE id=?", args)
     get_conn().commit()
+
+
+def claim_report_stage(rid: str, from_stage: str, to_stage: str) -> bool:
+    """Atomic compare-and-set on a report's stage: of N concurrent reviewers acting on the same
+    stage exactly one wins (True), so a report is never forwarded/delivered twice."""
+    cur = get_conn().execute(
+        "UPDATE reports SET stage=?, updated_at=datetime('now') WHERE id=? AND stage=?",
+        (to_stage, rid, from_stage))
+    get_conn().commit()
+    return cur.rowcount == 1
+
+
+def claim_password_view(rid: str) -> bool:
+    """Atomic view-once: True only for the single caller that flips password_viewed 0 -> 1."""
+    cur = get_conn().execute("UPDATE reports SET password_viewed=1 WHERE id=? AND password_viewed=0", (rid,))
+    get_conn().commit()
+    return cur.rowcount == 1
 
 
 def add_report_version(rid: str, filename: str, editor: str, note: str = "") -> int:

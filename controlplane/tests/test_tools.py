@@ -183,3 +183,70 @@ if __name__ == "__main__":
             fn()
             print(f"{name} OK")
     print("test_tools: all green")
+
+
+def test_filter_targets_drops_static_and_collapses_shapes():
+    urls = ["http://a/main.js", "http://a/logo.png", "http://a/item/1", "http://a/item/2",
+            "http://a/s?q=1", "http://a/s?q=2", "http://a/login"]
+    n, q = scan.filter_targets(urls, "http://a")
+    assert not any(u.endswith((".js", ".png")) for u in n)
+    assert len([u for u in n if "/item/" in u]) == 1, "ids folded"
+    assert len([u for u in n if "/s?" in u]) == 1, "same param names = one test"
+    assert "http://a/s?q=1" in q and "http://a/login" in q
+    assert len(q) < len(urls)
+
+
+def test_nuclei_and_sqlmap_run_concurrently_with_one_checkpoint():
+    import threading
+    seen, both = [], threading.Barrier(2, timeout=5)
+
+    def fake_run(argv):
+        if argv[0] in ("nuclei", "sqlmap"):
+            both.wait()   # only passes if the other tool is running at the same time
+        of = argv[argv.index("-o") + 1] if "-o" in argv else None
+        if of:
+            open(of, "w").close()
+        return "x"
+
+    cps = []
+    raw, st = scan.run_scan({"target": "http://t.local", "tools": ["nuclei", "sqlmap"], "opts": {}},
+                            run=fake_run, checkpoint=cps.append, fetch=lambda u: "")
+    assert st == {"katana": "done", "nuclei": "done", "sqlmap": "done"}
+    assert cps[-1] == {"katana": "done", "nuclei": "running", "sqlmap": "running"}
+
+
+def test_sqlmap_uses_threads_and_local_nuclei_rate_is_higher():
+    assert "--threads" in sqlmap.build("/tmp/u", "/tmp/o")
+    assert nuclei.LOCAL_RATE > nuclei.SAFE_RATE
+
+
+def test_filter_targets_keeps_only_the_authorized_host_and_fills_blank_params():
+    urls = ["http://127.0.0.1:3000/rest/products/search?q=", "https://www.youtube.com/watch?v=1",
+            "http://127.0.0.1:4000/other-port", "http://127.0.0.1:3000/ok"]
+    n, q = scan.filter_targets(urls, "http://127.0.0.1:3000")
+    assert all(u.startswith("http://127.0.0.1:3000") for u in n + q), "third-party / other-port URLs must never be scanned"
+    assert "http://127.0.0.1:3000/rest/products/search?q=1" in n, "blank params get a value to fuzz"
+
+
+def test_authenticate_returns_bearer_header_and_refuses_off_host_login():
+    class R:
+        status_code = 200
+        def json(self):
+            return {"authentication": {"token": "abc"}}
+
+    auth = {"login_url": "/login", "username": "u", "password": "p", "json": True,
+            "token_path": "authentication.token"}
+    s = scan.authenticate(auth, "http://t.local:3000", post=lambda url, **kw: R())
+    assert s["header"] == "Authorization: Bearer abc"
+    try:
+        scan.authenticate({**auth, "login_url": "http://evil.example/x"}, "http://t.local:3000",
+                          post=lambda url, **kw: R())
+        raise AssertionError("credentials must never go to another host")
+    except RuntimeError:
+        pass
+
+
+def test_auth_header_reaches_every_tool():
+    h = "Authorization: Bearer abc"
+    assert h in katana.build("t", "o", header=h) and h in nuclei.build("u", "o", header=h)
+    assert h in sqlmap.build("u", "o", header=h)

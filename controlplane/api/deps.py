@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
 
 from fastapi import Depends, Header, HTTPException  # noqa: E402
 
+import db  # noqa: E402
 import jwt_auth  # noqa: E402
 import models  # noqa: E402
 
@@ -19,9 +20,14 @@ import models  # noqa: E402
 def current_user(authorization: str = Header(default="")) -> dict:
     token = authorization.removeprefix("Bearer ").strip()
     try:
-        return jwt_auth.verify(token)
+        user = jwt_auth.verify(token)
     except Exception:
         raise HTTPException(status_code=401, detail="invalid or expired token")
+    # Tokens outlive an account being disabled by up to their TTL: re-check on every request.
+    acct = db.get_account(user["username"])
+    if acct and acct.get("disabled"):
+        raise HTTPException(status_code=401, detail="account disabled")
+    return user
 
 
 def require_team(user: dict = Depends(current_user)) -> dict:

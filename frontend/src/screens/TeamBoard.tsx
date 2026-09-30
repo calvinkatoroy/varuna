@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Bell, Filter, Lock, Check, X as XIcon, ArrowRight, ArrowLeft, Download,
   Upload, FileText, KeyRound, Activity, Plus, Eye, ChevronDown, Pause, Play,
 } from 'lucide-react'
-import { api, download } from '@/api'
+import { api, download, upload } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { TeamAccount } from '@/components/TeamAccount'
@@ -14,7 +14,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
-import { AdvancedScanDrawer, type ScanOpts } from './AdvancedScanDrawer'
+import { AdvancedScanDrawer, toApiOpts, type ScanOpts } from './AdvancedScanDrawer'
 import { ErrorRetry } from '@/components/ErrorRetry'
 import { ScanProgress } from '@/components/ScanProgress'
 import { useApiData } from '@/lib/useApiData'
@@ -72,11 +72,37 @@ export default function TeamBoard() {
     const id = setInterval(refetchBoard, 8000)
     return () => clearInterval(id)
   }, [cols, refetchBoard])
+  const reloadDetail = () => { if (sel) api.pget(`/api/pipeline/detail/${sel.card.id}`).then(setDetail).catch(() => setDetail(null)) }
   useEffect(() => {
     setRejectNote('')
     if (!sel) { setDetail(null); return }
-    api.pget(`/api/pipeline/detail/${sel.card.id}`).then(setDetail).catch(() => setDetail(null))
+    reloadDetail()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel])
+  // Reviewers download the .docx, edit it in Word, and upload it back as the next version; or
+  // regenerate the whole report in another template (a new version too, history is kept).
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [templates, setTemplates] = useState<string[]>([])
+  const [tpl, setTpl] = useState('')
+  useEffect(() => { api.pget('/api/templates').then(setTemplates).catch(() => {}) }, [])
+  const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f || !sel) return
+    try {
+      await upload(api.privateBase, `/api/pipeline/reports/${sel.card.id}/version?note=${encodeURIComponent('Uploaded ' + f.name)}`, f)
+      toast('New version uploaded.')
+      reloadDetail()
+    } catch {}
+  }
+  const regenerate = async () => {
+    if (!tpl || !sel) return
+    try {
+      await api.ppost(`/api/pipeline/reports/${sel.card.id}/template`, { template: tpl })
+      toast(`Regenerated as ${tpl}.`)
+      reloadDetail()
+    } catch {}
+  }
 
   const clients = useMemo(() => [...new Set((cols ?? []).flatMap((c) => c.cards.map((k) => k.client)))], [cols])
   // Derived straight from the live board state (not hardcoded demo lines), so it reflects
@@ -119,13 +145,13 @@ export default function TeamBoard() {
   // becoming an unhandled-promise console warning - the refetch already ran regardless.
   const approve = (c: Card, col: string) => {
     localMove(c.id, col, 'scanning')
-    api.post(`/api/proposals/${c.id}/approve`).then(() => toast(`Approved. Scan queued for ${c.client}.`)).catch(() => {}).finally(refetchBoard)
+    api.ppost(`/api/proposals/${c.id}/approve`).then(() => toast(`Approved. Scan queued for ${c.client}.`)).catch(() => {}).finally(refetchBoard)
     setOpen(false)
   }
   const reject = (c: Card, col: string, reason?: string) => {
     const rejectReason = reason?.trim() || 'No reason recorded.'
     localMove(c.id, col, 'rejected', { rejectReason })
-    api.post(`/api/proposals/${c.id}/reject`, { reason: rejectReason }).then(() => toast(`Proposal rejected: ${c.client}.`)).catch(() => {}).finally(refetchBoard)
+    api.ppost(`/api/proposals/${c.id}/reject`, { reason: rejectReason }).then(() => toast(`Proposal rejected: ${c.client}.`)).catch(() => {}).finally(refetchBoard)
     setOpen(false); setRejectNote('')
   }
   const forward = (c: Card, col: string) => {
@@ -166,7 +192,7 @@ export default function TeamBoard() {
   }
   const launchScan = (opts: ScanOpts) => {
     const tools = ['katana', 'nuclei', ...(opts.sqlmap ? ['sqlmap'] : [])]
-    api.post('/api/scans', { target: opts.target, tools, division: '', opts })
+    api.ppost('/api/scans', { target: opts.target, tools, division: '', opts: toApiOpts(opts) })
       .then(() => toast(`Scan launched: ${opts.target}`))
       .catch(() => {})
   }
@@ -325,9 +351,15 @@ export default function TeamBoard() {
                 <section>
                   <div className="mb-2.5 flex items-center justify-between">
                     <h4 className="text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Versions</h4>
-                    {/* Uploading a new version needs a file picker this drawer doesn't have yet -
-                        left as a placeholder rather than half-building an upload flow. */}
-                    <button onClick={() => toast('Upload a new .docx version - coming soon')} className="flex items-center gap-1.5 text-[12px] font-semibold text-accent hover:opacity-80"><Upload size={13} /> Upload new</button>
+                    <input ref={fileRef} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" onChange={onPickFile} />
+                    <button onClick={() => fileRef.current?.click()} className="flex items-center gap-1.5 text-[12px] font-semibold text-accent hover:opacity-80"><Upload size={13} /> Upload new</button>
+                  </div>
+                  <div className="mb-3 flex items-center gap-2">
+                    <select value={tpl} onChange={(e) => setTpl(e.target.value)} aria-label="Report template" className="min-w-0 flex-1 rounded-input border border-rule bg-panel px-3 py-2 text-[12.5px] text-ink outline-none focus:border-accent">
+                      <option value="">Regenerate as template…</option>
+                      {templates.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <button onClick={regenerate} disabled={!tpl} className="rounded-pill bg-panel px-3.5 py-2 text-[12px] font-semibold text-ink disabled:opacity-40">Regenerate</button>
                   </div>
                   {!detail?.versions?.length && <div className="rounded-input border border-dashed border-rule px-3.5 py-5 text-center text-[12px] text-ink-faint">No versions yet.</div>}
                   <ul className="space-y-2">

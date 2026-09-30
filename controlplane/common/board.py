@@ -49,8 +49,17 @@ def _proposal_card(p: dict) -> dict:
 def _scanning_card(p: dict) -> dict:
     job = redis_store.get_job(p["job_id"]) if p.get("job_id") else None
     per_tool = (job or {}).get("per_tool_status", {})
+    if (job or {}).get("status") == "failed":
+        return {
+            "id": p["id"], "client": p["submitter"], "target": p["target"], "mode": p["mode"],
+            "sev": _sev_counts(p.get("job_id")), "meta": f"Failed: {job.get('error') or 'scan failed'}",
+            "jobId": p.get("job_id"), "suspended": False,
+        }
+    online = tokens.is_online(p["submitter"])
     meta = ", ".join(f"{t} {s}" for t, s in per_tool.items()) or (
-        "Queued" if tokens.is_online(p["submitter"]) else "Waiting for client agent")
+        "Queued" if online else "Waiting for client agent")
+    if (job or {}).get("status") == "running" and not online:
+        meta += " - agent offline, scan stalled"   # the client's agent died mid-scan; team should chase it
     return {
         "id": p["id"], "client": p["submitter"], "target": p["target"], "mode": p["mode"],
         "sev": _sev_counts(p.get("job_id")), "meta": meta,
@@ -88,6 +97,26 @@ def _rejected_card(p: dict) -> dict:
     card["meta"] = reason[:META_TRUNC] + ("…" if len(reason) > META_TRUNC else "")
     card["rejectReason"] = reason
     return card
+
+
+STALL_SECONDS = 15 * 60   # a running scan whose agent has been silent this long is failed, not "scanning"
+
+
+def reap_stalled(now=None) -> int:
+    """Fail scans stuck at "running" because the client's agent died or lost its connection, so
+    they surface as failed (the team can chase or re-request) instead of sitting in Scanning
+    forever. Returns how many were failed."""
+    n = 0
+    for p in db.list_proposals(status="approved"):
+        job = redis_store.get_job(p["job_id"]) if p.get("job_id") else None
+        if not job or job.get("status") != "running":
+            continue
+        gap = tokens.offline_seconds(p["submitter"], now)
+        if gap is not None and gap > STALL_SECONDS:
+            job.update(status="failed", error=f"agent offline for {int(gap // 60)} min during the scan")
+            redis_store.set_job(job)
+            n += 1
+    return n
 
 
 def build_board() -> list[dict]:

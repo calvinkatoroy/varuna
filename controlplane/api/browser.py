@@ -37,8 +37,10 @@ import db  # noqa: E402
 import dispatch  # noqa: E402
 import generator  # noqa: E402
 import jwt_auth  # noqa: E402
+import notify  # noqa: E402
 import models  # noqa: E402
 import redis_store  # noqa: E402
+import scanopts  # noqa: E402
 import store as report_store  # noqa: E402
 import tenancy  # noqa: E402
 import tokens  # noqa: E402
@@ -50,9 +52,22 @@ app = FastAPI(title="Varuna Browser API (public plane)")
 
 # Explicit CORS: only the configured frontend origin(s) may call the API (C-6 security posture).
 _CORS = os.environ.get("VARUNA_CORS_ORIGINS", "http://localhost:5173").split(",")
-app.add_middleware(CORSMiddleware, allow_origins=_CORS, allow_methods=["*"], allow_headers=["*"])
-
 MAX_BODY = 1_000_000   # bytes; every JSON body here is small forms
+
+
+@app.middleware("http")
+async def clients_only(request, call_next):
+    """NFR-24: the internet-facing plane serves clients. A valid team token is refused here (it
+    works on the private plane), so stolen/phished team credentials gain nothing public."""
+    if request.url.path.startswith("/api/") and os.environ.get("VARUNA_PUBLIC_TEAM_LOGIN") != "1":
+        token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+        try:
+            role = jwt_auth.verify(token)["role"] if token else None
+        except Exception:
+            role = None   # invalid/expired: the endpoint's own auth returns the 401
+        if role and models.is_team(role):
+            return JSONResponse(status_code=403, content={"detail": "security team accounts use the private plane"})
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -64,6 +79,11 @@ async def limit_body(request, call_next):
     if too_big:
         return JSONResponse(status_code=413, content={"detail": "request body too large"})
     return await call_next(request)
+
+
+# CORS goes on LAST so it is the outermost layer: the 403/413 answers from the middlewares above
+# must carry CORS headers too, or the browser reports a network error instead of the status.
+app.add_middleware(CORSMiddleware, allow_origins=_CORS, allow_methods=["*"], allow_headers=["*"])
 
 FULL_STACK = ["katana", "nuclei", "sqlmap"]
 SSE_POLL_INTERVAL = 1.5   # seconds between checks for a changed job record
@@ -114,6 +134,8 @@ def login(body: LoginBody, x_forwarded_for: str = Header(default="api")):
         token = jwt_auth.login(body.username, body.password, x_forwarded_for)
     except auth.LockedOut:
         raise HTTPException(status_code=429, detail="too many failed attempts; try again later")
+    except auth.MfaRequired:   # only team accounts can have two-factor, and they belong on the private plane
+        raise HTTPException(status_code=403, detail="security team accounts sign in on the private plane")
     except auth.BadCredentials:
         raise HTTPException(status_code=401, detail="invalid username or password")
     # NFR-24: the public (internet-facing) plane is for clients. Security-team accounts sign in
@@ -132,14 +154,33 @@ def register(body: RegisterBody):
     is approved, so this being public is inert. Team accounts are seeded, never self-registered."""
     try:
         auth.register_client(body.username, body.password)
-    except auth.AuthError as e:
+    except auth.UsernameTaken as e:
         raise HTTPException(status_code=409, detail=str(e))
+    except auth.AuthError as e:   # bad username/password shape: a validation error, not a conflict
+        raise HTTPException(status_code=422, detail=str(e))
     return {"token": jwt_auth.login(body.username, body.password, "api")}
 
 
 @app.get("/api/me")
 def me(user: dict = Depends(current_user)):
     return user
+
+
+class PasswordBody(BaseModel):
+    current: str
+    new: str
+
+
+@app.post("/api/password")
+def change_password(body: PasswordBody, user: dict = Depends(current_user)):
+    try:
+        auth.change_password(user["username"], body.current, body.new)
+    except auth.BadCredentials as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except auth.AuthError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    audit.log("password_changed", actor=user["username"])
+    return {"ok": True}
 
 
 @app.get("/api/cockpit")
@@ -168,6 +209,7 @@ def submit_proposal(body: ProposalBody, user: dict = Depends(current_user)):
     elif any(t not in FULL_STACK for t in p["tools"]):
         raise HTTPException(status_code=422, detail=f"tools must be a subset of {FULL_STACK}")
     pid = db.create_proposal(p)
+    notify.notify(f"New scan proposal from {user['username']} awaiting lead approval ({pid[:8]})")
     return {"proposal_id": pid, "status": models.PROPOSAL_PENDING}
 
 
@@ -254,11 +296,16 @@ def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
     # Direct submit is the security team's advanced path only.
     if models.is_client(user["role"]):
         raise HTTPException(status_code=403, detail="clients submit a scan proposal for approval")
-    if not redis_store.get_agent(user["username"]):
-        raise HTTPException(status_code=409, detail="no agent registered; install your agent first")
     # Standard is locked to the full safe-profile stack; Pro chooses (defaults to full).
     tools = FULL_STACK if models.is_client(user["role"]) else (body.tools or FULL_STACK)
-    opts = {} if models.is_client(user["role"]) else body.opts
+    if any(t not in FULL_STACK for t in tools):
+        raise HTTPException(status_code=422, detail=f"tools must be a subset of {FULL_STACK}")
+    try:   # allow-list + clamp; destructive options are lead-pentester-only (safe-profile lock)
+        opts = {} if models.is_client(user["role"]) else scanopts.sanitize(body.opts, user["role"])
+    except scanopts.BadOpts as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not redis_store.get_agent(user["username"]):   # after validation: bad input gets its own error first
+        raise HTTPException(status_code=409, detail="no agent registered; install your agent first")
     try:
         return dispatch.submit_scan(user["username"], user["role"], body.target,
                                     tools, opts=opts, division=body.division)
@@ -467,10 +514,9 @@ def view_password(rid: str, user: dict = Depends(current_user)):
         raise HTTPException(status_code=403, detail="not your report")
     if r["stage"] != models.REPORT_DELIVERED or not r["pdf_password"]:
         raise HTTPException(status_code=409, detail="report not delivered yet")
-    if r["password_viewed"]:
+    if not db.claim_password_view(rid):   # atomic: two simultaneous requests cannot both see it
         raise HTTPException(status_code=403,
                             detail="password already viewed; request re-issue from governance")
-    db.set_report(rid, password_viewed=1)
     return {"password": r["pdf_password"]}
 
 

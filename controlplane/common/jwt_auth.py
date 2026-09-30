@@ -21,9 +21,9 @@ JWT_ALG = "HS256"
 JWT_TTL = int(os.environ.get("JWT_TTL_SECONDS", "3600"))   # 1h session
 
 
-def login(username: str, password: str, ip: str) -> str:
+def login(username: str, password: str, ip: str, otp: str | None = None) -> str:
     """Verify credentials (bcrypt + throttle) and return a signed JWT. Raises on failure."""
-    acct = auth.authenticate(username, password, ip)   # BadCredentials / LockedOut propagate
+    acct = auth.authenticate(username, password, ip, otp)   # BadCredentials / LockedOut / MfaRequired propagate
     now = datetime.datetime.now(datetime.UTC)
     payload = {
         "sub": acct.username,

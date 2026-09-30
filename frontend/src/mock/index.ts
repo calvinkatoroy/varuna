@@ -48,6 +48,9 @@ export async function mockRequest(method: string, path: string, body?: any): Pro
     currentUser = acct ?? fx.me
     return { token: 'mock.jwt.' + currentUser.role }
   }
+  if (m === 'POST' && path === '/api/password') return { ok: true }
+  if (m === 'GET' && path === '/api/templates') return ['Full Technical', 'Formal Handover', 'Executive Summary', 'Raw Findings']
+  if (m === 'GET' && path === '/api/admin/accounts') return Object.values(teamAccounts).map((a) => ({ username: a.username, role: a.role, disabled: 0, created_at: '2026-01-01 00:00:00' }))
   if (m === 'POST' && path === '/api/register') {
     currentUser = fx.me
     return { token: 'mock.jwt.client' }

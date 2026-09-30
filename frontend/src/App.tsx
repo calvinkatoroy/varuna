@@ -11,6 +11,7 @@ import { AuthGate } from './screens/AuthGate'
 import { TeamLogin } from './screens/TeamLogin'
 import TeamBoard from './screens/TeamBoard'
 import FindingsReview from './screens/FindingsReview'
+import TeamAccounts from './screens/TeamAccounts'
 import { Splash } from './components/Splash'
 import { Toaster } from './lib/toast'
 
@@ -88,6 +89,7 @@ export default function App() {
           <Route path="/reports" element={<ClientRoute><ClientReports /></ClientRoute>} />
           <Route path="/team" element={<RoleRoute><TeamBoard /></RoleRoute>} />
           <Route path="/team/findings" element={<RoleRoute><FindingsReview /></RoleRoute>} />
+          <Route path="/team/accounts" element={<RoleRoute><TeamAccounts /></RoleRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       )}
