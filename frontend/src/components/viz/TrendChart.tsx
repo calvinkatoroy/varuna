@@ -21,7 +21,7 @@ export default function TrendChart({ data }: { data: Row[] }) {
     xaxis: {
       categories: data.map((d) => d.month),
       axisBorder: { show: false }, axisTicks: { show: false },
-      labels: { style: { colors: col('--color-ink-faint'), fontFamily: 'inherit', fontSize: '11px' } },
+      labels: { style: { colors: col('--color-ink-faint'), fontFamily: 'inherit', fontSize: '12px' } },
     },
     yaxis: { show: false },
     tooltip: { theme: light ? 'light' : 'dark', y: { formatter: (v) => `${v} open` } },

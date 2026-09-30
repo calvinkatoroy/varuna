@@ -15,7 +15,7 @@ function Section({ icon, title, sub, children }: any) {
   return (
     <section className="border-t border-rule px-6 py-5">
       <div className="mb-4 flex items-center gap-2.5">
-        <span className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-panel text-accent">{icon}</span>
+        <span className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-panel text-accent-ink">{icon}</span>
         <div>
           <h4 className="text-[14px] font-bold tracking-[-0.01em] text-ink">{title}</h4>
           {sub && <div className="text-[11.5px] text-ink-muted">{sub}</div>}
@@ -39,7 +39,7 @@ function SliderRow({ label, value, suffix, min, max, step, onChange }: any) {
 }
 
 const chip = (on: boolean) =>
-  `rounded-pill border px-3 py-1.5 text-[12px] font-semibold capitalize transition-colors ${
+  `min-h-[44px] rounded-pill border px-4 py-1.5 text-[12px] font-semibold capitalize transition-colors md:min-h-[32px] md:px-3 ${
     on ? 'border-accent bg-accent-soft text-accent-ink' : 'border-rule text-ink-muted hover:text-ink'
   }`
 
@@ -127,15 +127,15 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
 
         <div className="flex-1">
           <Section icon={<Search size={16} />} title="Target & auth">
-            <input className="w-full rounded-input border border-rule bg-panel px-3.5 py-3 text-[13px] text-ink outline-none focus:border-accent" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="https://api.acme.io" />
-            <input className="w-full rounded-input border border-rule bg-panel px-3.5 py-3 text-[13px] text-ink outline-none focus:border-accent" value={cookie} onChange={(e) => setCookie(e.target.value)} placeholder="Cookie (authenticated scan)" />
-            <div className="flex items-center justify-between"><span className="text-[13px] text-ink-muted">Log in first (form or JSON)</span><Switch checked={authOn} onCheckedChange={setAuthOn} /></div>
+            <input className="w-full rounded-input border border-rule bg-panel px-3.5 py-3 text-[13px] text-ink outline-none focus:border-accent" value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Target URL" placeholder="https://api.acme.io" />
+            <input className="w-full rounded-input border border-rule bg-panel px-3.5 py-3 text-[13px] text-ink outline-none focus:border-accent" value={cookie} onChange={(e) => setCookie(e.target.value)} aria-label="Session cookie for an authenticated scan" placeholder="Cookie (authenticated scan)" />
+            <div className="flex min-h-[44px] items-center justify-between"><span className="text-[13px] text-ink-muted">Log in first (form or JSON)</span><Switch checked={authOn} onCheckedChange={setAuthOn} /></div>
             {authOn && (
               <div className="space-y-2.5 rounded-input border border-rule bg-panel/60 p-3.5">
                 {([['login_url', 'Login URL or path (/rest/user/login)'], ['username', 'Username'], ['password', 'Password'], ['username_field', 'Username field name'], ['password_field', 'Password field name'], ['token_path', 'Token path in JSON reply (optional, e.g. authentication.token)']] as const).map(([k, ph]) => (
-                  <input key={k} type={k === 'password' ? 'password' : 'text'} autoComplete="off" className="w-full rounded-input border border-rule bg-card px-3 py-2.5 text-[13px] text-ink outline-none focus:border-accent" value={(login as any)[k]} onChange={(e) => setLogin({ ...login, [k]: e.target.value })} placeholder={ph} />
+                  <input key={k} type={k === 'password' ? 'password' : 'text'} autoComplete="off" className="w-full rounded-input border border-rule bg-card px-3 py-2.5 text-[13px] text-ink outline-none focus:border-accent" value={(login as any)[k]} onChange={(e) => setLogin({ ...login, [k]: e.target.value })} placeholder={ph} aria-label={ph} />
                 ))}
-                <div className="flex items-center justify-between"><span className="text-[13px] text-ink-muted">Send as JSON</span><Switch checked={login.json} onCheckedChange={(v) => setLogin({ ...login, json: v })} /></div>
+                <div className="flex min-h-[44px] items-center justify-between"><span className="text-[13px] text-ink-muted">Send as JSON</span><Switch checked={login.json} onCheckedChange={(v) => setLogin({ ...login, json: v })} /></div>
                 <div className="text-[11.5px] text-ink-muted">The login URL must be on the scanned host. Credentials are kept in the job record for 24 hours only.</div>
               </div>
             )}
@@ -144,7 +144,7 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
           <Section icon={<Search size={16} />} title="Discovery" sub="Katana crawl">
             <SliderRow label="Crawl depth" value={depth} min={1} max={5} step={1} onChange={setDepth} />
             <SliderRow label="Crawl duration" value={duration} suffix="s" min={60} max={600} step={30} onChange={setDuration} />
-            <div className="flex items-center justify-between"><span className="text-[13px] text-ink-muted">Headless (JS crawl)</span><Switch checked={headless} onCheckedChange={setHeadless} /></div>
+            <div className="flex min-h-[44px] items-center justify-between"><span className="text-[13px] text-ink-muted">Headless (JS crawl)</span><Switch checked={headless} onCheckedChange={setHeadless} /></div>
           </Section>
 
           <Section icon={<Bug size={16} />} title="Vulnerability scan" sub="Nuclei">
@@ -152,7 +152,7 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
               <div className="mb-2 text-[13px] text-ink-muted">Severity</div>
               <div className="flex flex-wrap gap-2">{SEVS.map((s) => <button key={s} onClick={() => toggle(sev, s, setSev)} className={chip(sev.has(s))}>{s}</button>)}</div>
             </div>
-            <div className="flex items-center justify-between"><span className="text-[13px] text-ink-muted">Include CVE / vuln templates (slower)</span><Switch checked={deep} onCheckedChange={setDeep} /></div>
+            <div className="flex min-h-[44px] items-center justify-between"><span className="text-[13px] text-ink-muted">Include CVE / vuln templates (slower)</span><Switch checked={deep} onCheckedChange={setDeep} /></div>
             <SliderRow label="Rate limit" value={rate} suffix="/s" min={10} max={300} step={10} onChange={setRate} />
             <div>
               <div className="mb-2 text-[13px] text-ink-muted">Template tags</div>
@@ -161,7 +161,7 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
           </Section>
 
           <Section icon={<Database size={16} />} title="SQL injection" sub="SQLMap">
-            <div className="flex items-center justify-between"><span className="text-[13px] text-ink-muted">Enable SQLMap</span><Switch checked={sqlOn} onCheckedChange={setSqlOn} /></div>
+            <div className="flex min-h-[44px] items-center justify-between"><span className="text-[13px] text-ink-muted">Enable SQLMap</span><Switch checked={sqlOn} onCheckedChange={setSqlOn} /></div>
             {sqlOn && (
               <>
                 <SliderRow label="Level" value={level} min={1} max={5} step={1} onChange={setLevel} />
@@ -178,7 +178,7 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
           <Section icon={<Sparkles size={16} />} title="Aggressive" sub="Destructive, gated by the safe-profile lock">
             <div className="rounded-input border border-dashed border-rule bg-panel/60 p-4">
               <div className="mb-3 flex items-center gap-2 text-[12px] font-semibold text-accent-ink"><Lock size={14} /> Lead pentester only. Level above 2, risk above 1, and these switches are refused for other roles.</div>
-              <div className="flex items-center justify-between"><span className="text-[13px] text-ink-muted">SQLMap --dump (extract DB)</span><Switch checked={dump} onCheckedChange={setDump} disabled={!sqlOn} /></div>
+              <div className="flex min-h-[44px] items-center justify-between"><span className="text-[13px] text-ink-muted">SQLMap --dump (extract DB)</span><Switch checked={dump} onCheckedChange={setDump} disabled={!sqlOn} /></div>
               <div className="mt-3 flex items-center justify-between"><span className="text-[13px] text-ink-muted">SQLMap --os-shell (RCE)</span><Switch checked={osShell} onCheckedChange={setOsShell} disabled={!sqlOn} /></div>
             </div>
           </Section>

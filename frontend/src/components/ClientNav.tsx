@@ -13,14 +13,14 @@ const items: [string, string][] = [
 export function ClientNav() {
   const { pathname } = useLocation()
   return (
-    <nav className="mx-auto flex h-11 items-center gap-[3px] rounded-pill border border-rule bg-card p-1 shadow-[0_4px_14px_rgba(0,0,0,.16)]">
+    <nav aria-label="Main" className="mx-auto hidden h-12 items-center gap-[3px] lg:h-11 md:flex rounded-pill border border-rule bg-card p-1 shadow-[0_4px_14px_rgba(0,0,0,.16)]">
       {items.map(([label, to]) => {
         const on = pathname === to
         return (
           <Link
             key={to}
             to={to}
-            className={`flex h-full items-center rounded-pill px-[17px] text-sm leading-none transition-colors ${
+            className={`flex h-full items-center rounded-pill px-[15px] text-sm leading-none lg:px-[17px] transition-colors ${
               on ? 'font-semibold text-white' : 'font-medium text-ink-muted hover:text-ink'
             }`}
             style={on ? { background: 'var(--color-brand-red)', viewTransitionName: 'nav-pill' } : undefined}

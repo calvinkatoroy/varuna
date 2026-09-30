@@ -17,6 +17,8 @@ type F = {
 }
 const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
 const sevLabel: Record<string, string> = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' }
+// The colour tokens are --color-crit / --color-med; asking for --color-critical drew no dot at all.
+const sevVar = (s: string) => ({ critical: 'crit', medium: 'med' } as Record<string, string>)[s] ?? s
 const chip = 'rounded-md border border-rule bg-panel px-1.5 py-0.5 text-[11px] text-ink-muted'
 const assetOf = (f: F) => f.url || f.host
 
@@ -93,21 +95,23 @@ export default function ClientFindings() {
           <section className="rounded-bento border border-rule bg-card">
             {filteredList.length === 0 && <div className="px-5 py-10 text-center text-[13px] text-ink-faint">No findings for {site}.</div>}
             <ul>
-              {filteredList.map((f, i) => {
+              {filteredList.map((f) => {
                 const resolved = f.status === 'fixed'
                 return (
                   <li key={f.id} className="entry" style={{ opacity: 0 }}>
                     <button
                       onClick={() => { setSel(f); setOpen(true) }}
-                      className="group flex w-full items-center gap-4 border-b border-rule px-5 py-4 text-left transition-colors last:border-b-0 hover:bg-panel"
+                      className="group grid min-h-[68px] w-full grid-cols-[1fr_auto] items-start gap-x-3 gap-y-1.5 border-b border-rule px-4 py-4 text-left transition-colors last:border-b-0 hover:bg-panel focus-visible:bg-panel focus-visible:outline-none sm:flex sm:items-center sm:gap-4 sm:px-5"
                     >
-                      <span className="mono w-6 flex-none text-[12px] tabular-nums text-ink-faint">{String(i + 1).padStart(2, '0')}</span>
-                      <span className="flex w-[74px] flex-none items-center gap-2">
-                        <span className="h-2.5 w-2.5 flex-none rounded-full" style={{ background: `var(--color-${f.severity})`, opacity: resolved ? 0.4 : 1 }} />
+                      {/* Phone: severity + state on the first line, the full title (wrapping) below.
+                          The old row squeezed the title to "SQL I…" between fixed columns. The
+                          position number is gone: it renumbered with every filter, so it meant nothing. */}
+                      <span className="col-start-1 row-start-1 flex items-center gap-2 sm:w-[74px] sm:flex-none">
+                        <span className="h-2.5 w-2.5 flex-none rounded-full" style={{ background: `var(--color-${sevVar(f.severity)})`, opacity: resolved ? 0.4 : 1 }} />
                         <span className="text-[12px] text-ink-muted">{sevLabel[f.severity]}</span>
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className={`block truncate text-[15.5px] font-medium ${resolved ? 'text-ink-muted' : 'text-ink'}`}>{f.name}</span>
+                      <span className="col-span-2 row-start-2 min-w-0 sm:col-auto sm:row-auto sm:flex-1">
+                        <span className={`line-clamp-2 block text-[15.5px] font-medium leading-snug sm:line-clamp-none sm:truncate ${resolved ? 'text-ink-muted' : 'text-ink'}`}>{f.name}</span>
                         <span className="mono mt-0.5 block truncate text-[12px] text-ink-faint">{assetOf(f)}</span>
                       </span>
                       <span className="hidden items-center gap-1.5 sm:flex">
@@ -115,8 +119,8 @@ export default function ClientFindings() {
                         <span className={chip} title="Weakness classification">{f.cve ?? '—'}</span>
                       </span>
                       {resolved
-                        ? <span className="w-[76px] flex-none text-right text-[12px] font-medium text-low">Resolved</span>
-                        : <span className="grid h-8 w-8 flex-none place-items-center rounded-full border border-rule text-ink-faint opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-hover:text-ink sm:w-8"><ArrowUpRight size={15} /></span>}
+                        ? <span className="col-start-2 row-start-1 flex-none text-right text-[12px] font-medium text-low sm:w-[76px]">Resolved</span>
+                        : <span className="col-start-2 row-start-1 grid h-8 w-8 flex-none place-items-center rounded-full border border-rule text-ink-faint transition-opacity duration-200 group-hover:text-ink sm:opacity-0 sm:group-hover:opacity-100"><ArrowUpRight size={15} /></span>}
                     </button>
                   </li>
                 )
@@ -132,7 +136,7 @@ export default function ClientFindings() {
             <div className="flex items-start justify-between gap-4 border-b border-rule p-6">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: `var(--color-${sel.severity})` }} />
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: `var(--color-${sevVar(sel.severity)})` }} />
                   <span className="text-[12px] text-ink-muted">{sevLabel[sel.severity]}</span>
                 </div>
                 <DrawerTitle className="mt-2 text-[23px] font-bold tracking-[-0.02em] text-ink">{sel.name}</DrawerTitle>

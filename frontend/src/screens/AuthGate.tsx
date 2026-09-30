@@ -142,7 +142,7 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
                 <button
                   key={m}
                   onClick={() => setMode(m)}
-                  className={`flex-1 rounded-pill py-2 text-[13.5px] font-semibold capitalize transition-colors ${
+                  className={`min-h-[44px] flex-1 rounded-pill py-2 text-[13.5px] font-semibold capitalize transition-colors ${
                     mode === m ? 'bg-card text-ink shadow-sm' : 'text-ink-muted'
                   }`}
                 >
@@ -152,12 +152,12 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
             </div>
             <form onSubmit={submitAuth} className="space-y-4">
               <div>
-                <label className={label}>Username</label>
-                <input className={field} value={u} onChange={(e) => setU(e.target.value)} placeholder="acme" required />
+                <label htmlFor="auth-1" className={label}>Username</label>
+                <input id="auth-1" className={field} value={u} onChange={(e) => setU(e.target.value)} placeholder="acme" required />
               </div>
               <div>
-                <label className={label}>Password</label>
-                <input className={field} type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="••••••••" required />
+                <label htmlFor="auth-2" className={label}>Password</label>
+                <input id="auth-2" className={field} type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="••••••••" required />
               </div>
               {err && <div className="text-[12.5px] text-crit">{err}</div>}
               <Button type="submit" size="lg" className="w-full" disabled={busy}>
@@ -202,7 +202,7 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
             <ul className="mb-6 space-y-2.5">
               <li className="flex items-center gap-2.5 text-[13px] text-ink"><Check size={16} className="text-low" /> Account created</li>
               <li className="flex items-center gap-2.5 text-[13px] text-ink"><Check size={16} className="text-low" /> Proposal submitted</li>
-              <li className="flex items-center gap-2.5 text-[13px] text-ink-muted"><Clock size={16} className="text-accent" /> Pending lead-pentester approval…</li>
+              <li className="flex items-center gap-2.5 text-[13px] text-ink-muted"><Clock size={16} className="text-accent-ink" /> Pending lead-pentester approval…</li>
             </ul>
             {isMock() && (
               <Button variant="outline" size="lg" className="w-full border-dashed" onClick={() => setStep('install')}>

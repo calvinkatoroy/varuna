@@ -54,7 +54,7 @@ export function TwoFactor({ onClose }: { onClose: () => void }) {
               <code className="min-w-0 flex-1 break-all font-mono text-[13px] tracking-wider text-ink" data-testid="mfa-secret">{setup.secret}</code>
               <button type="button" onClick={copy} aria-label="Copy key" className="text-ink-muted hover:text-ink">{copied ? <Check size={15} /> : <Copy size={15} />}</button>
             </div>
-            <a href={setup.uri} className="block text-[12px] font-semibold text-accent">Open in authenticator app (on a phone)</a>
+            <a href={setup.uri} className="block text-[12px] font-semibold text-accent-ink">Open in authenticator app (on a phone)</a>
             <input className={field} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="123456" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
             <Button className="w-full" disabled={code.length !== 6} onClick={enable}>Turn on</Button>
           </>
@@ -64,8 +64,8 @@ export function TwoFactor({ onClose }: { onClose: () => void }) {
           <>
             <p className="text-[13px] font-semibold text-low">Two-factor is on for your account.</p>
             <p className="text-[12.5px] text-ink-muted">To turn it off, confirm your password and a current code.</p>
-            <div><label className={label}>Password</label><input className={field} type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></div>
-            <div><label className={label}>Code</label><input className={field} inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} /></div>
+            <div><label htmlFor="twofa-1" className={label}>Password</label><input id="twofa-1" className={field} type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></div>
+            <div><label htmlFor="twofa-2" className={label}>Code</label><input id="twofa-2" className={field} inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} /></div>
             <Button variant="outline" className="w-full" disabled={!password || code.length !== 6} onClick={disable}>Turn off</Button>
           </>
         )}
