@@ -34,7 +34,7 @@ export default function ResetPassword() {
   }
 
   return (
-    <div className="grid min-h-screen place-items-center bg-shell px-4">
+    <main className="grid min-h-screen place-items-center bg-shell px-4">
       <div className="w-full max-w-[420px] rounded-bento-lg border border-rule bg-card p-8 shadow-[0_30px_80px_-20px_rgba(0,0,0,.6)]">
         <div className="mb-6 flex items-center gap-2.5">
           <BrandMark size={36} />
@@ -64,6 +64,6 @@ export default function ResetPassword() {
           </form>
         )}
       </div>
-    </div>
+    </main>
   )
 }

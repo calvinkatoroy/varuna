@@ -166,3 +166,18 @@ the lead manages team accounts at `/team/accounts`.
 `opts.auth` logs in first for an authenticated scan:
 `{login_url, username, password, username_field, password_field, json, token_path}`. The login URL
 must be on the scanned host. Credentials live only in the job record (24h TTL).
+`opts.auth.form=true` makes the login a classic HTML form: the agent loads the login page first, sends
+its hidden fields (CSRF token) back with the credentials, and fails the scan if the login form comes
+back. `opts.headless` crawls with a browser and uses a locally installed Chrome or Edge when one is
+found (bounded by the crawl-time cap either way).
+Fine tuning (all clamped, none can make a scan destructive): Nuclei `concurrency`, `timeout`,
+`retries`, `exclude_tags` (the safety excludes always stay); SQLMap `threads`, `delay`,
+`sqlmap_timeout`, `dbms`, `random_agent`.
+Out-of-band checks: Nuclei never calls the public `oast.*` servers. Set `opts.interactsh` to your own
+Interactsh server to enable OOB templates for DAST; without it they are skipped, so findings and
+target details stay on-premise.
+
+### Capacity (why SQLite, not Postgres)
+Measured with 12 concurrent writers on the WAL-mode database: 1,800 writes, 0 errors, about 720
+writes/s, p99 under 4 ms. The team and clients never produce that load, so SQLite stays. Revisit
+only if the API logs `database is locked` errors.

@@ -15,6 +15,7 @@ SEVERITIES = ("info", "low", "medium", "high", "critical")
 TAGS = {"cves": "cve", "cve": "cve", "misconfig": "misconfig", "exposures": "exposure", "exposure": "exposure",
         "xss": "xss", "sqli": "sqli", "lfi": "lfi", "rce": "rce", "takeover": "takeover", "tech": "tech"}
 TECHNIQUES = set("BEUSTQ")
+DBMS = {"mysql", "postgresql", "mssql", "oracle", "sqlite", "mariadb"}
 AUTH_KEYS = ("login_url", "username", "password", "username_field", "password_field", "token_path")
 
 
@@ -60,6 +61,28 @@ def sanitize(opts: dict | None, role: str) -> dict:
         tags = sorted({TAGS[t] for t in o["tags"] if t in TAGS}) if isinstance(o["tags"], list) else []
         if tags:
             out["tags"] = tags
+    # Extra tuning knobs: all inside ranges that cannot make a scan destructive.
+    for k, lo, hi in (("concurrency", 1, 50), ("timeout", 1, 60), ("retries", 0, 5), ("threads", 1, 10), ("sqlmap_timeout", 5, 120)):
+        if k in o:
+            out[k] = _int(o[k], lo, hi, k)
+    if "delay" in o:
+        try:
+            d = float(o["delay"])
+        except (TypeError, ValueError):
+            raise BadOpts("delay must be a number")
+        if not 0 <= d <= 10:
+            raise BadOpts("delay must be between 0 and 10 seconds")
+        out["delay"] = d
+    if o.get("random_agent"):
+        out["random_agent"] = True
+    if o.get("dbms"):
+        if str(o["dbms"]).lower() not in DBMS:
+            raise BadOpts("dbms must be one of " + ", ".join(sorted(DBMS)))
+        out["dbms"] = str(o["dbms"]).lower()
+    if "exclude_tags" in o:
+        ex = sorted({TAGS[t] for t in o["exclude_tags"] if t in TAGS}) if isinstance(o["exclude_tags"], list) else []
+        if ex:
+            out["exclude_tags"] = ex
     if o.get("cookie"):
         out["cookie"] = _str(o["cookie"], "cookie", 4096)
     if o.get("interactsh"):
@@ -70,6 +93,7 @@ def sanitize(opts: dict | None, role: str) -> dict:
             raise BadOpts("auth needs login_url, username and password")
         out["auth"] = {k: _str(a[k], f"auth.{k}", 512) for k in AUTH_KEYS if a.get(k)}
         out["auth"]["json"] = bool(a.get("json"))
+        out["auth"]["form"] = bool(a.get("form"))
     # SQLMap: level/risk/technique are validated; anything above the safe profile, and the
     # destructive switches, require an explicit `aggressive` opt-in.
     for k, lo, hi in (("level", 1, 5), ("risk", 1, 3)):

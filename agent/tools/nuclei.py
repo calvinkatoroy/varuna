@@ -29,7 +29,9 @@ def build(urls_file: str, outfile: str, severity: str = DEFAULT_SEVERITY,
           dast: bool = True, interactsh: str | None = None,
           rate: int = SAFE_RATE, cookie: str | None = None, header: str | None = None,
           max_host_error: int = MAX_HOST_ERROR, surface: bool = False,
-          deep: bool = False, tags: list[str] | None = None) -> list[str]:
+          deep: bool = False, tags: list[str] | None = None, concurrency: int | None = None,
+          timeout: int | None = None, retries: int | None = None,
+          exclude_tags: list[str] | None = None) -> list[str]:
     cmd = [
         "nuclei", "-l", urls_file,          # Katana's output (REQ-21)
         "-jsonl", "-o", outfile,
@@ -37,13 +39,20 @@ def build(urls_file: str, outfile: str, severity: str = DEFAULT_SEVERITY,
         "-rate-limit", str(rate),           # NFR-17 always set
         "-mhe", str(max_host_error),        # tolerate a heavy app's errors before skipping it
     ]
+    etags = EXCLUDE_TAGS + "".join("," + t for t in (exclude_tags or []))   # the safety excludes always stay
     if surface:
-        cmd += ["-tags", ",".join(tags) if tags else (DEEP_TAGS if deep else SURFACE_TAGS), "-etags", EXCLUDE_TAGS,
-                "-timeout", "5", "-retries", "0", "-c", "10", "-ni"]   # -ni: no OOB callbacks
+        cmd += ["-tags", ",".join(tags) if tags else (DEEP_TAGS if deep else SURFACE_TAGS), "-etags", etags,
+                "-timeout", str(timeout or 5), "-retries", str(0 if retries is None else retries),
+                "-c", str(concurrency or 10)]
     elif dast:
         cmd.append("-dast")                 # reflected/DOM fuzzing (REQ-21b)
-    if interactsh:
-        cmd += ["-interactsh-server", interactsh]   # self-hosted OOB (REQ-21b)
+        for flag, val in (("-timeout", timeout), ("-retries", retries), ("-c", concurrency)):
+            if val is not None:
+                cmd += [flag, str(val)]
+    if interactsh and not surface:
+        cmd += ["-interactsh-server", interactsh]   # OOB only against the team's own server (REQ-21b)
+    else:
+        cmd.append("-ni")                   # never call out to the public oast.* servers: findings stay on-premise
     if cookie:
         cmd += ["-H", f"Cookie: {cookie}"]  # authenticated scan (REQ-21a)
     if header:

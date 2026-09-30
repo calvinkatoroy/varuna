@@ -45,7 +45,8 @@ const chip = (on: boolean) =>
 
 export type ScanOpts = {
   target: string; cookie?: string; depth: number; crawl_duration: number; headless: boolean; deep: boolean
-  auth?: { login_url: string; username: string; password: string; username_field: string; password_field: string; json: boolean; token_path: string }
+  auth?: { login_url: string; username: string; password: string; username_field: string; password_field: string; json: boolean; form: boolean; token_path: string }
+  tune?: Record<string, number | string | boolean>
   nuclei: { severity: string[]; rate_limit: number; tags: string[] }
   sqlmap: { level: number; risk: number; techniques: string; dump: boolean; os_shell: boolean } | false
 }
@@ -60,6 +61,7 @@ export function toApiOpts(o: ScanOpts): Record<string, unknown> {
     depth: o.depth, crawl_duration: o.crawl_duration, headless: o.headless, deep: o.deep,
     rate: o.nuclei.rate_limit, severity: o.nuclei.severity, tags: o.nuclei.tags,
     ...(o.cookie ? { cookie: o.cookie } : {}),
+    ...(o.tune ?? {}),
     ...(o.auth ? { auth: o.auth } : {}),
     ...(s ? { level: s.level, risk: s.risk, technique: s.techniques, ...(aggressive ? { aggressive: true } : {}), ...(s.dump ? { dump: true } : {}), ...(s.os_shell ? { os_shell: true } : {}) } : {}),
   }
@@ -75,7 +77,10 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
   const [headless, setHeadless] = useState(false)
   const [deep, setDeep] = useState(false)
   const [authOn, setAuthOn] = useState(false)
-  const [login, setLogin] = useState({ login_url: '', username: '', password: '', username_field: 'username', password_field: 'password', json: false, token_path: '' })
+  const [login, setLogin] = useState({ login_url: '', username: '', password: '', username_field: 'username', password_field: 'password', json: false, form: false, token_path: '' })
+  // Optional fine tuning: empty = the tool's own default. Server clamps every value (scanopts.py).
+  const [tune, setTune] = useState<Record<string, string>>({})
+  const [randomAgent, setRandomAgent] = useState(false)
   const [sev, setSev] = useState<Set<string>>(new Set(['medium', 'high', 'critical']))
   const [rate, setRate] = useState(150)
   const [tags, setTags] = useState<Set<string>>(new Set(['cves', 'misconfig', 'exposures']))
@@ -104,10 +109,14 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
     () => ({
       target, cookie: cookie || undefined, depth, crawl_duration: duration, headless, deep,
       auth: authOn && login.login_url && login.username ? login : undefined,
+      tune: {
+        ...Object.fromEntries(Object.entries(tune).filter(([, v]) => v !== '').map(([k, v]) => [k, k === 'dbms' ? v : Number(v)])),
+        ...(randomAgent ? { random_agent: true } : {}),
+      },
       nuclei: { severity: [...sev], rate_limit: rate, tags: [...tags] },
       sqlmap: sqlOn ? { level, risk, techniques: [...techs].join(''), dump, os_shell: osShell } : false,
     }),
-    [target, cookie, depth, duration, headless, deep, authOn, login, sev, rate, tags, sqlOn, level, risk, techs, dump, osShell],
+    [target, cookie, depth, duration, headless, deep, authOn, login, tune, randomAgent, sev, rate, tags, sqlOn, level, risk, techs, dump, osShell],
   )
 
   return (
@@ -135,7 +144,8 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
                 {([['login_url', 'Login URL or path (/rest/user/login)'], ['username', 'Username'], ['password', 'Password'], ['username_field', 'Username field name'], ['password_field', 'Password field name'], ['token_path', 'Token path in JSON reply (optional, e.g. authentication.token)']] as const).map(([k, ph]) => (
                   <input key={k} type={k === 'password' ? 'password' : 'text'} autoComplete="off" className="w-full rounded-input border border-rule bg-card px-3 py-2.5 text-[13px] text-ink outline-none focus:border-accent" value={(login as any)[k]} onChange={(e) => setLogin({ ...login, [k]: e.target.value })} placeholder={ph} aria-label={ph} />
                 ))}
-                <div className="flex min-h-[44px] items-center justify-between"><span className="text-[13px] text-ink-muted">Send as JSON</span><Switch checked={login.json} onCheckedChange={(v) => setLogin({ ...login, json: v })} /></div>
+                <div className="flex min-h-[44px] items-center justify-between"><span className="text-[13px] text-ink-muted">Send as JSON</span><Switch checked={login.json} onCheckedChange={(v) => setLogin({ ...login, json: v, form: v ? false : login.form })} /></div>
+                <div className="flex min-h-[44px] items-center justify-between"><span className="text-[13px] text-ink-muted">HTML login page (keeps CSRF token)</span><Switch checked={login.form} onCheckedChange={(v) => setLogin({ ...login, form: v, json: v ? false : login.json })} /></div>
                 <div className="text-[11.5px] text-ink-muted">The login URL must be on the scanned host. Credentials are kept in the job record for 24 hours only.</div>
               </div>
             )}
@@ -173,6 +183,27 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
               </>
             )}
           </Section>
+
+          <details className="border-t border-rule px-6 py-4">
+            <summary className="flex min-h-[44px] cursor-pointer items-center text-[13px] font-bold text-ink">Fine tuning (optional)</summary>
+            <p className="mb-3 text-[11.5px] text-ink-muted">Leave a box empty to keep the tool default. None of these can make a scan destructive.</p>
+            <div className="grid grid-cols-2 gap-2.5">
+              {([['concurrency', 'Nuclei parallel templates', 1, 50], ['timeout', 'Nuclei timeout (s)', 1, 60], ['retries', 'Retries', 0, 5],
+                ['threads', 'SQLMap threads', 1, 10], ['delay', 'SQLMap delay (s)', 0, 10], ['sqlmap_timeout', 'SQLMap timeout (s)', 5, 120]] as const).map(([k, l, lo, hi]) => (
+                <label key={k} className="text-[12px] text-ink-muted">{l}
+                  <input type="number" min={lo} max={hi} step={k === 'delay' ? 0.5 : 1} inputMode="decimal" className="mt-1 min-h-[44px] w-full rounded-input border border-rule bg-panel px-3 py-2 text-[13px] text-ink outline-none focus:border-accent"
+                    value={tune[k] ?? ''} onChange={(e) => setTune({ ...tune, [k]: e.target.value })} />
+                </label>
+              ))}
+              <label className="col-span-2 text-[12px] text-ink-muted">Database type (skips guessing)
+                <select className="mt-1 min-h-[44px] w-full rounded-input border border-rule bg-panel px-3 py-2 text-[13px] text-ink outline-none focus:border-accent" value={tune.dbms ?? ''} onChange={(e) => setTune({ ...tune, dbms: e.target.value })}>
+                  <option value="">Detect automatically</option>
+                  {['mysql', 'postgresql', 'mssql', 'oracle', 'sqlite', 'mariadb'].map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="mt-2 flex min-h-[44px] items-center justify-between"><span className="text-[13px] text-ink-muted">SQLMap random User-Agent</span><Switch checked={randomAgent} onCheckedChange={setRandomAgent} /></div>
+          </details>
 
           {/* aggressive, gated */}
           <Section icon={<Sparkles size={16} />} title="Aggressive" sub="Destructive, gated by the safe-profile lock">

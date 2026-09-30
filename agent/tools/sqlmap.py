@@ -15,11 +15,13 @@ THREADS = 4
 def build(urls_file: str, outdir: str, aggressive: bool = False,
           tamper: str | None = None, cookie: str | None = None, header: str | None = None,
           dump: bool = False, os_shell: bool = False,
-          level: int | None = None, risk: int | None = None, technique: str | None = None) -> list[str]:
+          level: int | None = None, risk: int | None = None, technique: str | None = None,
+          dbms: str | None = None, threads: int | None = None, delay: float | None = None,
+          timeout: int | None = None, retries: int | None = None, random_agent: bool = False) -> list[str]:
     cmd = [
         "sqlmap", "-m", urls_file,   # Katana's output (REQ-21)
         "--batch", "--forms",
-        "--threads", str(THREADS),   # detection-only, so parallel requests are safe; ~4x faster per target
+        "--threads", str(threads or THREADS),   # detection-only, so parallel requests are safe; ~4x faster per target
         "--output-dir", outdir,
     ]
     if technique:
@@ -35,6 +37,16 @@ def build(urls_file: str, outdir: str, aggressive: bool = False,
         # Safe profile: detection-only, never destructive (NFR-18). Level 2 only adds cookie/header
         # parameter tests; risk stays 1 (no heavy/time-based-write payloads).
         cmd += ["--level", str(min(level or 1, 2)), "--risk", "1"]
+    if dbms:
+        cmd += ["--dbms", dbms]              # skip fingerprinting when the back end is known
+    if delay:
+        cmd += ["--delay", str(delay)]       # be gentle on a fragile target
+    if timeout:
+        cmd += ["--timeout", str(timeout)]
+    if retries is not None:
+        cmd += ["--retries", str(retries)]
+    if random_agent:
+        cmd.append("--random-agent")
     if tamper:
         cmd += ["--tamper", tamper]          # WAF evasion (REQ-21c)
     if cookie:

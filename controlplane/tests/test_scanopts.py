@@ -79,3 +79,15 @@ def test_tools_honour_the_validated_options():
     assert agg[agg.index("--level") + 1] == "4" and agg[agg.index("--risk") + 1] == "2"
     n = nuclei.build("u", "o", surface=True, tags=["xss", "exposure"], severity="high,critical")
     assert n[n.index("-tags") + 1] == "xss,exposure" and n[n.index("-severity") + 1] == "high,critical"
+
+
+def test_new_tuning_knobs_are_validated_and_clamped():
+    import pytest
+    o = scanopts.sanitize({"concurrency": 5, "timeout": 12, "retries": 1, "threads": 6, "delay": "0.5",
+                           "random_agent": 1, "dbms": "MySQL", "exclude_tags": ["xss", "nope"], "sqlmap_timeout": 30}, "pentester")
+    assert o == {"concurrency": 5, "timeout": 12, "retries": 1, "threads": 6, "delay": 0.5, "random_agent": True,
+                 "dbms": "mysql", "exclude_tags": ["xss"], "sqlmap_timeout": 30}
+    for bad in ({"threads": 99}, {"delay": 99}, {"dbms": "x; rm -rf /"}, {"concurrency": 0}, {"delay": "abc"}):
+        with pytest.raises(scanopts.BadOpts):
+            scanopts.sanitize(bad, "pentester")
+    assert scanopts.sanitize({"auth": {"login_url": "/l", "username": "u", "password": "p", "form": 1}}, "pentester")["auth"]["form"] is True

@@ -13,12 +13,29 @@ Safe by default: destructive paths are excluded and forms are never auto-submitt
 """
 from __future__ import annotations
 
+import os
+import shutil
+
 # NFR-19 destructive-path deny-list, applied as an out-of-scope crawl regex.
 DENY_PATHS = "logout|signout|signoff|delete|remove|destroy|drop|admin/delete"
 
 DEFAULT_DEPTH = 3
 DEFAULT_CRAWL_DURATION = "3m"   # cap: heavy targets finish and yield coverage, never hang
 DEFAULT_RATE = 100              # requests/sec (NFR-17)
+
+
+def _system_browser() -> str | None:
+    """A locally installed Chrome/Edge. Katana's own bundled browser download is the part that hangs
+    or fails on locked-down machines; an installed browser is reliable (verified against Juice Shop)."""
+    for name in ("chrome", "google-chrome", "chromium", "chromium-browser", "msedge"):
+        if p := shutil.which(name):
+            return p
+    for base in (os.environ.get("ProgramFiles", ""), os.environ.get("ProgramFiles(x86)", ""), os.environ.get("LocalAppData", "")):
+        for rel in ("Google/Chrome/Application/chrome.exe", "Microsoft/Edge/Application/msedge.exe"):
+            p = os.path.join(base, rel) if base else ""
+            if p and os.path.exists(p):
+                return p
+    return None
 
 
 def build(target: str, outfile: str, cookie: str | None = None, header: str | None = None, headless: bool = False,
@@ -37,6 +54,8 @@ def build(target: str, outfile: str, cookie: str | None = None, header: str | No
     ]
     if headless:
         cmd.append("-headless")       # render JS SPAs so client-side routes are discovered
+        if browser := _system_browser():
+            cmd += ["-scp", browser]
     # -aff (automatic form fill/submit) intentionally NOT set, so destructive forms are never
     # auto-submitted (NFR-19).
     if cookie:

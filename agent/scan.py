@@ -129,7 +129,23 @@ def filter_targets(urls, seed: str) -> tuple[list[str], list[str]]:
     return nuclei_t, list(dict.fromkeys(with_params + pages[:MAX_FORM_PAGES]))
 
 
-def authenticate(auth: dict, seed: str, post=None) -> dict:
+_HIDDEN = re.compile(r"<input\b[^>]*>", re.I)
+
+
+def _hidden_fields(html: str) -> dict:
+    """name -> value of the page's hidden inputs (CSRF tokens and the like)."""
+    out = {}
+    for tag in _HIDDEN.findall(html or ""):
+        if not re.search(r"type\s*=\s*[\"']?hidden", tag, re.I):
+            continue
+        n = re.search(r"name\s*=\s*[\"']([^\"']+)", tag, re.I)
+        v = re.search(r"value\s*=\s*[\"']([^\"']*)", tag, re.I)
+        if n:
+            out[n.group(1)] = v.group(1) if v else ""
+    return out
+
+
+def authenticate(auth: dict, seed: str, post=None, get=None) -> dict:
     """Log in once (team-supplied credentials, advanced scans only) and return session material
     for the tools: {"cookie": "a=b; c=d", "header": "Authorization: Bearer ..."} (either may be
     absent). auth: login_url, username, password, username_field/password_field (default
@@ -146,9 +162,16 @@ def authenticate(auth: dict, seed: str, post=None) -> dict:
     body = {auth.get("username_field", "username"): auth.get("username", ""),
             auth.get("password_field", "password"): auth.get("password", "")}
     with httpx.Client(timeout=20, follow_redirects=True, verify=False) as c:
+        if auth.get("form") and not auth.get("json"):
+            # Classic HTML login form: load the page first (session cookie + hidden CSRF fields), then submit.
+            page = (get or c.get)(login)
+            body = {**_hidden_fields(page.text), **body}
         r = (post or c.post)(login, **({"json": body} if auth.get("json") else {"data": body}))
         if r.status_code >= 400:
             raise RuntimeError(f"login failed (HTTP {r.status_code})")
+        if auth.get("form") and not auth.get("json") and re.search(
+                r"type\s*=\s*[\"']?password", r.text or "", re.I):
+            raise RuntimeError("login failed (the login form came back: check the credentials)")
         out = {}
         cookies = "; ".join(f"{k}={v}" for k, v in c.cookies.items())
         if cookies:
@@ -258,6 +281,11 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None,
     # Local/staging targets tolerate a faster Nuclei; public ones keep the conservative rate (NFR-17).
     rate = opts.get("rate") or (nuclei.LOCAL_RATE if job.get("target_class") == "local" else nuclei.SAFE_RATE)
 
+    _nuclei_knobs = {k: opts[k] for k in ("concurrency", "timeout", "retries", "exclude_tags") if k in opts}
+    _sqlmap_knobs = {k: opts[k] for k in ("dbms", "threads", "delay", "retries", "random_agent") if k in opts}
+    if "sqlmap_timeout" in opts:
+        _sqlmap_knobs["timeout"] = opts["sqlmap_timeout"]
+
     def _nuclei_dast():
         print(f"[{seed}] running nuclei (DAST) on {len(nuclei_targets)} target(s) (up to {TOOL_TIMEOUT}s)...")
         try:
@@ -265,6 +293,7 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None,
                 targets_file, os.path.join(workdir, "nuclei.jsonl"),
                 interactsh=opts.get("interactsh"), cookie=cookie, header=header, rate=int(rate),
                 severity=",".join(opts["severity"]) if opts.get("severity") else nuclei.DEFAULT_SEVERITY,
+                **_nuclei_knobs,
             ))
         except Exception:
             return None
@@ -281,6 +310,7 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None,
                 origin_file, os.path.join(workdir, "nuclei_surface.jsonl"), cookie=cookie, header=header,
                 rate=int(rate), surface=True, deep=bool(opts.get("deep", False)), tags=opts.get("tags"),
                 severity=",".join(opts["severity"]) if opts.get("severity") else nuclei.DEFAULT_SEVERITY,
+                **_nuclei_knobs,
             ))
         except Exception:
             return None
@@ -304,6 +334,7 @@ def run_scan(job: dict, run=default_run, workdir: str | None = None, fetch=None,
                 dump=bool(opts.get("dump", False)), os_shell=bool(opts.get("os_shell", False)),
                 tamper=opts.get("tamper"), cookie=cookie, header=header,
                 level=opts.get("level"), risk=opts.get("risk"), technique=opts.get("technique"),
+                **_sqlmap_knobs,
             ))
             return "sqlmap", out, "done"
         except Exception:

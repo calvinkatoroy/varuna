@@ -141,6 +141,7 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
     <div className="fixed inset-0 z-50 grid place-items-center bg-shell/55 px-4 backdrop-blur-[2px]">
       <div
         ref={cardRef}
+        role="dialog" aria-modal="true" aria-label="Sign in to Varuna"
         className={`w-full ${step === 'proposal' ? 'max-w-[600px]' : 'max-w-[440px]'} rounded-bento-lg border border-rule bg-card p-8 shadow-[0_30px_80px_-20px_rgba(0,0,0,.6)]`}
       >
         {/* brand */}

@@ -37,7 +37,7 @@ export function TeamLogin() {
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-shell/55 px-4 backdrop-blur-[2px]">
-      <div className="w-full max-w-[400px] rounded-bento-lg border border-rule bg-card p-8 shadow-[0_30px_80px_-20px_rgba(0,0,0,.6)]">
+      <div role="dialog" aria-modal="true" aria-label="Team sign in" className="w-full max-w-[400px] rounded-bento-lg border border-rule bg-card p-8 shadow-[0_30px_80px_-20px_rgba(0,0,0,.6)]">
         <div className="mb-6 flex items-center gap-2.5">
           <BrandMark size={36} />
           <span className="text-[19px] font-bold tracking-[-0.02em] text-ink">Varuna</span>

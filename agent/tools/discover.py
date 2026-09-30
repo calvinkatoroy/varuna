@@ -20,7 +20,7 @@ _SCRIPT_RE = re.compile(r'<script[^>]+src=["\']([^"\']+\.js)["\']', re.I)
 # string literal ending in "?q=", so the trailing query key is captured too when present -
 # that's what lets SQLMap test a real parameter instead of just a bare path.
 _ENDPOINT_RE = re.compile(
-    r'["\'/](?:api|rest)/[A-Za-z0-9][A-Za-z0-9_/-]*(?:\?[A-Za-z0-9_]+=(?:&[A-Za-z0-9_]+=)*)?',
+    r'["\'`/](?:api|rest)/[A-Za-z0-9][A-Za-z0-9_/-]*(?:\?[A-Za-z0-9_]+=[^"\'`\s$&]*(?:&[A-Za-z0-9_]+=[^"\'`\s$&]*)*)?',
     re.I,
 )
 
@@ -42,7 +42,7 @@ def js_endpoints(seed: str, fetch, max_bundles: int = 12) -> list[str]:
         except Exception:
             continue
         for match in _ENDPOINT_RE.findall(body):
-            path = match.lstrip("\"'/")            # -> api/Products
+            path = match.lstrip("\"'`/")            # -> api/Products
             endpoints.add(urljoin(seed, "/" + path))
     return sorted(endpoints)
 

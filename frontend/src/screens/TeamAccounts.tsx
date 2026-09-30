@@ -36,6 +36,7 @@ export default function TeamAccounts() {
 
   return (
     <div className="mx-auto max-w-[1000px] p-[clamp(10px,2vw,28px)]">
+      <a href="#main" className="sr-only rounded-pill bg-cta-bg px-4 py-2 text-[13px] font-semibold text-cta-fg focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[70] focus:px-5 focus:py-3 focus:shadow-lg">Skip to content</a>
       <header className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-bento-lg bg-card px-5 py-3.5 sm:px-6">
         <Link to="/team" aria-label="Back to the board" className="-ml-2 grid h-11 w-11 place-items-center rounded-full text-ink-muted hover:text-ink sm:hidden"><ArrowLeft size={20} /></Link>
         <Link to="/team" className="hidden items-center gap-2.5 text-[18px] font-bold tracking-[-0.02em] text-ink sm:flex"><BrandMark size={28} /> Varuna</Link>
@@ -46,6 +47,7 @@ export default function TeamAccounts() {
         </div>
       </header>
 
+      <main id="main" tabIndex={-1} className="focus:outline-none">
       <form onSubmit={create} className="mb-5 grid gap-3 rounded-bento bg-card p-5 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
         <label className="block"><span className="mb-1 block text-[12.5px] text-ink-muted">Username</span><input className={field} value={n.username} onChange={(e) => setN({ ...n, username: e.target.value })} required minLength={3} autoComplete="off" /></label>
         <label className="block"><span className="mb-1 block text-[12.5px] text-ink-muted">Password (8 or more characters)</span><input className={field} type="password" autoComplete="new-password" value={n.password} onChange={(e) => setN({ ...n, password: e.target.value })} required minLength={8} /></label>
@@ -101,6 +103,8 @@ export default function TeamAccounts() {
           </div>
         </>
       )}
+      </main>
+
     </div>
   )
 }

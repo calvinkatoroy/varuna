@@ -250,3 +250,66 @@ def test_auth_header_reaches_every_tool():
     h = "Authorization: Bearer abc"
     assert h in katana.build("t", "o", header=h) and h in nuclei.build("u", "o", header=h)
     assert h in sqlmap.build("u", "o", header=h)
+
+
+def test_nuclei_never_calls_public_oast_unless_a_team_server_is_given():
+    assert "-ni" in nuclei.build("u", "o")                                   # DAST
+    assert "-ni" in nuclei.build("u", "o", surface=True)
+    own = nuclei.build("u", "o", interactsh="oast.internal.example")
+    assert "-ni" not in own and own[own.index("-interactsh-server") + 1] == "oast.internal.example"
+
+
+def test_nuclei_extra_knobs_never_drop_the_safety_excludes():
+    cmd = nuclei.build("u", "o", surface=True, concurrency=3, timeout=9, retries=2, exclude_tags=["xss"])
+    assert cmd[cmd.index("-c") + 1] == "3" and cmd[cmd.index("-timeout") + 1] == "9" and cmd[cmd.index("-retries") + 1] == "2"
+    etags = cmd[cmd.index("-etags") + 1].split(",")
+    assert {"dos", "intrusive", "brute-force"} <= set(etags) and "xss" in etags
+    dast = nuclei.build("u", "o", concurrency=5)
+    assert dast[dast.index("-c") + 1] == "5"
+
+
+def test_sqlmap_extra_knobs_stay_detection_only():
+    cmd = sqlmap.build("u", "o", dbms="mysql", threads=8, delay=1.5, timeout=20, retries=1, random_agent=True, dump=True, os_shell=True)
+    assert cmd[cmd.index("--dbms") + 1] == "mysql" and cmd[cmd.index("--threads") + 1] == "8"
+    assert cmd[cmd.index("--delay") + 1] == "1.5" and "--random-agent" in cmd
+    assert "--dump" not in cmd and "--os-shell" not in cmd                    # still needs aggressive
+
+
+def test_js_endpoint_discovery_keeps_literal_and_multiple_query_params():
+    bundle = 'a("rest/products/search?q=apple"); b(`api/Users/list?page=1&size=20`); c("api/Orders")'
+    eps = discover.js_endpoints("http://t", lambda u: '<script src="m.js"></script>' if u == "http://t" else bundle)
+    assert "http://t/rest/products/search?q=apple" in eps
+    assert "http://t/api/Users/list?page=1&size=20" in eps
+    assert "http://t/api/Orders" in eps
+
+
+def test_form_login_loads_the_page_first_and_sends_csrf_fields():
+    sent = {}
+
+    class Resp:
+        def __init__(self, text="", status=200): self.text, self.status_code = text, status
+
+    page = '<form><input type="hidden" name="csrf" value="tok123"><input name="username"><input type="password" name="password"></form>'
+
+    def get(url): return Resp(page)
+    def post(url, **kw):
+        sent.update(kw.get("data", {})); return Resp("Welcome back")
+
+    import httpx
+    orig = httpx.Client
+    try:
+        class C(orig):
+            @property
+            def cookies(self):
+                class J(dict): pass
+                return J(sid="abc")
+        httpx.Client = C
+        out = scan.authenticate({"login_url": "/login", "username": "u", "password": "p", "form": True}, "http://t", post=post, get=get)
+    finally:
+        httpx.Client = orig
+    assert sent == {"csrf": "tok123", "username": "u", "password": "p"} and out == {"cookie": "sid=abc"}
+
+    import pytest
+    with pytest.raises(RuntimeError, match="login form came back"):
+        scan.authenticate({"login_url": "/login", "username": "u", "password": "bad", "form": True}, "http://t",
+                          post=lambda url, **kw: Resp(page), get=get)

@@ -217,6 +217,7 @@ export default function TeamBoard() {
 
   return (
     <div className="mx-auto max-w-[1500px] p-[clamp(10px,2vw,28px)]">
+      <a href="#main" className="sr-only rounded-pill bg-cta-bg px-4 py-2 text-[13px] font-semibold text-cta-fg focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[70] focus:px-5 focus:py-3 focus:shadow-lg">Skip to content</a>
       {/* team header band */}
       <header
         className="relative flex flex-wrap items-center gap-4 overflow-hidden rounded-bento-lg px-[clamp(18px,2.4vw,30px)] py-5 text-[#F2F5EF]"
@@ -270,6 +271,7 @@ export default function TeamBoard() {
         </div>
       </header>
 
+      <main id="main" tabIndex={-1} className="focus:outline-none">
       {/* kanban */}
       {error ? (
         <ErrorRetry message={error} onRetry={refetchBoard} />
@@ -496,6 +498,8 @@ export default function TeamBoard() {
         )}
       </Drawer>
       <AdvancedScanDrawer open={scanOpen} onOpenChange={setScanOpen} onLaunch={launchScan} />
+      </main>
+
     </div>
   )
 }
