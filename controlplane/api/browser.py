@@ -512,10 +512,9 @@ def view_password(rid: str, user: dict = Depends(current_user)):
         raise HTTPException(status_code=403, detail="not your report")
     if r["stage"] != models.REPORT_DELIVERED or not r["pdf_password"]:
         raise HTTPException(status_code=409, detail="report not delivered yet")
-    if r["password_viewed"]:
+    if not db.claim_password_view(rid):   # atomic: two simultaneous requests cannot both see it
         raise HTTPException(status_code=403,
                             detail="password already viewed; request re-issue from governance")
-    db.set_report(rid, password_viewed=1)
     return {"password": r["pdf_password"]}
 
 

@@ -317,3 +317,58 @@ def test_stalled_scans_are_failed_after_the_agent_is_silent_too_long():
     card = next(c for c in next(x for x in board.build_board() if x["id"] == "scanning")["cards"] if c["jobId"] == jid)
     assert card["meta"].startswith("Failed:") and "offline" in card["meta"]
     assert board.reap_stalled(now=later) == 0                          # idempotent
+
+
+def test_concurrent_forwards_deliver_exactly_once(tmp_path):
+    import store as report_store
+    import pdf_deliver
+    from reportlab.pdfgen import canvas
+    report_store.REPORTS_DIR = str(tmp_path)
+
+    def fake_pdf(_):                       # no LibreOffice in tests; count how many deliveries run
+        calls.append(1)
+        b = io.BytesIO(); c = canvas.Canvas(b); c.drawString(72, 720, "x"); c.showPage(); c.save()
+        return b.getvalue()
+    calls = []
+    old = pdf_deliver.CONVERT
+    pdf_deliver.CONVERT = fake_pdf
+    try:
+        Hg = _h("hani9", "governance")
+        rid = db.create_report(job_id="jr", owner="dan", stage=models.REPORT_GOVERNANCE)
+        db.add_report_version(rid, filename=f"{rid}_v1.docx", editor="x")
+        report_store.save_report_file(f"{rid}_v1.docx", _docx("final"))
+        with cf.ThreadPoolExecutor(8) as ex:
+            codes = list(ex.map(lambda _: priv.post(f"/api/pipeline/reports/{rid}/forward", headers=Hg).status_code, range(8)))
+        assert codes.count(200) == 1, codes            # one delivery wins, the rest are refused
+        assert set(codes) <= {200, 409}, codes
+        assert len(calls) == 1, "the PDF must be produced once, with one password"
+        assert db.get_report(rid)["stage"] == models.REPORT_DELIVERED
+    finally:
+        pdf_deliver.CONVERT = old
+
+
+def test_failed_delivery_puts_the_report_back(tmp_path):
+    import store as report_store
+    import pdf_deliver
+    report_store.REPORTS_DIR = str(tmp_path)
+    old = pdf_deliver.CONVERT
+    pdf_deliver.CONVERT = lambda _: (_ for _ in ()).throw(RuntimeError("soffice died"))
+    try:
+        Hg = _h("hani10", "governance")
+        rid = db.create_report(job_id="jr2", owner="dan", stage=models.REPORT_GOVERNANCE)
+        db.add_report_version(rid, filename=f"{rid}_v1.docx", editor="x")
+        report_store.save_report_file(f"{rid}_v1.docx", _docx("final"))
+        assert priv.post(f"/api/pipeline/reports/{rid}/forward", headers=Hg).status_code == 502
+        assert db.get_report(rid)["stage"] == models.REPORT_GOVERNANCE, "not stuck in a transient stage"
+    finally:
+        pdf_deliver.CONVERT = old
+
+
+def test_view_once_password_is_shown_once_even_under_concurrency():
+    redis_store._client = FakeRedis()
+    Hc = _h("vera", "client")
+    rid = db.create_report(job_id="jv", owner="vera", stage=models.REPORT_DELIVERED)
+    db.set_report(rid, pdf_password="s3cr3t", delivered_pdf="x.pdf", password_viewed=0)
+    with cf.ThreadPoolExecutor(8) as ex:
+        codes = list(ex.map(lambda _: pub.get(f"/api/reports/{rid}/password", headers=Hc).status_code, range(8)))
+    assert codes.count(200) == 1 and codes.count(403) == 7, codes

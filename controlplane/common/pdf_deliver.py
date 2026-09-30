@@ -9,18 +9,28 @@ from __future__ import annotations
 
 import io
 import os
+import pathlib
 import subprocess
 import tempfile
+import threading
+
+
+# LibreOffice headless shares one user profile: two conversions at once make one of them fail
+# (seen as a 502 when several reports were delivered together). Serialize them, and give each
+# run its own throwaway profile so a stale lock from a crashed run can never block the next.
+_CONVERT_LOCK = threading.Lock()
 
 
 def _soffice_convert(docx_bytes: bytes) -> bytes:
     """docx bytes -> pdf bytes via LibreOffice headless."""
-    with tempfile.TemporaryDirectory() as d:
+    with _CONVERT_LOCK, tempfile.TemporaryDirectory() as d:
         docx_path = os.path.join(d, "report.docx")
         with open(docx_path, "wb") as f:
             f.write(docx_bytes)
+        profile = pathlib.Path(d, "lo-profile").as_uri()
         subprocess.run(
-            ["soffice", "--headless", "--convert-to", "pdf", "--outdir", d, docx_path],
+            ["soffice", f"-env:UserInstallation={profile}", "--headless", "--convert-to", "pdf",
+             "--outdir", d, docx_path],
             check=True, capture_output=True, timeout=180,
         )
         with open(os.path.join(d, "report.pdf"), "rb") as f:

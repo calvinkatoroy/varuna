@@ -347,6 +347,23 @@ def set_report(rid: str, **fields) -> None:
     get_conn().commit()
 
 
+def claim_report_stage(rid: str, from_stage: str, to_stage: str) -> bool:
+    """Atomic compare-and-set on a report's stage: of N concurrent reviewers acting on the same
+    stage exactly one wins (True), so a report is never forwarded/delivered twice."""
+    cur = get_conn().execute(
+        "UPDATE reports SET stage=?, updated_at=datetime('now') WHERE id=? AND stage=?",
+        (to_stage, rid, from_stage))
+    get_conn().commit()
+    return cur.rowcount == 1
+
+
+def claim_password_view(rid: str) -> bool:
+    """Atomic view-once: True only for the single caller that flips password_viewed 0 -> 1."""
+    cur = get_conn().execute("UPDATE reports SET password_viewed=1 WHERE id=? AND password_viewed=0", (rid,))
+    get_conn().commit()
+    return cur.rowcount == 1
+
+
 def add_report_version(rid: str, filename: str, editor: str, note: str = "") -> int:
     conn = get_conn()
     row = conn.execute(

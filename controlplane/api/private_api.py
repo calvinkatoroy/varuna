@@ -326,6 +326,7 @@ def pipeline_create(body: PipelineCreateBody, user: dict = Depends(require_team)
 
 
 MAX_UPLOAD = 25 * 1024 * 1024
+DELIVERING = "delivering"   # transient stage while the protected PDF is being produced
 
 
 def _check_docx(data: bytes) -> None:
@@ -430,10 +431,19 @@ def pipeline_forward(rid: str, user: dict = Depends(require_team)):
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    moved = HTTPException(status_code=409, detail="this report was just moved by someone else; refresh")
     if new_stage == models.REPORT_DELIVERED:
-        _deliver_report(rid)   # governance sign-off: produce the protected PDF + password
-    else:
-        db.set_report(rid, stage=new_stage)
+        # Claim the transition first ("delivering" is a transient state), so concurrent governance
+        # clicks cannot each generate a PDF + password; put it back if delivery fails.
+        if not db.claim_report_stage(rid, r["stage"], DELIVERING):
+            raise moved
+        try:
+            _deliver_report(rid)   # governance sign-off: produce the protected PDF + password
+        except Exception:
+            db.set_report(rid, stage=r["stage"])
+            raise
+    elif not db.claim_report_stage(rid, r["stage"], new_stage):
+        raise moved
     audit.log("report_forward", actor=user["username"], report=rid, stage=new_stage)
     notify.notify(f"Report {rid[:8]} is now at {new_stage}")
     return {"report_id": rid, "stage": new_stage}
@@ -479,7 +489,8 @@ def pipeline_sendback(rid: str, user: dict = Depends(require_team)):
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
-    db.set_report(rid, stage=new_stage)
+    if not db.claim_report_stage(rid, r["stage"], new_stage):
+        raise HTTPException(status_code=409, detail="this report was just moved by someone else; refresh")
     audit.log("report_sendback", actor=user["username"], report=rid, stage=new_stage)
     notify.notify(f"Report {rid[:8]} was sent back to {new_stage}")
     return {"report_id": rid, "stage": new_stage}
