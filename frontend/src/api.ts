@@ -43,7 +43,7 @@ async function req(base: string, path: string, opts: RequestInit = {}): Promise<
   if (!token && !isAuthCall) throw new ApiError(401, '', true)
   try {
     const headers: any = { ...(opts.headers || {}) }
-    if (token) headers['Authorization'] = `Bearer ${token}`
+    if (token && !isAuthCall) headers['Authorization'] = `Bearer ${token}`   // credential calls never carry a (possibly stale or wrong-plane) session
     if (opts.body) headers['Content-Type'] = 'application/json'
     const res = await fetch(base + path, { ...opts, headers })
     if (res.status === 401 && !isAuthCall) {

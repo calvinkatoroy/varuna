@@ -1,5 +1,5 @@
 # Builds the React SPA and bakes it into a Caddy image that serves it and proxies the APIs.
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
