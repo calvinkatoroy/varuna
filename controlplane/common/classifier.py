@@ -74,6 +74,10 @@ def validate_syntax(target: str) -> None:
     if "://" in t and urlparse(t).scheme not in ("http", "https"):
         raise ClassifyRejected("only http(s) targets are supported")
     host = _extract_host(t)
+    try:   # `javascript:alert(1)` parses as host "javascript" + port "alert(1)": not a real port
+        urlparse(t if "://" in t else "http://" + t).port
+    except ValueError:
+        raise ClassifyRejected("invalid port in target")
     try:
         ipaddress.ip_address(host)
         return

@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime
 import io
 import os
+import re
 import sys
 
 from docx import Document
@@ -32,10 +33,10 @@ def _ctx(job: dict) -> dict:
         p = db.get_proposal_by_job(job.get("id") or "") or {}
     except Exception:   # no DB (offline unit use): a report must still generate
         p = {}
-    return {"client": job.get("submitter") or p.get("submitter"), "purpose": p.get("purpose"),
+    return _clean_value({"client": job.get("submitter") or p.get("submitter"), "purpose": p.get("purpose"),
             "division": p.get("division"), "environment": p.get("environment"),
             "test_window": p.get("test_window"), "in_scope": p.get("in_scope"),
-            "out_of_scope": p.get("out_of_scope"), "roe": p.get("roe")}
+            "out_of_scope": p.get("out_of_scope"), "roe": p.get("roe")})
 
 # Coverage disclaimer: every report MUST carry it so no reader mistakes "no findings" for
 # "fully secure" (SRS §1.4 Coverage and Limitations). Automated scanning covers only part
@@ -230,9 +231,34 @@ _BUILDERS = {
 }
 
 
+# Report text comes from clients (form fields) and raw tool output (evidence). python-docx refuses
+# XML-illegal characters (NUL, most control codes, lone surrogates), so ONE ANSI colour code in
+# scanner output or one stray character in a form would make every template raise and the report
+# never get created. Clean at the single entry point all templates share.
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z\\-_]")
+_XML_BAD = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ud800-\udfff\ufffe\uffff]")
+_LIMITS = {"evidence": 6000, "description": 4000, "impact": 4000, "remediation": 4000, "name": 300}
+
+
+def _clean_text(s: str, limit: int = 8000) -> str:
+    s = _XML_BAD.sub("", _ANSI.sub("", s))
+    return s if len(s) <= limit else s[:limit].rstrip() + " ... [truncated]"
+
+
+def _clean_value(v, key: str = ""):
+    if isinstance(v, str):
+        return _clean_text(v, _LIMITS.get(key, 2000))
+    if isinstance(v, dict):
+        return {k: _clean_value(x, k) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_clean_value(x, key) for x in v]
+    return v
+
+
 def generate(job: dict, findings: list[dict], template: str) -> bytes:
     if template not in _BUILDERS:
         raise ValueError(f"unknown template: {template}")
+    job, findings = _clean_value(job), _clean_value(findings)
     doc = _BUILDERS[template](job, findings)
     buf = io.BytesIO()
     doc.save(buf)

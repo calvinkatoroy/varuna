@@ -110,7 +110,7 @@ def test_bad_docx_is_rejected_and_password_not_listed():              # H5, H6
 
 def test_target_validated_at_submit():                                # M2
     Hc = _h("erin", "client")
-    for bad in ("", "file:///etc/passwd", "not a url <b>x</b>", "x" * 3000, "ftp://a.com"):
+    for bad in ("", "file:///etc/passwd", "not a url <b>x</b>", "x" * 3000, "ftp://a.com", "javascript:alert(1)", "host:notaport"):
         assert _prop(Hc, target=bad).status_code == 422, bad
     assert _prop(Hc, target="example.com").status_code == 200
 

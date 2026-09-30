@@ -189,6 +189,13 @@ def _short(text, limit=170) -> str:
     return t if len(t) <= limit else t[:limit].rstrip() + "..."
 
 
+
+def _nm(f) -> str:
+    """A finding can arrive without a name (manual entry left blank, or the Executive Summary's
+    allow-list dropped an empty one); the layout must never assume it exists."""
+    return f.get("name") or "Untitled finding"
+
+
 def _refs(f) -> list[str]:
     refs = []
     cwe = (f.get("cwe") or "").upper().replace("CWE-", "").strip()
@@ -269,7 +276,7 @@ def executive_overview(doc, findings, counts, job, ctx, with_actions=True) -> No
     doc.add_heading("Key Findings", level=2)
     for f in findings[:5]:
         p = doc.add_paragraph(style="List Bullet")
-        p.add_run(f"{f['name']} ({f.get('severity', '').capitalize()}). ").bold = True
+        p.add_run(f"{_nm(f)} ({f.get('severity', '').capitalize()}). ").bold = True
         if f.get("impact"):
             p.add_run(f["impact"] + " ")
         if with_actions and f.get("remediation"):
@@ -331,7 +338,7 @@ def findings_register(doc, findings, show_verdict=False) -> None:
         header.append("Verdict")
     rows = []
     for f in findings:
-        row = [f["_id"], f["name"], f.get("severity", "info"), f.get("host") or f.get("url") or "-",
+        row = [f["_id"], _nm(f), f.get("severity", "info"), f.get("host") or f.get("url") or "-",
                f.get("cvss") if f.get("cvss") is not None else "-", f.get("owasp") or "-"]
         if show_verdict:
             row.append((f.get("verdict") or "tp").upper())
@@ -342,7 +349,7 @@ def findings_register(doc, findings, show_verdict=False) -> None:
 
 def finding_detail(doc, f, evidence=True, show_verdict=False) -> None:
     sev = (f.get("severity") or "info").lower()
-    doc.add_heading(f"{f['_id']}  {f['name']}", level=2)
+    doc.add_heading(f"{f['_id']}  {_nm(f)}", level=2)
     t = doc.add_table(rows=1, cols=4)
     t.style = "Table Grid"
     _cell(t.rows[0].cells[0], "Severity", bold=True, fill="E8EEF3")
@@ -383,7 +390,7 @@ def roadmap(doc, findings) -> None:
         return
     doc.add_paragraph("Recommended order of work, grouped by target timeframe.")
     rows = [[TIMEFRAME[(f.get("severity") or "info").lower()] if (f.get("severity") or "info").lower() in TIMEFRAME else TIMEFRAME["info"],
-             f["_id"], f["name"], (f.get("severity") or "info"),
+             f["_id"], _nm(f), (f.get("severity") or "info"),
              _short(f["remediation"]) if f.get("remediation") else "See finding detail."]
             for f in findings]
     _table(doc, ["Timeframe", "ID", "Finding", "Severity", "Action"], rows, widths=[3.0, 2.2, 3.8, 2.0, 5.5], sev_col=3)
