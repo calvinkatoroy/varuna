@@ -8,6 +8,7 @@ type Row = { month: string; critical: number; high: number; medium: number; low:
 export default function TrendChart({ data }: { data: Row[] }) {
   const css = getComputedStyle(document.documentElement)
   const col = (v: string) => css.getPropertyValue(v).trim()
+  const light = document.documentElement.getAttribute('data-theme') === 'light'
 
   const options: ApexOptions = {
     chart: { type: 'area', stacked: true, toolbar: { show: false }, parentHeightOffset: 0, animations: { enabled: true, speed: 700, easing: 'easeout' } },
@@ -23,7 +24,7 @@ export default function TrendChart({ data }: { data: Row[] }) {
       labels: { style: { colors: col('--color-ink-faint'), fontFamily: 'inherit', fontSize: '11px' } },
     },
     yaxis: { show: false },
-    tooltip: { theme: 'dark', y: { formatter: (v) => `${v} open` } },
+    tooltip: { theme: light ? 'light' : 'dark', y: { formatter: (v) => `${v} open` } },
   }
   const series = [
     { name: 'Critical', data: data.map((d) => d.critical) },

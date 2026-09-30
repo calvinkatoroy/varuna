@@ -40,7 +40,7 @@ def test_wipe_all_clears_data_but_keeps_accounts():
     # seed data across every store (accounts now live in SQLite via db, reset per-test by conftest)
     db.upsert_account("ihsan", "x", "pentester")
     redis_store.set_job({"id": "j1", "target": "http://t", "submitter": "ihsan", "status": "done"})
-    redis_store.set_findings("j1", [{"name": "SQLi", "severity": "critical"}])
+    db.save_findings("j1", "ihsan", [{"name": "SQLi", "severity": "critical", "host": "h"}])
     audit.log(audit.SUBMIT, submitter="ihsan", target="http://t")
     store.save_report("ihsan", "j1", "Full Technical", b"bytes")
 
@@ -48,7 +48,7 @@ def test_wipe_all_clears_data_but_keeps_accounts():
 
     # scan data, findings, reports, and audit are gone...
     assert redis_store.get_job("j1") is None
-    assert redis_store.get_findings("j1") == []
+    assert db.get_findings("j1") == []
     assert store.list_all_reports() == []
     assert audit.read_all() == []
     assert counts["report_files"] >= 1

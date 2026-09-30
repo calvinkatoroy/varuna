@@ -58,6 +58,7 @@ export const proposals = [
   { id: 'pr10', target: 'checkout.acme.io', purpose: 'Incident', division: 'E-commerce', status: 'pending', when: '3d ago' },
   { id: 'pr11', target: 'status.acme.io', purpose: 'Periodic', division: 'Platform', status: 'delivered', when: 'May 8' },
   { id: 'pr12', target: 'docs.acme.io', purpose: 'Pre-release', division: 'Developer Relations', status: 'delivered', when: 'Apr 30' },
+  { id: 'pr13', target: 'legacy-vpn.acme.io', purpose: 'Incident', division: 'SecOps', status: 'rejected', when: '4d ago', reason: 'Authorization could not be verified: the submitting account is not listed as a technical or legal contact for this domain. Resubmit with proof of ownership or an authorization letter.' },
 ]
 
 // Client's delivered reports (download + view-once password).
@@ -74,6 +75,7 @@ export const reports = [
 type Card = {
   id: string; client: string; target: string; mode: 'standard' | 'advanced'
   sev: { c: number; h: number; m: number; l: number }; meta: string; owner?: string
+  suspended?: boolean; rejectReason?: string
 }
 export const board: { id: string; title: string; accent: string; cards: Card[] }[] = [
   {
@@ -126,6 +128,14 @@ export const board: { id: string; title: string; accent: string; cards: Card[] }
       { id: 'd4', client: 'Acme Corp', target: 'status.acme.io', mode: 'standard', sev: { c: 0, h: 0, m: 1, l: 2 }, meta: 'May 8 · PDF sent' },
       { id: 'd5', client: 'Acme Corp', target: 'docs.acme.io', mode: 'standard', sev: { c: 0, h: 1, m: 2, l: 2 }, meta: 'Apr 30 · PDF sent' },
       { id: 'd6', client: 'Calder Insurance', target: 'quote.calderinsurance.com', mode: 'standard', sev: { c: 0, h: 0, m: 2, l: 4 }, meta: 'Apr 25 · PDF sent' },
+    ],
+  },
+  {
+    // Terminal, off the pending->...->delivered stepper. Proposals land here (with a reason)
+    // instead of being deleted, so rejection has an audit trail on the team side too.
+    id: 'rejected', title: 'Rejected', accent: 'crit',
+    cards: [
+      { id: 'x1', client: 'Meridian Health', target: 'legacy-vpn.meridian.health', mode: 'standard', sev: { c: 0, h: 0, m: 0, l: 0 }, meta: 'Authorization could not be verified', rejectReason: 'Authorization could not be verified: submitter is not listed as a technical or legal contact for this domain.' },
     ],
   },
 ]
@@ -189,14 +199,73 @@ export const findings = [
   { id: 'fp5', name: 'Rate limit alert (legitimate load test)', severity: 'low', asset: '/api/v1/health', tool: 'nuclei', cve: 'CWE-307', verdict: 'fp', status: 'open', evidence: 'Burst of requests correlated with a scheduled internal load test, not an attacker', remediation: 'No action needed; exclude the load-test source IP range from future scans.' },
 ]
 
-// Per-engagement detail for the review drawer.
-export const engagementDetail = {
+// Per-engagement detail for the review drawer - one entry per board card, so opening any
+// card's drawer shows its own real scope/RoE instead of the same hardcoded placeholder.
+// version_no/created_at (not n/when) - matches what TeamBoard.tsx's whenOf() and downloadVersion()
+// actually consume (the real API's shape); a field-name mismatch here throws inside whenOf's
+// .replace() the moment "View details" opens a card with versions.
+type Detail = { proposal: { purpose: string; division: string; environment: string; authorized: boolean }; versions?: { version_no: number; editor: string; note: string; created_at: string }[] }
+export const engagementDetail: Record<string, Detail> = {
+  // Pending approval
+  p1: { proposal: { purpose: 'Pre-release', division: 'Business Dev', environment: 'Production', authorized: true } },
+  p2: { proposal: { purpose: 'Compliance', division: 'IT', environment: 'Production', authorized: true } },
+  p3: { proposal: { purpose: 'Incident', division: 'SecOps', environment: 'Production', authorized: true } },
+  p4: { proposal: { purpose: 'Periodic', division: 'Logistics', environment: 'Production', authorized: true } },
+  p5: { proposal: { purpose: 'Pre-release', division: 'E-commerce', environment: 'Staging', authorized: true } },
+  // Scanning
+  s1: { proposal: { purpose: 'Compliance', division: 'Risk & Compliance', environment: 'Production', authorized: true } },
+  s2: { proposal: { purpose: 'Periodic', division: 'Platform', environment: 'Staging', authorized: true } },
+  s3: { proposal: { purpose: 'Periodic', division: 'Platform', environment: 'Production', authorized: true } },
+  s4: { proposal: { purpose: 'Pre-release', division: 'Patient Portal', environment: 'Staging', authorized: true } },
+  // Reporter
   r1: {
-    client: 'Acme Corp', target: 'acme.io', mode: 'standard', stage: 'in_review_reporter',
     proposal: { purpose: 'Pre-release', division: 'Engineering', environment: 'Production', authorized: true },
     versions: [
-      { n: 1, editor: 'system', note: 'auto-generated v1', when: 'Jun 19, 09:12' },
-      { n: 2, editor: 'Aisah', note: 'fixed exec summary, marked 2 FPs', when: 'Jun 19, 14:40' },
+      { version_no: 1, editor: 'system', note: 'auto-generated v1', created_at: '2026-06-19 09:12:00' },
+      { version_no: 2, editor: 'Aisah', note: 'fixed exec summary, marked 2 FPs', created_at: '2026-06-19 14:40:00' },
     ],
   },
+  r2: { proposal: { purpose: 'Compliance', division: 'Engineering', environment: 'Production', authorized: true }, versions: [{ version_no: 1, editor: 'Aisah', note: 'auto-generated v1, drafting', created_at: '2026-06-20 10:05:00' }] },
+  r3: { proposal: { purpose: 'Periodic', division: 'Fleet Ops', environment: 'Production', authorized: true }, versions: [{ version_no: 1, editor: 'system', note: 'auto-generated v1', created_at: '2026-06-20 08:40:00' }] },
+  // Lead
+  l1: {
+    proposal: { purpose: 'Pre-release', division: 'E-commerce', environment: 'Production', authorized: true },
+    versions: [
+      { version_no: 1, editor: 'system', note: 'auto-generated v1', created_at: '2026-06-17 11:00:00' },
+      { version_no: 2, editor: 'Dimas', note: 'rewrote remediation for 3 findings', created_at: '2026-06-18 09:30:00' },
+      { version_no: 3, editor: 'Dimas', note: 'reviewing severity calls', created_at: '2026-06-19 16:12:00' },
+    ],
+  },
+  l2: {
+    proposal: { purpose: 'Pre-release', division: 'E-commerce', environment: 'Production', authorized: true },
+    versions: [
+      { version_no: 1, editor: 'system', note: 'auto-generated v1', created_at: '2026-06-18 13:00:00' },
+      { version_no: 2, editor: 'Dimas', note: 'reviewing', created_at: '2026-06-19 09:20:00' },
+    ],
+  },
+  // Governance
+  g1: {
+    proposal: { purpose: 'Compliance', division: 'Patient Data', environment: 'Production', authorized: true },
+    versions: [
+      { version_no: 1, editor: 'system', note: 'auto-generated v1', created_at: '2026-06-12 09:00:00' },
+      { version_no: 2, editor: 'Riyan', note: 'lead review, 1 FP marked', created_at: '2026-06-14 15:40:00' },
+      { version_no: 3, editor: 'Riyan', note: 'severity adjusted per client feedback', created_at: '2026-06-16 11:10:00' },
+      { version_no: 4, editor: 'Hani', note: 'final sign-off pass', created_at: '2026-06-17 10:00:00' },
+    ],
+  },
+  g2: {
+    proposal: { purpose: 'Compliance', division: 'IT', environment: 'Production', authorized: true },
+    versions: [
+      { version_no: 1, editor: 'system', note: 'auto-generated v1', created_at: '2026-06-15 09:00:00' },
+      { version_no: 2, editor: 'Riyan', note: 'lead review', created_at: '2026-06-16 14:20:00' },
+      { version_no: 3, editor: 'Hani', note: 'final sign-off pass', created_at: '2026-06-17 09:45:00' },
+    ],
+  },
+  // Delivered
+  d1: { proposal: { purpose: 'Compliance', division: 'IT', environment: 'Production', authorized: true } },
+  d2: { proposal: { purpose: 'Pre-release', division: 'Marketing', environment: 'Production', authorized: true } },
+  d3: { proposal: { purpose: 'Compliance', division: 'IT', environment: 'Production', authorized: true } },
+  d4: { proposal: { purpose: 'Periodic', division: 'Platform', environment: 'Production', authorized: true } },
+  d5: { proposal: { purpose: 'Pre-release', division: 'Developer Relations', environment: 'Production', authorized: true } },
+  d6: { proposal: { purpose: 'Compliance', division: 'Risk & Compliance', environment: 'Production', authorized: true } },
 }

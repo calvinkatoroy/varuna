@@ -15,7 +15,15 @@ import os
 import sqlite3
 from typing import Optional
 
-_conn: Optional[sqlite3.Connection] = None
+import threading
+
+# One connection per thread: FastAPI runs sync endpoints on a threadpool, and sharing a single
+# sqlite3 connection across those threads corrupted commits ("not an error" 500s under load).
+_local = threading.local()
+_lock = threading.Lock()
+_conns: list[sqlite3.Connection] = []
+_gen = 0          # bumped by close() so stale per-thread connections are reopened
+_schema_ready = -1
 _path: Optional[str] = None
 
 
@@ -80,6 +88,32 @@ CREATE TABLE IF NOT EXISTS report_versions (
 CREATE INDEX IF NOT EXISTS idx_reports_owner ON reports(owner);
 CREATE INDEX IF NOT EXISTS idx_reports_stage ON reports(stage);
 CREATE INDEX IF NOT EXISTS idx_versions_report ON report_versions(report_id);
+
+CREATE TABLE IF NOT EXISTS findings (
+    id            TEXT PRIMARY KEY,
+    job_id        TEXT NOT NULL,
+    owner         TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    severity      TEXT NOT NULL,
+    host          TEXT NOT NULL,
+    url           TEXT DEFAULT '',
+    description   TEXT DEFAULT '',
+    cve           TEXT,
+    cvss          REAL,
+    cwe           TEXT,
+    tool          TEXT DEFAULT '',
+    evidence      TEXT DEFAULT '',
+    owasp         TEXT,
+    impact        TEXT,
+    remediation   TEXT,
+    risk_rating   TEXT,
+    verdict       TEXT NOT NULL DEFAULT 'tp',
+    status        TEXT NOT NULL DEFAULT 'open',
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_findings_job ON findings(job_id);
+CREATE INDEX IF NOT EXISTS idx_findings_owner ON findings(owner);
+CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
 """
 
 
@@ -89,25 +123,40 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 
 def get_conn() -> sqlite3.Connection:
-    global _conn
-    if _conn is None:
-        path = _db_path()
+    global _schema_ready
+    conn = getattr(_local, "conn", None)
+    if conn is not None and getattr(_local, "gen", -1) == _gen:
+        return conn
+    path = _db_path()
+    with _lock:
+        if path == ":memory:" and _conns:   # in-memory DB exists per connection: share one (tests)
+            _local.conn, _local.gen = _conns[0], _gen
+            return _conns[0]
         if path != ":memory:":
             os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-        _conn = sqlite3.connect(path, check_same_thread=False)
-        _conn.row_factory = sqlite3.Row
-        _conn.execute("PRAGMA journal_mode=WAL")
-        _conn.execute("PRAGMA busy_timeout=5000")
-        _conn.execute("PRAGMA foreign_keys=ON")
-        init_db(_conn)
-    return _conn
+        conn = sqlite3.connect(path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA foreign_keys=ON")
+        if _schema_ready != _gen:
+            init_db(conn)
+            _schema_ready = _gen
+        _conns.append(conn)
+    _local.conn, _local.gen = conn, _gen
+    return conn
 
 
 def close() -> None:
-    global _conn
-    if _conn is not None:
-        _conn.close()
-        _conn = None
+    global _gen
+    with _lock:
+        for c in _conns:
+            try:
+                c.close()
+            except sqlite3.Error:
+                pass
+        _conns.clear()
+        _gen += 1
 
 
 def reset_for_test(path: str) -> None:
@@ -137,6 +186,13 @@ def get_account(username: str) -> Optional[dict]:
     row = get_conn().execute(
         "SELECT username, password_hash, role FROM accounts WHERE username=?", (username,)
     ).fetchone()
+    return dict(row) if row else None
+
+
+def get_account_ci(username: str) -> Optional[dict]:
+    """Case-insensitive lookup, so `ACME` cannot register next to `acme`."""
+    row = get_conn().execute(
+        "SELECT username FROM accounts WHERE username=? COLLATE NOCASE", (username,)).fetchone()
     return dict(row) if row else None
 
 
@@ -189,6 +245,11 @@ def list_proposals(status: Optional[str] = None, submitter: Optional[str] = None
     return [_proposal_row_to_dict(r) for r in get_conn().execute(q, args).fetchall()]
 
 
+def get_proposal_by_job(job_id: str) -> Optional[dict]:
+    row = get_conn().execute("SELECT * FROM proposals WHERE job_id=?", (job_id,)).fetchone()
+    return _proposal_row_to_dict(row) if row else None
+
+
 def update_proposal(pid: str, **fields) -> None:
     if not fields:
         return
@@ -202,6 +263,19 @@ def update_proposal(pid: str, **fields) -> None:
     args.append(pid)
     get_conn().execute(f"UPDATE proposals SET {', '.join(sets)} WHERE id=?", args)
     get_conn().commit()
+
+
+def claim_proposal(pid: str, from_status: str, **fields) -> bool:
+    """Atomically move a proposal out of `from_status`; True only for the one caller that wins
+    (concurrent approve/reject of the same proposal must not both proceed)."""
+    sets, args = ["updated_at=datetime('now')"], []
+    for k, v in fields.items():
+        sets.append(f"{k}=?"); args.append(v)
+    args += [pid, from_status]
+    cur = get_conn().execute(
+        f"UPDATE proposals SET {', '.join(sets)} WHERE id=? AND status=?", args)
+    get_conn().commit()
+    return cur.rowcount == 1
 
 
 # --- reports + versions (v2 review pipeline) ---
@@ -278,6 +352,81 @@ def latest_version(rid: str) -> Optional[dict]:
     return dict(row) if row else None
 
 
+# --- findings (v2, durable - findings must outlive the 24h job/redis TTL to survive the
+# multi-day review pipeline). id is deterministic (hash of job_id+name+host+url), not random,
+# so re-running correlate/enrich (e.g. add_manual_finding recomputes the whole set) upserts in
+# place via ON CONFLICT and does NOT clobber a verdict/status a reviewer already set. ---
+_FINDING_COLS = ("name", "severity", "host", "url", "description", "cve", "cvss", "cwe",
+                 "tool", "evidence", "owasp", "impact", "remediation", "risk_rating")
+
+
+def _finding_id(job_id: str, f: dict) -> str:
+    import hashlib
+    key = f"{job_id}|{f.get('name', '')}|{f.get('host', '')}|{f.get('url', '')}"
+    return hashlib.sha1(key.encode()).hexdigest()[:16]
+
+
+def save_findings(job_id: str, owner: str, findings: list[dict]) -> None:
+    """Replace-all per job, upserting by stable id so verdict/status survive re-correlation."""
+    conn = get_conn()
+    ids = [_finding_id(job_id, f) for f in findings]
+    for fid, f in zip(ids, findings):
+        conn.execute(
+            "INSERT INTO findings (id, job_id, owner, " + ", ".join(_FINDING_COLS) + ") "
+            "VALUES (?,?,?," + ",".join("?" for _ in _FINDING_COLS) + ") "
+            "ON CONFLICT(id) DO UPDATE SET " +
+            ", ".join(f"{c}=excluded.{c}" for c in _FINDING_COLS),
+            (fid, job_id, owner, *(f.get(c) for c in _FINDING_COLS)),
+        )
+    if ids:
+        conn.execute(
+            f"DELETE FROM findings WHERE job_id=? AND id NOT IN ({','.join('?' * len(ids))})",
+            [job_id, *ids],
+        )
+    else:
+        conn.execute("DELETE FROM findings WHERE job_id=?", (job_id,))
+    conn.commit()
+
+
+def get_findings(job_id: str) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM findings WHERE job_id=? ORDER BY created_at", (job_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_finding(fid: str) -> Optional[dict]:
+    row = get_conn().execute("SELECT * FROM findings WHERE id=?", (fid,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_findings(owner: Optional[str] = None) -> list[dict]:
+    q, args = "SELECT * FROM findings", []
+    if owner:
+        q += " WHERE owner=?"; args.append(owner)
+    q += " ORDER BY created_at DESC"
+    return [dict(r) for r in get_conn().execute(q, args).fetchall()]
+
+
+def set_finding(fid: str, **fields) -> None:
+    if not fields:
+        return
+    sets, args = [], []
+    for k, v in fields.items():
+        sets.append(f"{k}=?"); args.append(v)
+    args.append(fid)
+    get_conn().execute(f"UPDATE findings SET {', '.join(sets)} WHERE id=?", args)
+    get_conn().commit()
+
+
+def wipe_findings() -> int:
+    conn = get_conn()
+    n = conn.execute("SELECT COUNT(*) AS c FROM findings").fetchone()["c"]
+    conn.execute("DELETE FROM findings")
+    conn.commit()
+    return n
+
+
 if __name__ == "__main__":
     reset_for_test(":memory:")
     upsert_account("calvin", "h", "client")
@@ -285,4 +434,19 @@ if __name__ == "__main__":
     upsert_account("calvin", "h2", "pentester")
     assert get_account("calvin")["password_hash"] == "h2", "upsert should update"
     assert get_account("nope") is None
+
+    save_findings("j1", "alice", [{"name": "SQLi", "severity": "critical", "host": "h", "url": "/x"}])
+    fs = get_findings("j1")
+    assert len(fs) == 1 and fs[0]["verdict"] == "tp" and fs[0]["status"] == "open"
+    fid = fs[0]["id"]
+    set_finding(fid, verdict="fp")
+    assert get_findings("j1")[0]["verdict"] == "fp", "verdict update failed"
+    # re-saving (simulates re-correlation after a manual finding) must preserve that verdict,
+    # not reset it back to the default - that's the whole point of the stable/upserted id.
+    save_findings("j1", "alice", [{"name": "SQLi", "severity": "critical", "host": "h", "url": "/x"}])
+    assert get_findings("j1")[0]["verdict"] == "fp", "save_findings must not clobber verdict"
+    assert len(list_findings(owner="alice")) == 1
+    assert list_findings(owner="bob") == []
+    assert wipe_findings() == 1 and get_findings("j1") == []
+
     print("db.py self-check OK")

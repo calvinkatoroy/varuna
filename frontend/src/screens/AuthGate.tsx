@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import anime from 'animejs'
-import { Shield, Check, Clock, Terminal, Copy, ArrowRight, ShieldCheck } from 'lucide-react'
+import { Check, Clock, Terminal, Copy, ArrowRight, ShieldCheck } from 'lucide-react'
 import { useAuth } from '@/auth'
 import { api } from '@/api'
+import { isMock } from '@/mock'
 import { Button } from '@/components/ui/button'
 import { ProposalForm } from '@/components/ProposalForm'
+import { BrandMark } from '@/components/BrandMark'
+
+// /api/proposals speaks the client vocabulary: anything past pending/rejected was approved.
+const isApproved = (x: { status: string }) => x.status !== 'pending' && x.status !== 'rejected'
 
 type Step = 'auth' | 'proposal' | 'pending' | 'install'
-const ONE_LINER =
-  "$env:VARUNA_URL='https://<host>'; $env:VARUNA_TOKEN='<token>'; irm https://<host>/dist/install.ps1 | iex"
+const oneLiner = (host: string, token: string) =>
+  `$env:VARUNA_URL='${host}'; $env:VARUNA_TOKEN='${token}'; irm ${host}/dist/install.ps1 | iex`
 
 const field =
   'w-full rounded-input border border-rule bg-panel px-3.5 py-3 text-[14px] text-ink placeholder:text-ink-faint outline-none transition-colors focus:border-accent'
@@ -38,8 +43,8 @@ function Stepper({ step }: { step: Step }) {
   )
 }
 
-export function AuthGate({ onActivate }: { onActivate: () => void }) {
-  const { login, register } = useAuth()
+export function AuthGate({ onActivate }: { onActivate: (username: string) => void }) {
+  const { login, register, user } = useAuth()
   const [step, setStep] = useState<Step>('auth')
   const [mode, setMode] = useState<'login' | 'register'>('register')
   const [u, setU] = useState('')
@@ -47,10 +52,19 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [copied, setCopied] = useState(false)
+  const [enrollToken, setEnrollToken] = useState('')
   const cardRef = useRef<HTMLDivElement>(null)
+  const oneLinerText = oneLiner(api.publicBase || window.location.origin, enrollToken || '<fetching…>')
+
+  // A real one-time enrollment token (POST /api/agent/install-token), not a placeholder -
+  // fetched once we actually reach the install step.
+  useEffect(() => {
+    if (step !== 'install') return
+    api.post('/api/agent/install-token').then((r) => setEnrollToken(r.enrollment_token)).catch(() => {})
+  }, [step])
 
   const copyOneLiner = async () => {
-    try { await navigator.clipboard.writeText(ONE_LINER); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch {}
+    try { await navigator.clipboard.writeText(oneLinerText); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch {}
   }
 
   // Animate the card in on each step change (microinteraction).
@@ -60,6 +74,36 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
     anime({ targets: cardRef.current, translateY: [16, 0], opacity: [0, 1], duration: 420, easing: 'easeOutCubic' })
   }, [step])
 
+  // Where a returning user actually is in onboarding, decided by the server, not assumed.
+  async function resumeFlow(username: string) {
+    const props: { status: string }[] = await api.get('/api/proposals')
+    if (!props.length) return setStep('proposal')
+    if (!props.some(isApproved)) return setStep('pending')
+    const agent = await api.get('/api/agent')
+    if (agent.registered) onActivate(username)
+    else setStep('install')
+  }
+
+  // Waiting on the lead pentester: check for approval instead of trusting a button.
+  useEffect(() => {
+    if (step !== 'pending' || isMock()) return
+    const t = setInterval(() => {
+      api.get('/api/proposals').then((ps: { status: string }[]) => {
+        if (ps.some(isApproved)) setStep('install')
+      }).catch(() => {})
+    }, 5000)
+    return () => clearInterval(t)
+  }, [step])
+
+  async function unlock() {
+    setErr('')
+    try {
+      const agent = await api.get('/api/agent')
+      if (!agent.registered) return setErr('Agent not detected yet. Run the command above, then try again.')
+      onActivate(user?.username || u)
+    } catch (e: any) { setErr(e.message || 'failed') }
+  }
+
   async function submitAuth(e: React.FormEvent) {
     e.preventDefault()
     setErr('')
@@ -67,7 +111,7 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
     try {
       if (mode === 'login') {
         await login(u, p)
-        onActivate() // returning, already-onboarded user unlocks straight away
+        await resumeFlow(u)
       } else {
         await register(u, p)
         setStep('proposal')
@@ -87,12 +131,7 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
       >
         {/* brand */}
         <div className="mb-6 flex items-center gap-2.5">
-          <span
-            className="grid h-9 w-9 place-items-center rounded-[11px]"
-            style={{ background: 'conic-gradient(from 210deg,#F26A43,#f4996d,#F26A43)', boxShadow: 'inset 0 0 0 2px rgba(255,255,255,.14)' }}
-          >
-            <Shield size={19} className="fill-white text-white" />
-          </span>
+          <BrandMark size={36} />
           <span className="text-[19px] font-bold tracking-[-0.02em] text-ink">Varuna</span>
         </div>
 
@@ -165,9 +204,11 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
               <li className="flex items-center gap-2.5 text-[13px] text-ink"><Check size={16} className="text-low" /> Proposal submitted</li>
               <li className="flex items-center gap-2.5 text-[13px] text-ink-muted"><Clock size={16} className="text-accent" /> Pending lead-pentester approval…</li>
             </ul>
-            <Button variant="outline" size="lg" className="w-full border-dashed" onClick={() => setStep('install')}>
-              Demo · simulate lead approval <ArrowRight size={16} />
-            </Button>
+            {isMock() && (
+              <Button variant="outline" size="lg" className="w-full border-dashed" onClick={() => setStep('install')}>
+                Demo · simulate lead approval <ArrowRight size={16} />
+              </Button>
+            )}
           </>
         )}
 
@@ -186,9 +227,10 @@ export function AuthGate({ onActivate }: { onActivate: () => void }) {
                 <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint"><Terminal size={13} /> PowerShell</span>
                 <button onClick={copyOneLiner} className="flex items-center gap-1.5 text-[11.5px] font-semibold text-ink-muted hover:text-ink">{copied ? <><Check size={13} className="text-low" /> Copied</> : <><Copy size={13} /> Copy</>}</button>
               </div>
-              <code className="block break-all font-mono text-[11.5px] leading-relaxed text-ink">{ONE_LINER}</code>
+              <code className="block break-all font-mono text-[11.5px] leading-relaxed text-ink">{oneLinerText}</code>
             </div>
-            <Button size="lg" className="w-full" onClick={onActivate}>I've installed it. Unlock <ArrowRight size={16} /></Button>
+            {err && <div className="mb-3 text-[12.5px] text-crit">{err}</div>}
+            <Button size="lg" className="w-full" onClick={unlock}>I've installed it. Unlock <ArrowRight size={16} /></Button>
           </>
         )}
       </div>

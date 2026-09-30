@@ -1,12 +1,12 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
-import { api, setToken, getToken } from './api'
+import { api, setToken, getToken, UNAUTHORIZED_EVENT } from './api'
 
 type User = { username: string; role: string } | null
 
 interface AuthCtx {
   user: User
   ready: boolean
-  login: (username: string, password: string) => Promise<void>
+  login: (username: string, password: string, team?: boolean) => Promise<void>
   register: (username: string, password: string) => Promise<void>
   logout: () => void
 }
@@ -31,8 +31,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setReady(true))
   }, [])
 
-  async function login(username: string, password: string) {
-    const { token } = await api.post('/api/login', { username, password })
+  // Team accounts authenticate on the private plane (NFR-24); clients on the public one.
+  async function login(username: string, password: string, team = false) {
+    const { token } = await (team ? api.ppost : api.post)('/api/login', { username, password })
     setToken(token)
     setUser(await api.get('/api/me'))
   }
@@ -47,6 +48,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null)
     setUser(null)
   }
+
+  // A 401 anywhere (api.ts) means the session is gone - without this, `user` stays populated
+  // and every route gate (ClientRoute/RoleRoute) keeps rendering the app as if still logged in,
+  // while every subsequent request just 401s again forever. Dropping `user` here is what
+  // actually sends the page back to the login gate.
+  useEffect(() => {
+    const onUnauthorized = () => setUser(null)
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+  }, [])
 
   return <Ctx.Provider value={{ user, ready, login, register, logout }}>{children}</Ctx.Provider>
 }

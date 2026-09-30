@@ -1,37 +1,54 @@
 import { useEffect, useState } from 'react'
 import { Check, Download, Lock, ShieldCheck } from 'lucide-react'
-import { api } from '@/api'
+import { api, download as downloadFile } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ClientShell } from '@/components/ClientShell'
+import { ErrorRetry } from '@/components/ErrorRetry'
+import { useApiData } from '@/lib/useApiData'
 import { rise } from '@/lib/motion'
 
 type Report = { id: string; engagement: string; delivered: string; findings: number; templates: string[]; signed: boolean }
 const chip = 'rounded-md border border-rule bg-panel px-2 py-1 text-[11.5px] text-ink-muted'
 
-function Password({ id, shown, onReveal }: { id: string; shown: boolean; onReveal: () => void }) {
-  if (shown)
-    return <span className="mono flex items-center gap-1.5 text-[12.5px] font-medium text-accent-ink"><Lock size={13} /> Xk9{id}v1</span>
+// Reveals the real view-once password (GET /api/reports/{id}/password) rather than a fake
+// client-side string - the endpoint itself enforces "once": a second reveal 403s, so this
+// component doesn't need its own "already viewed" bookkeeping beyond what it just fetched.
+function Password({ id }: { id: string }) {
+  const [pw, setPw] = useState<string | null>(null)
+  const [err, setErr] = useState(false)
+  if (pw) return <span className="mono flex items-center gap-1.5 text-[12.5px] font-medium text-accent-ink"><Lock size={13} /> {pw}</span>
+  if (err) return <span className="text-[12.5px] text-ink-faint">Already viewed - ask governance to re-issue.</span>
   return (
-    <button onClick={onReveal} className="flex items-center gap-1.5 text-[12.5px] font-medium text-ink-muted transition-colors hover:text-ink">
+    <button
+      onClick={() => api.get(`/api/reports/${id}/password`).then((r) => setPw(r.password)).catch(() => setErr(true))}
+      className="flex items-center gap-1.5 text-[12.5px] font-medium text-ink-muted transition-colors hover:text-ink"
+    >
       <Lock size={13} /> Password
     </button>
   )
 }
 
 export default function ClientReports() {
-  const [rows, setRows] = useState<Report[] | null>(null)
-  const [shown, setShown] = useState<string | null>(null)
-  useEffect(() => { api.get('/api/reports').then(setRows) }, [])
+  const { data: rows, error, reload } = useApiData<Report[]>(() => api.get('/api/reports'))
   useEffect(() => { if (rows) rise('.entry', 60) }, [rows])
 
   const [got, setGot] = useState<Record<string, boolean>>({})
-  const download = (id: string) => setGot((g) => ({ ...g, [id]: true }))
+  // Only marks "Downloaded" once the file actually came back - downloadFile() throws on
+  // failure (report not delivered yet, file missing), which used to leave the button showing
+  // a checkmark for a download that never happened.
+  const download = (id: string) => {
+    downloadFile(api.publicBase, `/api/reports/${id}/delivered`, `${id}.pdf`)
+      .then(() => setGot((g) => ({ ...g, [id]: true })))
+      .catch(() => {})
+  }
   const featured = rows?.[0]
   const rest = rows?.slice(1) ?? []
 
   return (
     <ClientShell title="Reports" sub="Signed deliverables. Each PDF is read only, its password is shown once.">
-      {!rows ? (
+      {error ? (
+        <ErrorRetry message={error} onRetry={reload} />
+      ) : !rows ? (
         <div className="p-10 text-ink-faint">Loading</div>
       ) : (
         <div className="flex flex-col gap-3">
@@ -51,7 +68,7 @@ export default function ClientReports() {
               </div>
               <div className="flex flex-col justify-center gap-3 border-t border-rule pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
                 <Button size="lg" className="w-full" onClick={() => download(featured.id)}>{got[featured.id] ? <><Check size={17} /> Downloaded</> : <><Download size={17} /> Download protected PDF</>}</Button>
-                <div className="flex justify-center"><Password id={featured.id} shown={shown === featured.id} onReveal={() => setShown(featured.id)} /></div>
+                <div className="flex justify-center"><Password id={featured.id} /></div>
                 <p className="text-center text-[11.5px] leading-relaxed text-ink-faint">Password is out of band from the file. Re-request from governance if lost.</p>
               </div>
             </section>
@@ -67,7 +84,7 @@ export default function ClientReports() {
                         <b className="block truncate text-[15px] font-medium text-ink">{r.engagement}</b>
                         <span className="text-[12px] text-ink-faint">{r.delivered}, {r.findings} findings, {r.templates.length} templates</span>
                       </div>
-                      <Password id={r.id} shown={shown === r.id} onReveal={() => setShown(r.id)} />
+                      <Password id={r.id} />
                       <Button variant="outline" size="sm" onClick={() => download(r.id)}>{got[r.id] ? <><Check size={15} /> Got it</> : <><Download size={15} /> PDF</>}</Button>
                     </div>
                   </li>

@@ -43,9 +43,15 @@ const chip = (on: boolean) =>
     on ? 'border-accent bg-accent-soft text-accent-ink' : 'border-rule text-ink-muted hover:text-ink'
   }`
 
-export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boolean; onOpenChange: (v: boolean) => void; onLaunch?: (target: string) => void }) {
+export type ScanOpts = {
+  target: string; cookie?: string; depth: number; crawl_duration: number; headless: boolean
+  nuclei: { severity: string[]; rate_limit: number; tags: string[] }
+  sqlmap: { level: number; risk: number; techniques: string; dump: boolean; os_shell: boolean } | false
+}
+
+export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boolean; onOpenChange: (v: boolean) => void; onLaunch?: (opts: ScanOpts) => void }) {
   const [preset, setPreset] = useState<Preset | null>('thorough')
-  const [target, setTarget] = useState('https://api.acme.io')
+  const [target, setTarget] = useState('')
   const [cookie, setCookie] = useState('')
   const [depth, setDepth] = useState(3)
   const [duration, setDuration] = useState(300)
@@ -74,7 +80,7 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
     if (p === 'aggressive') { setDepth(5); setDuration(600); setSev(new Set(SEVS)); setSqlOn(true); setLevel(5); setRisk(3); setTechs(new Set(['B', 'E', 'U', 'S', 'T', 'Q'])) }
   }
 
-  const opts = useMemo(
+  const opts = useMemo<ScanOpts>(
     () => ({
       target, cookie: cookie || undefined, depth, crawl_duration: duration, headless,
       nuclei: { severity: [...sev], rate_limit: rate, tags: [...tags] },
@@ -153,7 +159,7 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
 
         <div className="sticky bottom-0 flex gap-2.5 border-t border-rule bg-card p-6">
           <DrawerClose asChild><Button variant="outline" size="lg" className="flex-1">Cancel</Button></DrawerClose>
-          <Button size="lg" className="flex-[2]" onClick={() => { onLaunch?.(target); onOpenChange(false) }}><Play size={16} className="fill-current" /> Launch scan</Button>
+          <Button size="lg" className="flex-[2]" disabled={!target.trim()} onClick={() => { onLaunch?.(opts); onOpenChange(false) }}><Play size={16} className="fill-current" /> Launch scan</Button>
         </div>
       </DrawerContent>
     </Drawer>

@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowUpRight, Plus } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ClientShell } from '@/components/ClientShell'
+import { ErrorRetry } from '@/components/ErrorRetry'
+import { ScanProgress } from '@/components/ScanProgress'
 import { Gauge } from '@/components/viz/Gauge'
 import { SegBar } from '@/components/viz/SegBar'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
+import { useApiData } from '@/lib/useApiData'
 import { rise } from '@/lib/motion'
 import { NewProposalDrawer } from './NewProposalDrawer'
 
@@ -15,24 +18,39 @@ const stageHint: Record<string, string> = {
   scanning: 'The agent is running the scan on your machine. Findings stream in as tools finish.',
   in_review: 'Scan complete. The report is moving through reporter, lead, and governance review.',
   delivered: 'Signed off and delivered. The protected report is available on the Reports page.',
+  rejected: 'This proposal was not approved. See the reason below - you can submit a corrected proposal any time.',
 }
 
-type P = { id: string; target: string; purpose: string; division: string; status: string; when: string }
+type P = { id: string; target: string; purpose: string; division: string; status: string; when: string; reason?: string; job_id?: string }
 const meta: Record<string, { label: string; tone: string }> = {
   pending: { label: 'Pending approval', tone: 'med' },
   scanning: { label: 'Scanning', tone: 'info' },
   in_review: { label: 'In review', tone: 'accent' },
   delivered: { label: 'Delivered', tone: 'low' },
+  rejected: { label: 'Rejected', tone: 'crit' },
 }
-const order = ['pending', 'scanning', 'in_review', 'delivered']
+const order = ['pending', 'scanning', 'in_review', 'delivered', 'rejected']
 
 export default function ClientProposals() {
   const nav = useNavigate()
-  const [rows, setRows] = useState<P[] | null>(null)
+  const { data: rows, error, reload } = useApiData<P[]>(() => api.get('/api/proposals'))
   const [open, setOpen] = useState(false)
   const [sel, setSel] = useState<P | null>(null)
-  useEffect(() => { api.get('/api/proposals').then(setRows) }, [])
-  useEffect(() => { if (rows) rise('.entry', 45) }, [rows])
+  const revealed = useRef(false)
+  useEffect(() => {
+    if (rows && !revealed.current) { rise('.entry', 45); revealed.current = true }
+  }, [rows])
+  // "The agent is running... findings stream in" (stageHint.scanning below) was previously just
+  // copy - nothing ever refetched, so a proposal that got approved or finished scanning while you
+  // watched wouldn't update until you navigated away and back. Poll while anything's still moving
+  // through the pipeline; stop once everything's settled (delivered/rejected). Reusing `reload`
+  // means a poll that happens to fail surfaces the same error+retry state a normal load would,
+  // instead of failing silently forever in the background.
+  useEffect(() => {
+    if (!rows?.some((p) => p.status === 'pending' || p.status === 'scanning' || p.status === 'in_review')) return
+    const id = setInterval(reload, 8000)
+    return () => clearInterval(id)
+  }, [rows, reload])
 
   const list = useMemo(
     () => (rows ?? []).slice().sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status)),
@@ -40,7 +58,7 @@ export default function ClientProposals() {
   )
   const c = (s: string) => list.filter((p) => p.status === s).length
   const maxCount = Math.max(1, ...order.map(c))
-  const cleared = list.length ? Math.round(((list.length - c('pending')) / list.length) * 100) : 0
+  const cleared = list.length ? Math.round(((list.length - c('pending') - c('rejected')) / list.length) * 100) : 0
 
   return (
     <ClientShell
@@ -48,7 +66,9 @@ export default function ClientProposals() {
       sub="Every scan starts here. Approved by your lead pentester before it runs."
       action={<Button variant="glass" size="pill" onClick={() => setOpen(true)}><Plus size={16} /> New Proposal</Button>}
     >
-      {!rows ? (
+      {error ? (
+        <ErrorRetry message={error} onRetry={reload} />
+      ) : !rows ? (
         <div className="p-10 text-ink-faint">Loading</div>
       ) : (
         <div className="flex flex-col gap-3">
@@ -63,6 +83,7 @@ export default function ClientProposals() {
                 <SegBar label="Scanning" count={c('scanning')} max={maxCount} tone="info" />
                 <SegBar label="In review" count={c('in_review')} max={maxCount} tone="accent" />
                 <SegBar label="Delivered" count={c('delivered')} max={maxCount} tone="low" />
+                {c('rejected') > 0 && <SegBar label="Rejected" count={c('rejected')} max={maxCount} tone="crit" />}
               </div>
             </div>
             <div className="flex items-center justify-center border-t border-rule pt-4 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">
@@ -107,6 +128,14 @@ export default function ClientProposals() {
             </div>
             <div className="flex-1 space-y-5 p-6">
               <div className="rounded-input border border-rule bg-panel p-4 text-[13.5px] leading-relaxed text-ink">{stageHint[sel.status]}</div>
+              {sel.status === 'scanning' && sel.job_id && (
+                <div className="rounded-input border border-rule bg-panel p-4">
+                  <ScanProgress jobId={sel.job_id} />
+                </div>
+              )}
+              {sel.status === 'rejected' && sel.reason && (
+                <div className="rounded-input border border-crit-bg bg-crit-bg p-4 text-[13.5px] leading-relaxed text-crit">{sel.reason}</div>
+              )}
               {[['Purpose', sel.purpose], ['Division', sel.division]].map(([l, v]) => (
                 <div key={l} className="flex items-center justify-between border-b border-rule pb-3 last:border-b-0">
                   <span className="text-[13px] text-ink-muted">{l}</span>

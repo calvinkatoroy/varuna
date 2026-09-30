@@ -6,7 +6,9 @@
 @tailwind utilities;
 
 /* Agrandir (titles): licensed (Pangram Pangram), not fetchable. Uses a locally-installed copy
-   first; drop Agrandir-Bold.woff2 in public/fonts/ to serve it to everyone. One weight range so
+   first. To serve it to everyone, add Agrandir-Bold.woff2 to public/fonts/ AND re-add
+   url('/fonts/Agrandir-Bold.woff2') format('woff2') to src below (a url() with no file returns
+   index.html and floods the console with font decode errors). One weight range so
    every display weight class renders in Agrandir. Body text uses the Helvetica Neue system stack
    (mac; falls back to Arial elsewhere), no webfont needed. */
 @font-face {
@@ -14,7 +16,7 @@
   font-style: normal;
   font-weight: 400 900;
   font-display: swap;
-  src: local('Agrandir Bold'), local('Agrandir-Bold'), local('Agrandir'), url('/fonts/Agrandir-Bold.woff2') format('woff2');
+  src: local('Agrandir Bold'), local('Agrandir-Bold'), local('Agrandir');
 }
 
 :root {
@@ -31,12 +33,13 @@
   --color-ink-muted: #959E8C;
   --color-ink-faint: #6D7666;
   --color-rule: #2A2F23;
-  --color-accent: #F26A43;
-  --color-accent-ink: #F79570;
-  --color-accent-soft: #3A231B;
-  --color-focus: #F79570;
+  --color-accent: #0B5FA5;
+  --color-accent-ink: #4FB3E8;
+  --color-accent-soft: #12283A;
+  --color-focus: #4FB3E8;
   --color-cta-bg: #E8ECE1;
   --color-cta-fg: #12140F;
+  --color-brand-red: #E4312B;
 
   --color-crit: #F2565B;
   --color-high: #EDA64A;
@@ -48,12 +51,12 @@
   --color-med-bg: #322D11;
   --color-low-bg: #123029;
 
-  /* Dark-mode page background: the hero-style green + coral gradient fills the screen (never
+  /* Dark-mode page background: the hero-style navy + cyan gradient fills the screen (never
      pure black). --bg-x / --bg-y are nudged by the pointer for a cheap parallax. */
   --bg-grad:
-    radial-gradient(115% 90% at var(--bg-x, 84%) var(--bg-y, -6%), rgba(242, 106, 67, 0.24), transparent 48%),
-    radial-gradient(100% 100% at 6% 106%, rgba(30, 108, 82, 0.6), transparent 56%),
-    linear-gradient(160deg, #1c5643 0%, #143a2b 40%, #103023 72%, #0d2a1f 100%);
+    radial-gradient(115% 90% at var(--bg-x, 84%) var(--bg-y, -6%), rgba(34, 211, 197, 0.22), transparent 48%),
+    radial-gradient(100% 100% at 6% 106%, rgba(11, 95, 165, 0.5), transparent 56%),
+    linear-gradient(160deg, #123a57 0%, #0a2a43 40%, #081e30 72%, #060f18 100%);
 
   --font-display: 'Agrandir', 'Segoe UI', system-ui, sans-serif;
   --font-body: 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -87,10 +90,10 @@
   --color-ink-muted: #6B746C;
   --color-ink-faint: #9AA298;
   --color-rule: #DFE4D6;
-  --color-accent: #EE5A34;
-  --color-accent-ink: #B8431F;
-  --color-accent-soft: #FBE3D9;
-  --color-focus: #EE5A34;
+  --color-accent: #0B5FA5;
+  --color-accent-ink: #0A3E63;
+  --color-accent-soft: #DCEBF7;
+  --color-focus: #0B5FA5;
   --color-cta-bg: #101312;
   --color-cta-fg: #FFFFFF;
   --color-crit: #E23B3B;
@@ -180,30 +183,32 @@ input[type='checkbox'] {
   from { opacity: 0; transform: translateY(20px); }
 }
 
-/* Hero shrink/fade: a threshold class toggle (useScrollThreshold), not a continuously-scrubbed
-   value - whether that scrubbing was driven by a JS scroll handler or by native CSS
-   animation-timeline: scroll() (tried both). Neither fixed the slow-scroll stutter, because the
-   properties being animated here - padding, max-height, margin - are LAYOUT properties. Native
-   scroll-driven animations only skip main-thread work for transform/opacity; a layout property
-   still forces a full layout recalculation on every scroll tick no matter what's driving it. A
-   one-shot class toggle makes that layout cost happen ONCE per threshold crossing instead of
-   continuously, which is what actually fixes it.
-   Deliberately NO transition on padding/max-height/margin: the hero is `position: sticky`, so
-   the moment ITS occupied height changes, the cards below (plain normal-flow content) shift to
-   match - that's unavoidable. Animating that change over 220ms meant the cards got dragged
-   through a 220ms slide on their OWN timeline, separate from the scroll gesture that triggered
-   it - you'd already stopped scrolling but they kept sliding. Snapping the layout properties
-   instantly means the cards shift ONCE, in the same frame as the scroll crossing, so it reads as
-   part of the scroll rather than a separate animation happening to them. Opacity is layout-safe
-   (doesn't affect anyone's position) so it still transitions smoothly - only opacity here does.
+/* Hero shrink/fade: a threshold class toggle (useScrollThreshold) driving a `position: fixed`
+   card, not `position: sticky`. Sticky was the problem: whenever the sticky element's own
+   occupied height changed - by any amount, animated or instant - the normal-flow cards below it
+   HAD to shift to match, because that's just how block layout works. There is no timing/easing
+   fix for that; it's inherent to sticky + normal flow. Taking the hero fully out of flow with
+   `position: fixed` removes the dependency entirely: its own size changes can no longer affect
+   anything below it, so the cards can be relied on to just scroll like plain content, with zero
+   compensation logic. `main` reserves a constant gap (see ClientCockpit/ClientShell) sized to the
+   hero's collapsed footprint; at rest the taller expanded hero simply overlaps the top of the
+   cards behind it (it has an opaque background, and a higher z-index, so this reads as normal
+   layering, not a bug) and recedes on scroll to reveal them - nothing underneath ever moves.
+   Because the transition is now scoped to one out-of-flow element instead of rippling into a
+   full-page reflow, it's safe to animate padding/max-height with a real transition again.
    --hero-pt/--hero-pb (expanded padding) and --collapse/--collapse-mt (expanded height/margin
    of a fading row) are supplied per-usage via inline style. */
 .hero-sticky {
-  position: sticky;
+  position: fixed;
   top: clamp(6px, 1vw, 14px);
+  left: clamp(10px, 2vw, 28px);
+  right: clamp(10px, 2vw, 28px);
+  max-width: 1380px;
+  margin-inline: auto;
   z-index: 30;
   padding-top: var(--hero-pt, 20px);
   padding-bottom: var(--hero-pb, 38px);
+  transition: padding 200ms var(--ease-out);
 }
 .hero-sticky.is-shrunk {
   padding-top: 8px;
@@ -223,7 +228,7 @@ input[type='checkbox'] {
   max-height: var(--collapse, 160px);
   margin-top: var(--collapse-mt, 14px);
   overflow: hidden;
-  transition: opacity 180ms var(--ease-out);
+  transition: opacity 180ms var(--ease-out), max-height 200ms var(--ease-out), margin-top 200ms var(--ease-out);
 }
 .fade-collapse.is-faded {
   opacity: 0;

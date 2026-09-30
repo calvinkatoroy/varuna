@@ -1,31 +1,44 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowUpRight } from 'lucide-react'
+import { ArrowUpRight, ChevronDown, Filter } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ClientShell } from '@/components/ClientShell'
+import { ErrorRetry } from '@/components/ErrorRetry'
 import { Gauge } from '@/components/viz/Gauge'
 import { SegBar } from '@/components/viz/SegBar'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { useApiData } from '@/lib/useApiData'
 import { rise } from '@/lib/motion'
 
 type F = {
-  id: string; name: string; severity: string; asset: string; tool: string
-  cve: string; verdict: 'tp' | 'fp'; status: string; evidence: string; remediation: string
+  id: string; name: string; severity: string; host: string; url: string; tool: string
+  cve?: string | null; verdict: 'tp' | 'fp'; status: string; evidence: string; remediation?: string | null
 }
 const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
 const sevLabel: Record<string, string> = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' }
 const chip = 'rounded-md border border-rule bg-panel px-1.5 py-0.5 text-[11px] text-ink-muted'
+const assetOf = (f: F) => f.url || f.host
+
+// Findings carry a host (and optionally a more specific url), not a separate engagement tag -
+// this derives which site a finding belongs to from that field directly, so the filter reflects
+// real data instead of a hand-maintained mapping that could drift from it.
+const siteOf = (f: F) => f.host
 
 export default function ClientFindings() {
-  const [rows, setRows] = useState<F[] | null>(null)
+  const { data: rows, error, reload, setData: setRows } = useApiData<F[]>(() => api.get('/api/findings'))
   const [sel, setSel] = useState<F | null>(null)
   const [open, setOpen] = useState(false)
-  useEffect(() => { api.get('/api/findings').then(setRows) }, [])
+  const [site, setSite] = useState<string | null>(null)
 
   const list = useMemo(
     () => (rows ?? []).filter((f) => f.verdict === 'tp').sort((a, b) => rank[a.severity] - rank[b.severity]),
     [rows],
   )
+  // Portfolio-wide stats (severity bars, resolved gauge) stay unfiltered - the site filter only
+  // narrows the register below, same as team's severity filter narrows its list, not its totals.
+  const sites = useMemo(() => [...new Set(list.map(siteOf))].sort(), [list])
+  const filteredList = useMemo(() => (site ? list.filter((f) => siteOf(f) === site) : list), [list, site])
   const count = (s: string) => list.filter((f) => f.severity === s).length
   const fixed = list.filter((f) => f.status === 'fixed').length
   const openN = list.length - fixed
@@ -35,8 +48,25 @@ export default function ClientFindings() {
   useEffect(() => { if (rows) rise('.entry', 45) }, [rows])
 
   return (
-    <ClientShell title="Findings" sub="Confirmed issues from your latest scan.">
-      {!rows ? (
+    <ClientShell
+      title="Findings"
+      sub="Confirmed issues from your latest scan."
+      action={
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="glass" size="pill"><Filter size={15} /> {site ?? 'All engagements'} <ChevronDown size={14} /></Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => setSite(null)}>All engagements</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {sites.map((s) => <DropdownMenuItem key={s} onClick={() => setSite(s)}>{s}</DropdownMenuItem>)}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      }
+    >
+      {error ? (
+        <ErrorRetry message={error} onRetry={reload} />
+      ) : !rows ? (
         <div className="p-10 text-ink-faint">Loading</div>
       ) : (
         <div className="flex flex-col gap-3">
@@ -61,8 +91,9 @@ export default function ClientFindings() {
 
           {/* Register */}
           <section className="rounded-bento border border-rule bg-card">
+            {filteredList.length === 0 && <div className="px-5 py-10 text-center text-[13px] text-ink-faint">No findings for {site}.</div>}
             <ul>
-              {list.map((f, i) => {
+              {filteredList.map((f, i) => {
                 const resolved = f.status === 'fixed'
                 return (
                   <li key={f.id} className="entry" style={{ opacity: 0 }}>
@@ -77,11 +108,11 @@ export default function ClientFindings() {
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className={`block truncate text-[15.5px] font-medium ${resolved ? 'text-ink-muted' : 'text-ink'}`}>{f.name}</span>
-                        <span className="mono mt-0.5 block truncate text-[12px] text-ink-faint">{f.asset}</span>
+                        <span className="mono mt-0.5 block truncate text-[12px] text-ink-faint">{assetOf(f)}</span>
                       </span>
                       <span className="hidden items-center gap-1.5 sm:flex">
                         <span className={chip} title={`Detected by ${f.tool}`}>{f.tool}</span>
-                        <span className={chip} title="Weakness classification">{f.cve}</span>
+                        <span className={chip} title="Weakness classification">{f.cve ?? '—'}</span>
                       </span>
                       {resolved
                         ? <span className="w-[76px] flex-none text-right text-[12px] font-medium text-low">Resolved</span>
@@ -105,10 +136,10 @@ export default function ClientFindings() {
                   <span className="text-[12px] text-ink-muted">{sevLabel[sel.severity]}</span>
                 </div>
                 <DrawerTitle className="mt-2 text-[23px] font-bold tracking-[-0.02em] text-ink">{sel.name}</DrawerTitle>
-                <div className="mono mt-1.5 text-[13px] text-ink-muted">{sel.asset}</div>
+                <div className="mono mt-1.5 text-[13px] text-ink-muted">{assetOf(sel)}</div>
                 <div className="mt-2.5 flex gap-1.5">
                   <span className={chip}>{sel.tool}</span>
-                  <span className={chip}>{sel.cve}</span>
+                  <span className={chip}>{sel.cve ?? '—'}</span>
                 </div>
               </div>
             </div>
@@ -119,7 +150,7 @@ export default function ClientFindings() {
               </section>
               <section>
                 <h4 className="mb-2 text-[12px] font-medium uppercase tracking-wide text-ink-faint">Remediation</h4>
-                <p className="text-[15px] leading-relaxed text-ink">{sel.remediation}</p>
+                <p className="text-[15px] leading-relaxed text-ink">{sel.remediation ?? 'Not yet enriched.'}</p>
               </section>
             </div>
             <div className="sticky bottom-0 border-t border-rule bg-card p-6">
@@ -130,6 +161,11 @@ export default function ClientFindings() {
                 onClick={() => {
                   setRows((rs) => rs?.map((f) => (f.id === sel.id ? { ...f, status: 'fixed' } : f)) ?? rs)
                   setSel({ ...sel, status: 'fixed' })
+                  api.post(`/api/findings/${sel.id}/status`, { status: 'fixed' }).catch(() => {
+                    // Revert the optimistic flip - api.ts already toasted why it failed.
+                    setRows((rs) => rs?.map((f) => (f.id === sel.id ? { ...f, status: 'open' } : f)) ?? rs)
+                    setSel((s) => (s && s.id === sel.id ? { ...s, status: 'open' } : s))
+                  })
                 }}
               >
                 {sel.status === 'fixed' ? 'Resolved' : 'Mark as resolved'}

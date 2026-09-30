@@ -12,7 +12,9 @@ import db
 import redis_store
 from models import Account, ROLES
 
-FAIL_LIMIT = 5          # lock after this many failures in the window
+FAIL_LIMIT = 5          # lock a source IP (or IP+account pair) after this many failures
+USER_FAIL_LIMIT = 25    # account-wide cap across all IPs: high enough that one attacker cannot
+                        # lock a real user out (M7), low enough to stop a distributed guess
 FAIL_WINDOW = 900       # seconds (15 min)
 
 
@@ -53,11 +55,18 @@ def create_account(username: str, password: str, role: str) -> Account:
 def register_client(username: str, password: str) -> Account:
     """Self-service registration. Always client-role and low-privilege: an account grants
     nothing until a proposal is approved (v2). Team roles are seeded, never self-registered."""
+    import re
     from models import ROLE_CLIENT
     username = (username or "").strip()
     if not username or not password:
         raise AuthError("username and password required")
-    if db.get_account(username):
+    if not re.fullmatch(r"[A-Za-z0-9._-]{3,32}", username):
+        raise AuthError("username must be 3-32 letters, digits, dot, dash or underscore")
+    if len(password) < 8:
+        raise AuthError("password must be at least 8 characters")
+    if len(password.encode()) > 72:   # bcrypt hard limit; refuse rather than truncate/crash
+        raise AuthError("password must be at most 72 bytes")
+    if db.get_account_ci(username):
         raise AuthError("username already taken")
     acct = Account(username=username, password_hash=hash_password(password), role=ROLE_CLIENT)
     db.upsert_account(acct.username, acct.password_hash, acct.role)
@@ -66,7 +75,8 @@ def register_client(username: str, password: str) -> Account:
 
 def _record_fail(username: str, ip: str) -> None:
     r = redis_store.get_redis()
-    for key in (redis_store.login_fail_key(username), redis_store.login_fail_ip_key(ip)):
+    for key in (redis_store.login_fail_key(username), redis_store.login_fail_key(f"{username}|{ip}"),
+                redis_store.login_fail_ip_key(ip)):
         if r.incr(key) == 1:
             r.expire(key, FAIL_WINDOW)
 
@@ -74,13 +84,15 @@ def _record_fail(username: str, ip: str) -> None:
 def _is_locked(username: str, ip: str) -> bool:
     r = redis_store.get_redis()
     u = int(r.get(redis_store.login_fail_key(username)) or 0)
+    up = int(r.get(redis_store.login_fail_key(f"{username}|{ip}")) or 0)
     i = int(r.get(redis_store.login_fail_ip_key(ip)) or 0)
-    return u >= FAIL_LIMIT or i >= FAIL_LIMIT
+    return u >= USER_FAIL_LIMIT or up >= FAIL_LIMIT or i >= FAIL_LIMIT
 
 
 def _clear_fails(username: str, ip: str) -> None:
     redis_store.get_redis().delete(
-        redis_store.login_fail_key(username), redis_store.login_fail_ip_key(ip)
+        redis_store.login_fail_key(username), redis_store.login_fail_key(f"{username}|{ip}"),
+        redis_store.login_fail_ip_key(ip)
     )
 
 

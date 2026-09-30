@@ -20,10 +20,10 @@ export function ClientNav() {
           <Link
             key={to}
             to={to}
-            style={on ? { viewTransitionName: 'nav-pill' } : undefined}
             className={`flex h-full items-center rounded-pill px-[17px] text-sm leading-none transition-colors ${
-              on ? 'bg-accent font-semibold text-white' : 'font-medium text-ink-muted hover:text-ink'
+              on ? 'font-semibold text-white' : 'font-medium text-ink-muted hover:text-ink'
             }`}
+            style={on ? { background: 'var(--color-brand-red)', viewTransitionName: 'nav-pill' } : undefined}
           >
             {label}
           </Link>

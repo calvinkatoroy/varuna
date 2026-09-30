@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { hierarchy, pack } from 'd3-hierarchy'
+import { ShieldCheck } from 'lucide-react'
 
 // Packed severity bubbles via d3 circle-packing: each severity is a circle sized by its count,
 // packed without overlap. Hover lifts + names it; click drills into Findings.
@@ -25,6 +26,17 @@ export function PostureBubbles({ posture }: { posture: Record<string, number> })
   }, [posture])
 
   const active = SEV.find((s) => s.key === hover)
+  const empty = SEV.every((s) => (posture[s.key] ?? 0) === 0)
+
+  if (empty) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2.5 text-center">
+        <span className="grid h-11 w-11 place-items-center rounded-full bg-low-bg text-low"><ShieldCheck size={22} /></span>
+        <div className="text-[13.5px] font-semibold text-ink">No findings yet</div>
+        <div className="text-[12px] text-ink-muted">Nothing found across your engagements so far.</div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-1 flex-col">

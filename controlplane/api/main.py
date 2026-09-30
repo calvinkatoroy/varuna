@@ -1,11 +1,12 @@
 """FastAPI agent-API, the only interface any agent talks to (SRS §3.3, §4.12).
 
 Endpoints (all agent-initiated, outbound-only from the agent's side):
-  POST /agent/enroll              consume an enrollment token, issue a bearer token
-  GET  /agent/poll                fetch the next job for this agent's account
-  POST /agent/jobs/{id}/status    update overall/per-tool status (ownership-checked)
-  POST /agent/jobs/{id}/findings  upload raw tool output (ownership-checked)
-  POST /agent/heartbeat           liveness ping
+  POST /agent/enroll                consume an enrollment token, issue a bearer token
+  GET  /agent/poll                  fetch the next job for this agent's account
+  POST /agent/jobs/{id}/status      update overall/per-tool status (ownership-checked)
+  POST /agent/jobs/{id}/findings    upload raw tool output (ownership-checked)
+  GET  /agent/jobs/{id}/suspended   phase-boundary suspend/resume check-in (ownership-checked)
+  POST /agent/heartbeat             liveness ping
 
 Every endpoint except enroll requires a valid bearer token (NFR-23); the status and
 findings endpoints additionally require that the caller owns the job (NFR-26).
@@ -22,13 +23,27 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv()  # repo-root .env, for host-run dev (REDIS_URL, JWT_SECRET, ...)
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException  # noqa: E402
-from pydantic import BaseModel  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
 
 import redis_store  # noqa: E402
 import tokens  # noqa: E402
 import ingest  # noqa: E402
 
 app = FastAPI(title="Varuna Agent API")
+
+MAX_BODY = 50_000_000   # raw scanner output can be large, but not unbounded
+
+
+@app.middleware("http")
+async def limit_body(request, call_next):
+    try:
+        too_big = int(request.headers.get("content-length", 0)) > MAX_BODY
+    except ValueError:
+        too_big = True
+    if too_big:
+        return JSONResponse(status_code=413, content={"detail": "request body too large"})
+    return await call_next(request)
 
 
 def current_agent(authorization: str = Header(default="")) -> str:
@@ -52,7 +67,7 @@ class EnrollBody(BaseModel):
 
 
 class StatusBody(BaseModel):
-    status: str | None = None
+    status: str | None = Field(default=None, pattern="^(queued|running|done|failed)$")
     per_tool_status: dict | None = None
     error: str | None = None
 
@@ -106,3 +121,12 @@ def upload_findings(job_id: str, body: FindingsBody, background: BackgroundTasks
 def heartbeat(username: str = Depends(current_agent)):
     tokens.touch_agent(username)
     return {"ok": True}
+
+
+@app.get("/agent/jobs/{job_id}/suspended")
+def job_suspended(job_id: str, username: str = Depends(current_agent)):
+    """Checked by the agent between tool phases (scan.py's checkpoint) - suspend/resume is
+    phase-boundary, not instant mid-tool: the agent only looks at this before starting the
+    next tool, never interrupts one already running."""
+    _owned_job_or_403(job_id, username)
+    return {"suspended": redis_store.is_suspended(job_id)}

@@ -51,12 +51,44 @@ def enroll(enrollment_token: str) -> str:
     return data["token"]
 
 
+SUSPEND_POLL_INTERVAL = 5   # phase-boundary suspend/resume: how often to re-check while paused
+
+
+def _wait_while_suspended(job_id: str, headers: dict) -> None:
+    """Called between tool phases (scan.py's checkpoint). Blocks here, not mid-tool, while
+    /agent/jobs/{id}/suspended says so - a network hiccup is treated as "not suspended" so a
+    flaky check-in can never wedge the scan."""
+    while True:
+        try:
+            r = httpx.get(f"{BASE}/agent/jobs/{job_id}/suspended", headers=headers)
+            if r.status_code == 200 and r.json().get("suspended"):
+                print(f"job {job_id} suspended, waiting...")
+                time.sleep(SUSPEND_POLL_INTERVAL)
+                continue
+        except httpx.HTTPError:
+            pass
+        break
+
+
+def _checkpoint(job_id: str, headers: dict, status: dict) -> None:
+    """scan.py's checkpoint: report the phase that's about to start (so live progress has
+    something to show, not just silence until the whole scan finishes), then block while
+    suspended. Best-effort - a dropped status update doesn't fail the scan, it just means one
+    progress frame gets missed; the next phase's checkpoint (or the final report) catches up."""
+    try:
+        httpx.post(f"{BASE}/agent/jobs/{job_id}/status", headers=headers, json={"per_tool_status": status})
+    except httpx.HTTPError:
+        pass
+    _wait_while_suspended(job_id, headers)
+
+
 def handle(job: dict, headers: dict) -> None:
     jid = job["id"]
     print("got job", jid, "->", job.get("target"))
     httpx.post(f"{BASE}/agent/jobs/{jid}/status", headers=headers, json={"status": "running"})
     try:
-        raw, tool_status = scan.run_scan(job)   # Katana -> Nuclei/SQLMap, chained
+        raw, tool_status = scan.run_scan(
+            job, checkpoint=lambda status: _checkpoint(jid, headers, status))   # Katana -> Nuclei/SQLMap, chained
     except Exception as e:
         httpx.post(f"{BASE}/agent/jobs/{jid}/status", headers=headers,
                    json={"status": "failed", "error": str(e)})

@@ -1,17 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Shield, Filter, ShieldCheck, Bug, FlaskConical, ChevronDown } from 'lucide-react'
+import { Filter, ShieldCheck, Bug, FlaskConical, ChevronDown } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { TeamAccount } from '@/components/TeamAccount'
+import { BrandMark } from '@/components/BrandMark'
+import { ErrorRetry } from '@/components/ErrorRetry'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { useApiData } from '@/lib/useApiData'
 import { toast } from '@/lib/toast'
 
 type F = {
-  id: string; name: string; severity: string; asset: string; tool: string
-  cve: string; verdict: 'tp' | 'fp'; status: string; evidence: string; remediation: string
+  id: string; name: string; severity: string; host: string; url: string; tool: string; owner: string
+  cve?: string | null; verdict: 'tp' | 'fp'; status: string; evidence: string; remediation?: string | null
 }
+const assetOf = (f: F) => f.url || f.host
 const sevPill: Record<string, string> = {
   critical: 'bg-crit-bg text-crit', high: 'bg-high-bg text-high', medium: 'bg-med-bg text-med', low: 'bg-low-bg text-low',
 }
@@ -22,35 +27,58 @@ const statusPill: Record<string, string> = {
 const SEVS = ['critical', 'high', 'medium', 'low']
 
 export default function FindingsReview() {
-  const [rows, setRows] = useState<F[] | null>(null)
+  const { data: rows, error, reload, setData: setRows } = useApiData<F[]>(() => api.get('/api/findings'))
   const [sel, setSel] = useState<F | null>(null)
   const [open, setOpen] = useState(false)
   const [sevFilter, setSevFilter] = useState<string | null>(null)
+  const [clients, setClients] = useState<string[]>([])
+  const [client, setClient] = useState('')
 
-  useEffect(() => { api.get('/api/findings').then(setRows) }, [])
+  // The board spans many clients; a finding's `owner` is the same username used as `client` on
+  // board cards, so filtering by client here is real (not a hardcoded single-client special
+  // case) - every client with any findings shows them.
+  useEffect(() => {
+    api.pget('/api/pipeline/board').then((cols: any[]) => {
+      setClients([...new Set(cols.flatMap((c) => c.cards.map((k: any) => k.client)))].sort())
+    }).catch(() => {})
+  }, [])
+  useEffect(() => { if (!client && clients.length) setClient(clients[0]) }, [client, clients])
 
-  const list = useMemo(() => (rows ?? []).filter((f) => !sevFilter || f.severity === sevFilter), [rows, sevFilter])
+  const list = useMemo(
+    () => (rows ?? []).filter((f) => f.owner === client && (!sevFilter || f.severity === sevFilter)),
+    [rows, sevFilter, client],
+  )
 
   const setVerdict = (id: string, v: 'tp' | 'fp') => {
+    const prev = rows?.find((f) => f.id === id)?.verdict
     setRows((rs) => rs?.map((f) => (f.id === id ? { ...f, verdict: v } : f)) ?? rs)
     setSel((s) => (s && s.id === id ? { ...s, verdict: v } : s))
+    api.ppost(`/api/findings/${id}/verdict`, { verdict: v }).catch(() => {
+      if (!prev) return
+      setRows((rs) => rs?.map((f) => (f.id === id ? { ...f, verdict: prev } : f)) ?? rs)
+      setSel((s) => (s && s.id === id ? { ...s, verdict: prev } : s))
+    })
   }
   const markFixed = (id: string) => {
     setRows((rs) => rs?.map((f) => (f.id === id ? { ...f, status: 'fixed' } : f)) ?? rs)
     setSel((s) => (s && s.id === id ? { ...s, status: 'fixed' } : s))
-    toast('Marked as fixed')
+    api.post(`/api/findings/${id}/status`, { status: 'fixed' }).then(
+      () => toast('Marked as fixed'),
+      () => {
+        setRows((rs) => rs?.map((f) => (f.id === id ? { ...f, status: 'open' } : f)) ?? rs)
+        setSel((s) => (s && s.id === id ? { ...s, status: 'open' } : s))
+      },
+    )
   }
 
   return (
     <div className="mx-auto max-w-[1300px] p-[clamp(10px,2vw,28px)]">
       <header
         className="relative flex flex-wrap items-center gap-4 overflow-hidden rounded-bento-lg px-[clamp(18px,2.4vw,30px)] py-5 text-[#F2F5EF]"
-        style={{ background: 'radial-gradient(120% 140% at 88% -20%, rgba(242,106,67,.24), transparent 46%), linear-gradient(158deg,#123c33 0%,#0e211b 55%,#070908 100%)' }}
+        style={{ background: 'radial-gradient(120% 140% at 88% -20%, rgba(34,211,197,.22), transparent 46%), linear-gradient(158deg,#0B5FA5 0%,#0A2A43 55%,#060F18 100%)' }}
       >
         <div className="flex items-center gap-2.5 text-[20px] font-bold tracking-[-0.02em]">
-          <span className="grid h-8 w-8 place-items-center rounded-[10px]" style={{ background: 'conic-gradient(from 210deg,#F26A43,#f4996d,#F26A43)', boxShadow: 'inset 0 0 0 2px rgba(255,255,255,.16)' }}>
-            <Shield size={17} className="fill-white text-white" />
-          </span>
+          <BrandMark size={32} />
           Varuna
         </div>
         <div className="hidden h-6 w-px bg-white/15 sm:block" />
@@ -59,10 +87,18 @@ export default function FindingsReview() {
           <span className="rounded-pill bg-[#F4F6F1] px-3.5 py-1.5 text-[13px] font-semibold text-[#12140F]">Findings</span>
         </div>
         <div>
-          <div className="text-[12.5px] text-[#F2F5EF]/70">Acme Corp · acme.io</div>
+          <div className="text-[12.5px] text-[#F2F5EF]/70">{client || 'Loading…'}</div>
           <h1 className="text-[22px] font-bold tracking-[-0.02em]">Findings review</h1>
         </div>
         <div className="ml-auto flex items-center gap-2.5">
+          <DropdownMenu>
+            <DropdownMenuTrigger className="flex items-center gap-2 rounded-pill bg-white/[.16] px-4 py-2.5 text-[13px] font-medium text-[#F2F5EF]">
+              <Filter size={15} /> {client || 'Loading…'} <ChevronDown size={14} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {clients.map((cl) => <DropdownMenuItem key={cl} onClick={() => setClient(cl)}>{cl}</DropdownMenuItem>)}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <DropdownMenu>
             <DropdownMenuTrigger className="flex items-center gap-2 rounded-pill bg-white/[.16] px-4 py-2.5 text-[13px] font-medium capitalize text-[#F2F5EF]">
               <Filter size={15} /> {sevFilter ?? 'All severities'} <ChevronDown size={14} />
@@ -74,10 +110,13 @@ export default function FindingsReview() {
             </DropdownMenuContent>
           </DropdownMenu>
           <ThemeToggle className="grid h-11 w-11 place-items-center rounded-full bg-white/[.16] text-[#F2F5EF] transition-colors hover:bg-white/25" />
+          <TeamAccount />
         </div>
       </header>
 
-      {!rows ? (
+      {error ? (
+        <ErrorRetry message={error} onRetry={reload} />
+      ) : !rows ? (
         <div className="p-10 text-ink-faint">Loading…</div>
       ) : (
         <div className="mt-3.5 overflow-hidden rounded-bento-lg border border-rule bg-card">
@@ -91,13 +130,17 @@ export default function FindingsReview() {
               className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-4 border-b border-rule px-5 py-3.5 text-left transition-colors last:border-0 hover:bg-panel sm:grid-cols-[90px_1fr_1fr_90px_90px]"
             >
               <span className={`inline-flex items-center gap-1.5 justify-self-start rounded-md px-2 py-1 text-[11px] font-bold capitalize ${sevPill[f.severity]}`}><span className={`h-1.5 w-1.5 rounded-full ${sevDot[f.severity]}`} />{f.severity}</span>
-              <span className="min-w-0"><span className="block truncate text-[14px] font-semibold text-ink">{f.name}</span><span className="text-[11.5px] text-ink-faint">{f.tool} · {f.cve}</span></span>
-              <span className="mono hidden truncate text-[12px] text-ink-muted sm:block">{f.asset}</span>
+              <span className="min-w-0"><span className="block truncate text-[14px] font-semibold text-ink">{f.name}</span><span className="text-[11.5px] text-ink-faint">{f.tool} · {f.cve ?? '—'}</span></span>
+              <span className="mono hidden truncate text-[12px] text-ink-muted sm:block">{assetOf(f)}</span>
               <span className={`hidden items-center gap-1.5 text-[11px] font-bold uppercase sm:flex ${f.verdict === 'tp' ? 'text-low' : 'text-ink-faint'}`}><span className={`h-1.5 w-1.5 rounded-full ${f.verdict === 'tp' ? 'bg-low' : 'bg-ink-faint'}`} />{f.verdict}</span>
               <span className={`justify-self-end rounded-pill px-2.5 py-1 text-[11px] font-semibold capitalize sm:justify-self-start ${statusPill[f.status]}`}>{f.status}</span>
             </button>
           ))}
-          {list.length === 0 && <div className="px-5 py-10 text-center text-[13px] text-ink-faint">No {sevFilter} findings.</div>}
+          {list.length === 0 && (
+            <div className="px-5 py-10 text-center text-[13px] text-ink-faint">
+              No {sevFilter ?? ''} findings for {client || 'this client'}.
+            </div>
+          )}
         </div>
       )}
 
@@ -107,8 +150,8 @@ export default function FindingsReview() {
             <div className="border-b border-rule p-6">
               <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-bold capitalize ${sevPill[sel.severity]}`}><span className={`h-1.5 w-1.5 rounded-full ${sevDot[sel.severity]}`} />{sel.severity}</span>
               <DrawerTitle className="mt-2.5 text-[21px] font-bold tracking-[-0.02em] text-ink">{sel.name}</DrawerTitle>
-              <div className="mono mt-1 text-[13px] text-ink-muted">{sel.asset}</div>
-              <div className="mt-1 text-[12.5px] text-ink-faint">{sel.tool} · {sel.cve}</div>
+              <div className="mono mt-1 text-[13px] text-ink-muted">{assetOf(sel)}</div>
+              <div className="mt-1 text-[12.5px] text-ink-faint">{sel.tool} · {sel.cve ?? '—'}</div>
             </div>
 
             <div className="flex-1 space-y-6 p-6">
@@ -125,7 +168,7 @@ export default function FindingsReview() {
               </section>
               <section>
                 <h4 className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint"><ShieldCheck size={13} className="text-accent" /> AI remediation</h4>
-                <p className="text-[13.5px] leading-relaxed text-ink">{sel.remediation}</p>
+                <p className="text-[13.5px] leading-relaxed text-ink">{sel.remediation ?? 'Not yet enriched.'}</p>
               </section>
             </div>
 

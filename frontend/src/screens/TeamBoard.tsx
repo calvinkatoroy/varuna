@@ -1,24 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Shield, Bell, Filter, Lock, Check, X as XIcon, ArrowRight, ArrowLeft, Download,
-  Upload, FileText, KeyRound, Activity, Plus, Eye, LogOut, ChevronDown, Pause, Play,
+  Bell, Filter, Lock, Check, X as XIcon, ArrowRight, ArrowLeft, Download,
+  Upload, FileText, KeyRound, Activity, Plus, Eye, ChevronDown, Pause, Play,
 } from 'lucide-react'
-import { api } from '@/api'
+import { api, download } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { TeamAccount } from '@/components/TeamAccount'
+import { BrandMark } from '@/components/BrandMark'
 import { Drawer, DrawerContent, DrawerTitle, DrawerClose } from '@/components/ui/drawer'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
-import { AdvancedScanDrawer } from './AdvancedScanDrawer'
+import { AdvancedScanDrawer, type ScanOpts } from './AdvancedScanDrawer'
+import { ErrorRetry } from '@/components/ErrorRetry'
+import { ScanProgress } from '@/components/ScanProgress'
+import { useApiData } from '@/lib/useApiData'
 import { revealTiles } from '@/lib/motion'
 import { toast } from '@/lib/toast'
 
 type Card = {
   id: string; client: string; target: string; mode: string
-  sev: { c: number; h: number; m: number; l: number }; meta: string; owner?: string; suspended?: boolean
+  sev: { c: number; h: number; m: number; l: number }; meta: string; owner?: string
+  suspended?: boolean; rejectReason?: string; jobId?: string
 }
 type Col = { id: string; title: string; accent: string; cards: Card[] }
 
@@ -28,56 +34,141 @@ const dot: Record<string, string> = {
 const STAGES = ['pending', 'scanning', 'in_review_reporter', 'in_review_lead', 'in_review_governance', 'delivered']
 const stageName: Record<string, string> = {
   pending: 'Pending', scanning: 'Scanning', in_review_reporter: 'Reporter',
-  in_review_lead: 'Lead', in_review_governance: 'Governance', delivered: 'Delivered',
+  in_review_lead: 'Lead', in_review_governance: 'Governance', delivered: 'Delivered', rejected: 'Rejected',
 }
 const isReview = (s: string) => s.startsWith('in_review')
+type Version = { version_no: number; editor: string; note: string; created_at: string }
+// SQLite's datetime('now') comes back as "YYYY-MM-DD HH:MM:SS" (UTC, no offset) - not directly
+// Date-parseable in every engine, and not the relative-friendly style used elsewhere here.
+const whenOf = (sqliteTs: string) => new Date(sqliteTs.replace(' ', 'T') + 'Z').toLocaleString()
+type Detail = { proposal: { purpose: string; division: string; environment: string; authorized: boolean }; versions?: Version[] }
 const sevChip = (n: number, cls: string, letter: string) =>
   n > 0 ? <span className={`rounded-md px-1.5 py-0.5 text-[10.5px] font-bold ${cls}`}>{n}{letter}</span> : null
 
 // No backdrop-filter: this header packs 6 controls in one row, and stacking that many blurred
 // regions this close together triggers a real Chromium compositor bleed (see ClientTopbar).
 const ctrl = 'grid h-11 w-11 place-items-center rounded-full bg-white/[.16] text-[#F2F5EF] transition-colors hover:bg-white/25'
-const sampleVersions = [
-  { n: 1, editor: 'system', note: 'auto-generated v1', when: 'Jun 19, 09:12' },
-  { n: 2, editor: 'Aisah', note: 'fixed exec summary · 2 FPs marked', when: 'Jun 19, 14:40' },
-]
 
 export default function TeamBoard() {
-  const [cols, setCols] = useState<Col[] | null>(null)
+  const { data: cols, error, reload: refetchBoard, setData: setCols } = useApiData<Col[]>(() => api.pget('/api/pipeline/board'))
   const [sel, setSel] = useState<{ card: Card; col: string } | null>(null)
   const [open, setOpen] = useState(false)
   const [scanOpen, setScanOpen] = useState(false)
   const [client, setClient] = useState<string | null>(null)
+  const [detail, setDetail] = useState<Detail | null>(null)
+  const [rejectNote, setRejectNote] = useState('')
 
-  useEffect(() => { api.get('/api/pipeline/board').then(setCols) }, [])
-  useEffect(() => { if (cols) revealTiles('.pcard') }, [cols, client])
+  // Reveal only on first load / filter change: keying on `cols` replayed the fade-in (a visible
+  // blank flash of the whole board) after every approve and on every 8s poll.
+  const loaded = !!cols
+  useEffect(() => { if (loaded) revealTiles('.pcard') }, [loaded, client])
+  // Passive live-update: nothing else pushes scan progress/report stage changes to this page,
+  // so without this the board is a snapshot from whenever it first loaded - a scan finishing
+  // or another reviewer forwarding a report would never appear until a manual reload. Only
+  // polls while something's actually in motion; stops once everything's pending/idle.
+  useEffect(() => {
+    const active = cols?.some((c) => c.id !== 'delivered' && c.id !== 'rejected' && c.cards.length > 0)
+    if (!active) return
+    const id = setInterval(refetchBoard, 8000)
+    return () => clearInterval(id)
+  }, [cols, refetchBoard])
+  useEffect(() => {
+    setRejectNote('')
+    if (!sel) { setDetail(null); return }
+    api.pget(`/api/pipeline/detail/${sel.card.id}`).then(setDetail).catch(() => setDetail(null))
+  }, [sel])
 
   const clients = useMemo(() => [...new Set((cols ?? []).flatMap((c) => c.cards.map((k) => k.client)))], [cols])
+  // Derived straight from the live board state (not hardcoded demo lines), so it reflects
+  // whatever the team actually has queued up right now: a fresh proposal, a scan in flight,
+  // and a rejection with its reason.
+  const notif = useMemo(() => {
+    if (!cols) return []
+    const items: { icon: React.ReactNode; tone: string; text: string }[] = []
+    const pending = cols.find((c) => c.id === 'pending')?.cards[0]
+    if (pending) items.push({ icon: <FileText size={15} />, tone: 'text-accent', text: `New proposal: ${pending.client}` })
+    const scanning = cols.find((c) => c.id === 'scanning')?.cards[0]
+    if (scanning) items.push({ icon: <Activity size={15} />, tone: 'text-info', text: `Scanning: ${scanning.client} (${scanning.meta})` })
+    const rejected = cols.find((c) => c.id === 'rejected')?.cards[0]
+    if (rejected) items.push({ icon: <XIcon size={15} />, tone: 'text-crit', text: `Rejected: ${rejected.client}` })
+    return items
+  }, [cols])
   const view = useMemo(
     () => (cols ?? []).map((c) => ({ ...c, cards: client ? c.cards.filter((k) => k.client === client) : c.cards })),
     [cols, client],
   )
 
-  const move = (id: string, from: string, to: string, msg: string) => {
+  // Local optimistic move + a real mutation call. The real API splits what used to be one
+  // generic "move" into distinct per-transition endpoints (approve/reject live on the public
+  // plane since they act on a proposal; forward/sendback/suspend live on the private plane
+  // since they act on a report or job) - the client-side board shape stays the same either way.
+  const localMove = (id: string, from: string, to: string, patch?: Partial<Card>) => {
     setCols((cs) => {
       if (!cs) return cs
       const card = cs.find((c) => c.id === from)?.cards.find((k) => k.id === id)
       if (!card) return cs
-      return cs.map((c) => (c.id === from ? { ...c, cards: c.cards.filter((k) => k.id !== id) } : c.id === to ? { ...c, cards: [card, ...c.cards] } : c))
+      const moved = patch ? { ...card, ...patch } : card
+      return cs.map((c) => (c.id === from ? { ...c, cards: c.cards.filter((k) => k.id !== id) } : c.id === to ? { ...c, cards: [moved, ...c.cards] } : c))
     })
-    toast(msg); setOpen(false)
   }
-  const reject = (c: Card, col: string) => {
-    setCols((cs) => cs?.map((x) => (x.id === col ? { ...x, cards: x.cards.filter((k) => k.id !== c.id) } : x)) ?? cs)
-    toast(`Proposal rejected: ${c.client}.`); setOpen(false)
+  // Every mutation below both moves the card optimistically (instant feedback) AND refetches
+  // the board once the API call settles - on `.finally`, not just `.then`, so a failed call
+  // (a 409 race with another reviewer, a dropped connection) reconciles back to the real state
+  // instead of leaving the optimistic move sitting there wrong until the next 8s poll. The
+  // trailing .catch(() => {}) just stops that already-toasted (by api.ts) rejection from
+  // becoming an unhandled-promise console warning - the refetch already ran regardless.
+  const approve = (c: Card, col: string) => {
+    localMove(c.id, col, 'scanning')
+    api.post(`/api/proposals/${c.id}/approve`).then(() => toast(`Approved. Scan queued for ${c.client}.`)).catch(() => {}).finally(refetchBoard)
+    setOpen(false)
   }
-  const forward = (c: Card, col: string) => { const to = STAGES[Math.min(STAGES.indexOf(col) + 1, STAGES.length - 1)]; move(c.id, col, to, `Forwarded to ${stageName[to]}.`) }
-  const back = (c: Card, col: string) => { const to = STAGES[Math.max(STAGES.indexOf(col) - 1, 0)]; move(c.id, col, to, `Sent back to ${stageName[to]}.`) }
+  const reject = (c: Card, col: string, reason?: string) => {
+    const rejectReason = reason?.trim() || 'No reason recorded.'
+    localMove(c.id, col, 'rejected', { rejectReason })
+    api.post(`/api/proposals/${c.id}/reject`, { reason: rejectReason }).then(() => toast(`Proposal rejected: ${c.client}.`)).catch(() => {}).finally(refetchBoard)
+    setOpen(false); setRejectNote('')
+  }
+  const forward = (c: Card, col: string) => {
+    const to = STAGES[Math.min(STAGES.indexOf(col) + 1, STAGES.length - 1)]
+    localMove(c.id, col, to)
+    api.ppost(`/api/pipeline/reports/${c.id}/forward`).then(() => toast(`Forwarded to ${stageName[to]}.`)).catch(() => {}).finally(refetchBoard)
+    setOpen(false)
+  }
+  const back = (c: Card, col: string) => {
+    const to = STAGES[Math.max(STAGES.indexOf(col) - 1, 0)]
+    localMove(c.id, col, to)
+    api.ppost(`/api/pipeline/reports/${c.id}/sendback`).then(() => toast(`Sent back to ${stageName[to]}.`)).catch(() => {}).finally(refetchBoard)
+    setOpen(false)
+  }
   const toggleSuspend = (c: Card, col: string) => {
+    if (!c.jobId) {
+      // Can happen for a few hundred ms right after approving, before the post-approve
+      // refetch lands - the job didn't exist client-side until the backend created it. Refuse
+      // rather than show a false "suspended" toast for a call that never actually fired.
+      toast('Still syncing this scan - try again in a moment.')
+      return
+    }
     const next = !c.suspended
     setCols((cs) => cs?.map((x) => (x.id === col ? { ...x, cards: x.cards.map((k) => (k.id === c.id ? { ...k, suspended: next } : k)) } : x)) ?? cs)
     setSel((s) => (s && s.card.id === c.id ? { ...s, card: { ...s.card, suspended: next } } : s))
-    toast(next ? `Scan suspended for ${c.client}.` : `Scan resumed for ${c.client}.`)
+    api.ppost(`/api/pipeline/scans/${c.jobId}/${next ? 'suspend' : 'resume'}`).then(() => toast(next ? `Scan suspended for ${c.client}.` : `Scan resumed for ${c.client}.`)).catch(() => {}).finally(refetchBoard)
+  }
+  const reissuePassword = (c: Card) => {
+    // Only claims success once the backend actually confirms it - it used to toast
+    // "issued" unconditionally, even on a 403 (only governance may re-issue).
+    api.ppost(`/api/pipeline/reports/${c.id}/reissue-password`)
+      .then(() => toast(`New view-once password issued for ${c.client}.`))
+      .catch(() => {})
+    setOpen(false)
+  }
+  const downloadVersion = (rid: string, v: Version) => {
+    download(api.privateBase, `/api/pipeline/reports/${rid}/versions/${v.version_no}/download`, `${rid}_v${v.version_no}.docx`)
+  }
+  const launchScan = (opts: ScanOpts) => {
+    const tools = ['katana', 'nuclei', ...(opts.sqlmap ? ['sqlmap'] : [])]
+    api.post('/api/scans', { target: opts.target, tools, division: '', opts })
+      .then(() => toast(`Scan launched: ${opts.target}`))
+      .catch(() => {})
   }
 
   return (
@@ -85,12 +176,10 @@ export default function TeamBoard() {
       {/* team header band */}
       <header
         className="relative flex flex-wrap items-center gap-4 overflow-hidden rounded-bento-lg px-[clamp(18px,2.4vw,30px)] py-5 text-[#F2F5EF]"
-        style={{ background: 'radial-gradient(120% 140% at 88% -20%, rgba(242,106,67,.24), transparent 46%), linear-gradient(158deg,#123c33 0%,#0e211b 55%,#070908 100%)' }}
+        style={{ background: 'radial-gradient(120% 140% at 88% -20%, rgba(34,211,197,.22), transparent 46%), linear-gradient(158deg,#0B5FA5 0%,#0A2A43 55%,#060F18 100%)' }}
       >
         <div className="flex items-center gap-2.5 text-[20px] font-bold tracking-[-0.02em]">
-          <span className="grid h-8 w-8 place-items-center rounded-[10px]" style={{ background: 'conic-gradient(from 210deg,#F26A43,#f4996d,#F26A43)', boxShadow: 'inset 0 0 0 2px rgba(255,255,255,.16)' }}>
-            <Shield size={17} className="fill-white text-white" />
-          </span>
+          <BrandMark size={32} />
           Varuna
         </div>
         <div className="hidden h-6 w-px bg-white/15 sm:block" />
@@ -102,12 +191,12 @@ export default function TeamBoard() {
           <div className="flex items-center gap-2 text-[12.5px] text-[#F2F5EF]/70"><Lock size={13} /> Private plane · Tailscale · Security team</div>
           <h1 className="text-[22px] font-bold tracking-[-0.02em]">Review Pipeline</h1>
         </div>
-        <div className="ml-auto flex items-center gap-2.5">
-          <button onClick={() => setScanOpen(true)} className="flex items-center gap-2 rounded-pill bg-[#F4F6F1] px-4 py-2.5 text-[13px] font-semibold text-[#12140F] transition-opacity hover:opacity-90">
+        <div className="ml-auto flex max-w-full flex-wrap items-center gap-2.5">
+          <button onClick={() => setScanOpen(true)} className="flex items-center gap-2 whitespace-nowrap rounded-pill bg-[#F4F6F1] px-4 py-2.5 text-[13px] font-semibold text-[#12140F] transition-opacity hover:opacity-90">
             <Plus size={15} /> New scan
           </button>
           <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-2 rounded-pill bg-white/[.16] px-4 py-2.5 text-[13px] font-medium text-[#F2F5EF]">
+            <DropdownMenuTrigger className="flex items-center gap-2 whitespace-nowrap rounded-pill bg-white/[.16] px-4 py-2.5 text-[13px] font-medium text-[#F2F5EF]">
               <Filter size={15} /> {client ?? 'All clients'} <ChevronDown size={14} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -120,27 +209,27 @@ export default function TeamBoard() {
           <DropdownMenu>
             <DropdownMenuTrigger aria-label="Notifications" className={`relative ${ctrl}`}>
               <Bell size={18} />
-              <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-accent ring-2 ring-[#0e211b]" />
+              {notif.length > 0 && <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-accent ring-2 ring-[#0e211b]" />}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-[280px]">
               <DropdownMenuLabel>Notifications</DropdownMenuLabel>
-              <DropdownMenuItem className="items-start gap-2.5"><span className="mt-0.5 text-accent"><FileText size={15} /></span><span className="flex-1"><span className="block text-[13px] text-ink">New proposal: Nimbus Ltd</span><span className="text-[11.5px] text-ink-faint">2h ago</span></span></DropdownMenuItem>
-              <DropdownMenuItem className="items-start gap-2.5"><span className="mt-0.5 text-info"><Activity size={15} /></span><span className="flex-1"><span className="block text-[13px] text-ink">Scan finished: Vault Bank</span><span className="text-[11.5px] text-ink-faint">Just now</span></span></DropdownMenuItem>
+              {notif.length === 0 && <div className="px-3 py-4 text-center text-[12.5px] text-ink-faint">Nothing new.</div>}
+              {notif.map((n) => (
+                <DropdownMenuItem key={n.text} className="items-start gap-2.5">
+                  <span className={`mt-0.5 ${n.tone}`}>{n.icon}</span>
+                  <span className="flex-1 text-[13px] text-ink">{n.text}</span>
+                </DropdownMenuItem>
+              ))}
             </DropdownMenuContent>
           </DropdownMenu>
-          <DropdownMenu>
-            <DropdownMenuTrigger aria-label="Account" className="grid h-11 w-11 place-items-center rounded-full text-sm font-bold text-white" style={{ background: 'linear-gradient(160deg,#3fb98a,#268a63)' }}>RY</DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <div className="px-3 py-2"><div className="text-[14px] font-semibold text-ink">Riyan</div><div className="text-[12px] text-ink-muted">Lead pentester</div></div>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => location.assign('/')} className="text-crit"><LogOut size={15} /> Sign out</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <TeamAccount />
         </div>
       </header>
 
       {/* kanban */}
-      {!cols ? (
+      {error ? (
+        <ErrorRetry message={error} onRetry={refetchBoard} />
+      ) : !cols ? (
         <div className="p-10 text-ink-faint">Loading…</div>
       ) : (
         <div className="mt-3.5 flex gap-3 overflow-x-auto p-1">
@@ -173,7 +262,7 @@ export default function TeamBoard() {
                             {c.suspended && <Pause size={11} />}
                             {c.suspended ? 'Suspended' : c.meta}
                           </span>
-                          {c.owner && <span className="grid h-6 w-6 place-items-center rounded-full text-[10.5px] font-bold text-white" style={{ background: 'linear-gradient(160deg,#f4996d,#F26A43)' }}>{c.owner[0]}</span>}
+                          {c.owner && <span className="grid h-6 w-6 place-items-center rounded-full text-[10.5px] font-bold text-white" style={{ background: 'linear-gradient(160deg,#4FB3E8,#0B5FA5)' }}>{c.owner[0]}</span>}
                         </div>
                       </button>
                     </DropdownMenuTrigger>
@@ -181,7 +270,7 @@ export default function TeamBoard() {
                       <DropdownMenuLabel>{col.title}</DropdownMenuLabel>
                       {col.id === 'pending' && (
                         <>
-                          <DropdownMenuItem onClick={() => move(c.id, col.id, 'scanning', `Approved. Scan queued for ${c.client}.`)} className="text-low focus:bg-low-bg"><Check size={15} /> Approve proposal</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => approve(c, col.id)} className="text-low focus:bg-low-bg"><Check size={15} /> Approve proposal</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => reject(c, col.id)} className="text-crit focus:bg-crit-bg"><XIcon size={15} /> Reject</DropdownMenuItem>
                         </>
                       )}
@@ -196,7 +285,7 @@ export default function TeamBoard() {
                           <DropdownMenuItem onClick={() => back(c, col.id)}><ArrowLeft size={15} /> Send back</DropdownMenuItem>
                         </>
                       )}
-                      {col.id === 'delivered' && <DropdownMenuItem onClick={() => { toast(`New view-once password issued for ${c.client}.`) }}><KeyRound size={15} /> Re-issue password</DropdownMenuItem>}
+                      {col.id === 'delivered' && <DropdownMenuItem onClick={() => reissuePassword(c)}><KeyRound size={15} /> Re-issue password</DropdownMenuItem>}
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={() => { setSel({ card: c, col: col.id }); setOpen(true) }}><Eye size={15} /> View details</DropdownMenuItem>
                     </DropdownMenuContent>
@@ -223,10 +312,12 @@ export default function TeamBoard() {
               <section>
                 <h4 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Proposal</h4>
                 <div className="grid grid-cols-2 gap-3 text-[13px]">
-                  <div><div className="text-ink-muted">Purpose</div><div className="font-semibold text-ink">Pre-release</div></div>
-                  <div><div className="text-ink-muted">Division</div><div className="font-semibold text-ink">Engineering</div></div>
-                  <div><div className="text-ink-muted">Environment</div><div className="font-semibold text-ink">Production</div></div>
-                  <div><div className="text-ink-muted">Authorization</div><div className="flex items-center gap-1 font-semibold text-low"><Check size={14} /> Attested</div></div>
+                  <div><div className="text-ink-muted">Purpose</div><div className="font-semibold text-ink">{detail?.proposal.purpose ?? '—'}</div></div>
+                  <div><div className="text-ink-muted">Division</div><div className="font-semibold text-ink">{detail?.proposal.division ?? '—'}</div></div>
+                  <div><div className="text-ink-muted">Environment</div><div className="font-semibold text-ink">{detail?.proposal.environment ?? '—'}</div></div>
+                  <div><div className="text-ink-muted">Authorization</div>{detail?.proposal.authorized
+                    ? <div className="flex items-center gap-1 font-semibold text-low"><Check size={14} /> Attested</div>
+                    : <div className="font-semibold text-ink-faint">—</div>}</div>
                 </div>
               </section>
 
@@ -234,14 +325,17 @@ export default function TeamBoard() {
                 <section>
                   <div className="mb-2.5 flex items-center justify-between">
                     <h4 className="text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Versions</h4>
-                    <button onClick={() => toast('Upload a new .docx version')} className="flex items-center gap-1.5 text-[12px] font-semibold text-accent hover:opacity-80"><Upload size={13} /> Upload new</button>
+                    {/* Uploading a new version needs a file picker this drawer doesn't have yet -
+                        left as a placeholder rather than half-building an upload flow. */}
+                    <button onClick={() => toast('Upload a new .docx version - coming soon')} className="flex items-center gap-1.5 text-[12px] font-semibold text-accent hover:opacity-80"><Upload size={13} /> Upload new</button>
                   </div>
+                  {!detail?.versions?.length && <div className="rounded-input border border-dashed border-rule px-3.5 py-5 text-center text-[12px] text-ink-faint">No versions yet.</div>}
                   <ul className="space-y-2">
-                    {sampleVersions.map((v) => (
-                      <li key={v.n} className="flex items-center gap-3 rounded-input border border-rule bg-panel p-3">
-                        <span className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-card text-[12px] font-bold text-ink">v{v.n}</span>
-                        <div className="min-w-0 flex-1"><div className="truncate text-[13px] font-medium text-ink">{v.note}</div><div className="text-[11.5px] text-ink-faint">{v.editor} · {v.when}</div></div>
-                        <button onClick={() => toast(`Downloading v${v.n}.docx`)} aria-label="Download" className="grid h-8 w-8 flex-none place-items-center rounded-full text-ink-muted hover:bg-card hover:text-ink"><Download size={15} /></button>
+                    {(detail?.versions ?? []).map((v) => (
+                      <li key={v.version_no} className="flex items-center gap-3 rounded-input border border-rule bg-panel p-3">
+                        <span className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-card text-[12px] font-bold text-ink">v{v.version_no}</span>
+                        <div className="min-w-0 flex-1"><div className="truncate text-[13px] font-medium text-ink">{v.note}</div><div className="text-[11.5px] text-ink-faint">{v.editor} · {whenOf(v.created_at)}</div></div>
+                        <button onClick={() => downloadVersion(sel.card.id, v)} aria-label="Download" className="grid h-8 w-8 flex-none place-items-center rounded-full text-ink-muted hover:bg-card hover:text-ink"><Download size={15} /></button>
                       </li>
                     ))}
                   </ul>
@@ -249,10 +343,18 @@ export default function TeamBoard() {
               )}
 
               {sel.col === 'scanning' && (
-                <section className="flex items-center gap-3 rounded-input border border-rule bg-panel p-4 text-[13px]">
-                  {sel.card.suspended
-                    ? <><Pause size={18} className="text-med" /> Scan suspended. Resume to continue where it left off.</>
-                    : <><Activity size={18} className="text-info" /> Live scan in progress. Nuclei 62%. Findings stream in as tools finish.</>}
+                <section>
+                  <h4 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Live progress</h4>
+                  {sel.card.jobId ? (
+                    <div className="rounded-input border border-rule bg-panel p-4">
+                      <ScanProgress jobId={sel.card.jobId} base={api.publicBase} />
+                      <p className="mt-3 text-[12px] text-ink-faint">Findings land once the full scan finishes.</p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 rounded-input border border-rule bg-panel p-4 text-[13px]">
+                      <Activity size={18} className="text-info" /> Still syncing this scan's job id - try reopening in a moment.
+                    </div>
+                  )}
                 </section>
               )}
 
@@ -262,15 +364,36 @@ export default function TeamBoard() {
                   <div className="flex items-center gap-3 rounded-input border border-rule bg-panel p-3.5 text-[13px]"><FileText size={18} className="text-accent" /> Protected PDF sent · view-once password.</div>
                 </section>
               )}
+
+              {sel.col === 'rejected' && (
+                <section>
+                  <h4 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Reason</h4>
+                  <div className="flex items-center gap-3 rounded-input border border-rule bg-panel p-3.5 text-[13px] text-ink">{sel.card.rejectReason ?? 'No reason recorded.'}</div>
+                </section>
+              )}
+
+              {sel.col === 'pending' && (
+                <section>
+                  <h4 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Reject reason <span className="normal-case text-ink-faint">(optional, shown to no one but the team)</span></h4>
+                  <textarea
+                    value={rejectNote}
+                    onChange={(e) => setRejectNote(e.target.value)}
+                    placeholder="e.g. authorization could not be verified for this target"
+                    rows={2}
+                    className="w-full resize-none rounded-input border border-rule bg-panel px-3.5 py-3 text-[13px] text-ink placeholder:text-ink-faint outline-none focus:border-accent"
+                  />
+                </section>
+              )}
             </div>
 
             <div className="sticky bottom-0 flex gap-2.5 border-t border-rule bg-card p-6">
               {sel.col === 'pending' && (
                 <>
-                  <Button variant="outline" size="lg" className="flex-1" onClick={() => reject(sel.card, sel.col)}><XIcon size={16} /> Reject</Button>
-                  <Button size="lg" className="flex-1" onClick={() => move(sel.card.id, sel.col, 'scanning', `Approved. Scan queued for ${sel.card.client}.`)}><Check size={16} /> Approve</Button>
+                  <Button variant="outline" size="lg" className="flex-1" onClick={() => reject(sel.card, sel.col, rejectNote)}><XIcon size={16} /> Reject</Button>
+                  <Button size="lg" className="flex-1" onClick={() => approve(sel.card, sel.col)}><Check size={16} /> Approve</Button>
                 </>
               )}
+              {sel.col === 'rejected' && <DrawerClose asChild><Button size="lg" className="w-full">Close</Button></DrawerClose>}
               {isReview(sel.col) && (
                 <>
                   <Button variant="outline" size="lg" className="flex-1" onClick={() => back(sel.card, sel.col)}><ArrowLeft size={16} /> Send back</Button>
@@ -278,7 +401,7 @@ export default function TeamBoard() {
                 </>
               )}
               {sel.col === 'delivered' && (
-                <Button variant="outline" size="lg" className="w-full" onClick={() => { toast(`New view-once password issued for ${sel.card.client}.`); setOpen(false) }}><KeyRound size={16} /> Re-issue password</Button>
+                <Button variant="outline" size="lg" className="w-full" onClick={() => reissuePassword(sel.card)}><KeyRound size={16} /> Re-issue password</Button>
               )}
               {sel.col === 'scanning' && (
                 <>
@@ -292,7 +415,7 @@ export default function TeamBoard() {
           </DrawerContent>
         )}
       </Drawer>
-      <AdvancedScanDrawer open={scanOpen} onOpenChange={setScanOpen} onLaunch={(t) => toast(`Scan launched: ${t}`)} />
+      <AdvancedScanDrawer open={scanOpen} onOpenChange={setScanOpen} onLaunch={launchScan} />
     </div>
   )
 }

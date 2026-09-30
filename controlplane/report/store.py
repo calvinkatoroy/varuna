@@ -12,6 +12,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
+import db  # noqa: E402
 import redis_store  # noqa: E402
 
 REPORTS_DIR = os.environ.get("REPORTS_DIR", "report_output")
@@ -105,6 +106,7 @@ def wipe_all() -> dict:
     """Offboarding data-destruction (NFR-28): all findings, reports, scan data, and the audit
     log. Accounts and agent bindings are intentionally NOT touched (remove separately)."""
     counts = redis_store.wipe_scan_data()
+    counts["findings"] = db.wipe_findings()
     redis_store.wipe_audit()
     r = redis_store.get_redis()
     for key in list(r.scan_iter(match="reports:*")):

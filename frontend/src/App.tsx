@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
-import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './auth'
+import { isMock } from './mock'
 import ClientCockpit from './screens/ClientCockpit'
 import ClientProposals from './screens/ClientProposals'
 import ClientFindings from './screens/ClientFindings'
 import ClientReports from './screens/ClientReports'
 import { AuthGate } from './screens/AuthGate'
+import { TeamLogin } from './screens/TeamLogin'
 import TeamBoard from './screens/TeamBoard'
 import FindingsReview from './screens/FindingsReview'
 import { Splash } from './components/Splash'
@@ -15,37 +17,42 @@ import { Toaster } from './lib/toast'
 const ACTIVATED = 'varuna-activated'
 
 // The client area is gated as a whole: until the account is activated (register -> proposal ->
-// lead approval -> agent -> unlock), every client route shows the blurred cockpit + AuthGate.
+// lead approval -> agent -> unlock) AND the logged-in account is actually a client, every client
+// route shows the blurred cockpit + AuthGate. The role check matters on top of the localStorage
+// flag: without it, a team account that happens to share a browser with a previously-activated
+// client session would see the client dashboard rendered as themselves.
 // Activation persists (localStorage) so the unlock survives navigation and reloads.
 function ClientRoute({ children }: { children: React.ReactNode }) {
-  const [active, setActive] = useState(() => localStorage.getItem(ACTIVATED) === '1')
-  if (active) return <>{children}</>
+  const { user } = useAuth()
+  // Activation is remembered per account, so a second user on this browser goes through onboarding.
+  const [activated, setActivated] = useState(() => localStorage.getItem(ACTIVATED))
+  if (user && user.role !== 'client') return <Navigate to="/team" replace />
+  if (user?.role === 'client' && activated === user.username) return <>{children}</>
   return (
     <>
       <div aria-hidden className="pointer-events-none select-none saturate-[.85]" style={{ filter: 'blur(7px)' }}>
         <ClientCockpit />
       </div>
-      <AuthGate onActivate={() => { localStorage.setItem(ACTIVATED, '1'); setActive(true) }} />
+      <AuthGate onActivate={(name) => { localStorage.setItem(ACTIVATED, name); setActivated(name) }} />
     </>
   )
 }
 
-const pill = (on: boolean) =>
-  `rounded-pill px-4 py-1.5 text-[12.5px] font-semibold transition-colors ${on ? 'bg-accent text-white' : 'text-ink-muted hover:text-ink'}`
-
-// Prototype-only: switch between the client and team worlds; Reset replays the onboarding gate.
-function PrototypeSwitcher() {
-  const loc = useLocation()
-  const team = loc.pathname.startsWith('/team')
-  const reset = () => { localStorage.removeItem(ACTIVATED); location.assign('/') }
-  return (
-    <div className="fixed bottom-4 left-1/2 z-[60] flex -translate-x-1/2 items-center gap-1 rounded-pill border border-rule bg-card/90 p-1 shadow-[0_12px_40px_rgba(0,0,0,.3)] backdrop-blur">
-      <span className="px-2 text-[10.5px] font-semibold uppercase tracking-wide text-ink-faint">Preview</span>
-      <Link to="/" className={pill(!team)}>Client</Link>
-      <Link to="/team" className={pill(team)}>Team</Link>
-      <button onClick={reset} className="rounded-pill px-3 py-1.5 text-[12.5px] font-medium text-ink-faint hover:text-ink">Reset</button>
-    </div>
-  )
+// The private/team plane: gated on role, not just presence of a session, so a client account
+// can't reach it just by navigating to /team. Dev note: seeded team logins in the mock are
+// riyan/dimas/aisah/hani (any password) - see mock/index.ts's teamAccounts.
+//
+// Demo build (VITE_MOCK=1) skips the login gate entirely - there's no real backend session to
+// protect, so it silently logs in as `admin` (mock lead_pentester) instead of making a visitor
+// type credentials into a prototype. Real deployments (VITE_MOCK=0) still require a real login.
+function RoleRoute({ children }: { children: React.ReactNode }) {
+  const { user, login } = useAuth()
+  useEffect(() => {
+    if (isMock() && (!user || user.role === 'client')) login('admin', '').catch(() => {})
+  }, [user, login])
+  if (isMock()) return <>{children}</>
+  if (user && user.role !== 'client') return <>{children}</>
+  return <TeamLogin />
 }
 
 export default function App() {
@@ -74,18 +81,15 @@ export default function App() {
     <>
       <Splash />
       {ready && (
-        <>
-          <Routes location={displayed}>
-            <Route path="/" element={<ClientRoute><ClientCockpit /></ClientRoute>} />
-            <Route path="/proposals" element={<ClientRoute><ClientProposals /></ClientRoute>} />
-            <Route path="/findings" element={<ClientRoute><ClientFindings /></ClientRoute>} />
-            <Route path="/reports" element={<ClientRoute><ClientReports /></ClientRoute>} />
-            <Route path="/team" element={<TeamBoard />} />
-            <Route path="/team/findings" element={<FindingsReview />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-          <PrototypeSwitcher />
-        </>
+        <Routes location={displayed}>
+          <Route path="/" element={<ClientRoute><ClientCockpit /></ClientRoute>} />
+          <Route path="/proposals" element={<ClientRoute><ClientProposals /></ClientRoute>} />
+          <Route path="/findings" element={<ClientRoute><ClientFindings /></ClientRoute>} />
+          <Route path="/reports" element={<ClientRoute><ClientReports /></ClientRoute>} />
+          <Route path="/team" element={<RoleRoute><TeamBoard /></RoleRoute>} />
+          <Route path="/team/findings" element={<RoleRoute><FindingsReview /></RoleRoute>} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       )}
       <Toaster />
     </>

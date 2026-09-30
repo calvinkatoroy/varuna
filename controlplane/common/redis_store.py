@@ -22,6 +22,7 @@ def job_key(job_id: str) -> str: return f"job:{job_id}"
 def findings_key(job_id: str) -> str: return f"findings:{job_id}"
 def raw_key(job_id: str) -> str: return f"raw:{job_id}"
 def approval_key(job_id: str) -> str: return f"approval:{job_id}"
+def suspended_key(job_id: str) -> str: return f"suspended:{job_id}"
 def account_key(username: str) -> str: return f"account:{username}"
 def agent_key(username: str) -> str: return f"agent:{username}"
 def agent_token_key(token_hash: str) -> str: return f"agent_token:{token_hash}"  # reverse index
@@ -70,6 +71,19 @@ def get_findings(job_id: str) -> list:
 
 def set_raw(job_id: str, raw: dict) -> None:
     get_redis().set(raw_key(job_id), json.dumps(raw), ex=SCAN_TTL_SECONDS)
+
+
+# --- scan suspend/resume (v2, phase-boundary - see agent/scan.py's checkpoint). Ephemeral,
+# same TTL as the job itself: a suspend flag outliving its job would be meaningless. ---
+def set_suspended(job_id: str, suspended: bool) -> None:
+    if suspended:
+        get_redis().set(suspended_key(job_id), "1", ex=SCAN_TTL_SECONDS)
+    else:
+        get_redis().delete(suspended_key(job_id))
+
+
+def is_suspended(job_id: str) -> bool:
+    return get_redis().get(suspended_key(job_id)) is not None
 
 
 def set_approval(job_id: str, entry: dict) -> None:
@@ -173,6 +187,7 @@ if __name__ == "__main__":
     assert job_key("x") == "job:x"
     assert findings_key("x") == "findings:x"
     assert approval_key("x") == "approval:x"
+    assert suspended_key("x") == "suspended:x"
     assert account_key("calvin") == "account:calvin"
     assert agent_key("calvin") == "agent:calvin"
     assert login_fail_key("calvin") == "login_fail:calvin"

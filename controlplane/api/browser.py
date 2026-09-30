@@ -11,6 +11,8 @@ input, full reports) is a separate app bound to the Tailscale interface (NFR-24)
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import sys
 import uuid
@@ -24,11 +26,13 @@ load_dotenv()  # repo-root .env, for host-run dev (REDIS_URL, JWT_SECRET, ...)
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Response  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from pydantic import BaseModel  # noqa: E402
+from fastapi.responses import JSONResponse, StreamingResponse  # noqa: E402
+from pydantic import BaseModel, Field, StrictBool  # noqa: E402
 
 import audit  # noqa: E402
 import auth  # noqa: E402
 import classifier  # noqa: E402
+import cockpit  # noqa: E402
 import db  # noqa: E402
 import dispatch  # noqa: E402
 import generator  # noqa: E402
@@ -48,7 +52,22 @@ app = FastAPI(title="Varuna Browser API (public plane)")
 _CORS = os.environ.get("VARUNA_CORS_ORIGINS", "http://localhost:5173").split(",")
 app.add_middleware(CORSMiddleware, allow_origins=_CORS, allow_methods=["*"], allow_headers=["*"])
 
+MAX_BODY = 1_000_000   # bytes; every JSON body here is small forms
+
+
+@app.middleware("http")
+async def limit_body(request, call_next):
+    try:
+        too_big = int(request.headers.get("content-length", 0)) > MAX_BODY
+    except ValueError:
+        too_big = True
+    if too_big:
+        return JSONResponse(status_code=413, content={"detail": "request body too large"})
+    return await call_next(request)
+
 FULL_STACK = ["katana", "nuclei", "sqlmap"]
+SSE_POLL_INTERVAL = 1.5   # seconds between checks for a changed job record
+SSE_MAX_SECONDS = 40 * 60  # generous cap so a stuck agent can't leave a connection open forever
 
 
 # --- request models (Pydantic validation at the edge, C-6) ---
@@ -70,22 +89,22 @@ class ScanBody(BaseModel):
 
 
 class RejectBody(BaseModel):
-    reason: str = ""
+    reason: str = Field(default="", max_length=2000)
 
 
 class ProposalBody(BaseModel):
-    target: str
-    mode: str = "standard"
-    in_scope: str = ""
-    out_of_scope: str = ""
-    division: str = ""
-    purpose: str = ""                    # keperluan
-    environment: str = ""
-    test_window: str = ""
+    target: str = Field(max_length=2048)
+    mode: str = Field(default="standard", pattern="^(standard|advanced)$")
+    in_scope: str = Field(default="", max_length=4000)
+    out_of_scope: str = Field(default="", max_length=4000)
+    division: str = Field(default="", max_length=200)
+    purpose: str = Field(default="", max_length=200)   # keperluan
+    environment: str = Field(default="", max_length=200)
+    test_window: str = Field(default="", max_length=200)
     roe: dict = {}
-    authorization_attested: bool = False
-    emergency_contact: str = ""
-    tools: list[str] = []
+    authorization_attested: StrictBool = False
+    emergency_contact: str = Field(default="", max_length=200)
+    tools: list[str] = Field(default=[], max_length=10)
     opts: dict = {}
 
 
@@ -97,6 +116,13 @@ def login(body: LoginBody, x_forwarded_for: str = Header(default="api")):
         raise HTTPException(status_code=429, detail="too many failed attempts; try again later")
     except auth.BadCredentials:
         raise HTTPException(status_code=401, detail="invalid username or password")
+    # NFR-24: the public (internet-facing) plane is for clients. Security-team accounts sign in
+    # on the private plane, so their credentials can't be brute-forced from the internet.
+    # Local dev without a private plane can opt in with VARUNA_PUBLIC_TEAM_LOGIN=1.
+    if (models.is_team(jwt_auth.verify(token)["role"])
+            and os.environ.get("VARUNA_PUBLIC_TEAM_LOGIN") != "1"):
+        raise HTTPException(status_code=403,
+                            detail="security team accounts sign in on the private plane")
     return {"token": token}
 
 
@@ -116,23 +142,54 @@ def me(user: dict = Depends(current_user)):
     return user
 
 
+@app.get("/api/cockpit")
+def get_cockpit(user: dict = Depends(current_user)):
+    """Client dashboard aggregate: own engagements, posture, trend, latest delivered report."""
+    if not models.is_client(user["role"]):
+        raise HTTPException(status_code=403, detail="client role required")
+    return cockpit.build_cockpit(user["username"])
+
+
 # --- scan proposals (v2): client submits, lead pentester approves ---
 @app.post("/api/proposals")
 def submit_proposal(body: ProposalBody, user: dict = Depends(current_user)):
     if not body.authorization_attested:
         raise HTTPException(status_code=422,
                             detail="authorization-to-test attestation is required")
+    try:
+        classifier.validate_syntax(body.target)
+    except classifier.ClassifyRejected as e:
+        raise HTTPException(status_code=422, detail=f"invalid target: {e}")
     p = {**body.model_dump(), "submitter": user["username"], "status": models.PROPOSAL_PENDING}
+    if models.is_client(user["role"]):
+        # Safe-profile lock (NFR-17/18/19): `mode` for a client only labels the scoping form.
+        # Clients never choose tools or scan options; those are advanced-scan (team) inputs.
+        p["tools"], p["opts"] = [], {}
+    elif any(t not in FULL_STACK for t in p["tools"]):
+        raise HTTPException(status_code=422, detail=f"tools must be a subset of {FULL_STACK}")
     pid = db.create_proposal(p)
     return {"proposal_id": pid, "status": models.PROPOSAL_PENDING}
 
 
+def _client_proposal_view(p: dict) -> dict:
+    """Reshape a raw proposal row into what ClientProposals.tsx actually expects: status in
+    the client vocabulary (not raw pending/approved/rejected - see cockpit.client_status), and
+    `when`/`reason` field names instead of the DB's updated_at/reject_reason."""
+    return {
+        "id": p["id"], "target": p["target"], "purpose": p["purpose"], "division": p["division"],
+        "status": cockpit.client_status(p), "when": p["updated_at"], "reason": p.get("reject_reason"),
+        "job_id": p.get("job_id"),
+    }
+
+
 @app.get("/api/proposals")
 def list_proposals(user: dict = Depends(current_user)):
-    # team sees every client's proposals; a client sees only their own (v2 tenancy)
+    # team sees every client's proposals (raw shape - the team side reads /api/pipeline/board
+    # instead, this is only kept broad in case something else needs the raw rows); a client
+    # sees only their own, reshaped for what the client UI actually renders (v2 tenancy).
     if models.is_team(user["role"]):
         return db.list_proposals()
-    return db.list_proposals(submitter=user["username"])
+    return [_client_proposal_view(p) for p in db.list_proposals(submitter=user["username"])]
 
 
 @app.get("/api/proposals/{pid}")
@@ -156,8 +213,10 @@ def approve_proposal(pid: str, user: dict = Depends(require_lead)):
         target_class = classifier.classify(p["target"])
     except classifier.ClassifyRejected as e:
         raise HTTPException(status_code=422, detail=f"target rejected: {e}")
-    # Safe-profile lock: standard (client) proposals run the fixed full stack, no custom opts.
-    standard = p["mode"] == "standard"
+    # Safe-profile lock, decided by the submitter's ROLE (never by the client-chosen `mode`):
+    # client proposals always run the fixed full stack with no custom opts.
+    submitter = db.get_account(p["submitter"])
+    standard = not submitter or models.is_client(submitter["role"]) or p["mode"] == "standard"
     tools = FULL_STACK if standard else (p["tools"] or FULL_STACK)
     opts = {} if standard else p["opts"]
     job = models.Job(
@@ -165,9 +224,12 @@ def approve_proposal(pid: str, user: dict = Depends(require_lead)):
         submitter=p["submitter"], role=models.ROLE_CLIENT, tools=tools, opts=opts,
         status=models.STATUS_QUEUED, per_tool_status={},
     ).to_dict()
+    # Atomic claim: of N concurrent approvals exactly one flips pending->approved and proceeds.
+    if not db.claim_proposal(pid, models.PROPOSAL_PENDING,
+                             status=models.PROPOSAL_APPROVED, job_id=job["id"]):
+        raise HTTPException(status_code=409, detail="proposal is not pending")
     redis_store.set_job(job)
     redis_store.add_user_job(p["submitter"], job["id"])
-    db.update_proposal(pid, status=models.PROPOSAL_APPROVED, job_id=job["id"])
     audit.log(audit.APPROVE, approver=user["username"], proposal=pid, job=job["id"])
     # Proposal is the gate; queue for the client's agent to pick up whenever it polls.
     dispatch.dispatch_job(job, pre_approved=True)
@@ -179,9 +241,9 @@ def reject_proposal(pid: str, body: RejectBody, user: dict = Depends(require_lea
     p = db.get_proposal(pid)
     if not p:
         raise HTTPException(status_code=404, detail="no such proposal")
-    if p["status"] != models.PROPOSAL_PENDING:
+    if not db.claim_proposal(pid, models.PROPOSAL_PENDING,
+                             status=models.PROPOSAL_REJECTED, reject_reason=body.reason):
         raise HTTPException(status_code=409, detail="proposal is not pending")
-    db.update_proposal(pid, status=models.PROPOSAL_REJECTED, reject_reason=body.reason)
     audit.log(audit.REJECT, approver=user["username"], proposal=pid, reason=body.reason)
     return {"proposal_id": pid, "status": models.PROPOSAL_REJECTED}
 
@@ -227,6 +289,51 @@ def scan_status(job_id: str, user: dict = Depends(current_user)):
     }
 
 
+@app.get("/api/scans/{job_id}/events")
+async def scan_events(job_id: str, user: dict = Depends(current_user)):
+    """Live scan progress (v2): a phase-by-phase installer-style feed, not a smooth percentage
+    - the agent only reports at tool-phase boundaries (scan.py's checkpoint), it doesn't have
+    fractional progress within a single Katana/Nuclei/SQLMap run. Polls the same job record the
+    agent writes to server-side and pushes a frame only when something actually changed, so a
+    client watching doesn't need to poll itself. Closes once the job reaches done/failed, or
+    after SSE_MAX_SECONDS regardless (a stuck agent shouldn't leave a connection open forever).
+
+    Native EventSource can't send an Authorization header, so the frontend uses a fetch-based
+    reader instead (see api.ts's streamEvents) - this is a plain authenticated GET either way.
+    """
+    job = redis_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="no such job")
+    if not tenancy.visible_to(user["role"], user["username"], job["submitter"]):
+        raise HTTPException(status_code=403, detail="not your scan")
+
+    async def gen():
+        last = None
+        elapsed = 0.0
+        while elapsed < SSE_MAX_SECONDS:
+            j = redis_store.get_job(job_id)
+            if not j:
+                yield f"data: {json.dumps({'status': 'gone'})}\n\n"
+                return
+            snapshot = {
+                "status": j.get("status"),
+                "per_tool_status": j.get("per_tool_status", {}),
+                "suspended": redis_store.is_suspended(job_id),
+            }
+            if snapshot != last:
+                yield f"data: {json.dumps(snapshot)}\n\n"
+                last = snapshot
+            if j.get("status") in (models.STATUS_DONE, models.STATUS_FAILED):
+                return
+            await asyncio.sleep(SSE_POLL_INTERVAL)
+            elapsed += SSE_POLL_INTERVAL
+
+    return StreamingResponse(
+        gen(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # --- agent enrollment (REQ-71 to REQ-73) ---
 @app.get("/api/agent")
 def agent_status(user: dict = Depends(current_user)):
@@ -236,6 +343,11 @@ def agent_status(user: dict = Depends(current_user)):
 
 @app.post("/api/agent/install-token")
 def install_token(user: dict = Depends(current_user)):
+    # Agents are installed AFTER approval (v2): a client with nothing approved gets no token.
+    if models.is_client(user["role"]) and not any(
+            p["status"] == models.PROPOSAL_APPROVED
+            for p in db.list_proposals(submitter=user["username"])):
+        raise HTTPException(status_code=403, detail="agent install unlocks once a proposal is approved")
     return {"enrollment_token": tokens.generate_enrollment_token(user["username"])}
 
 
@@ -265,13 +377,52 @@ def reject(job_id: str, body: RejectBody, user: dict = Depends(require_pro)):
     return {"ok": True}
 
 
-# --- reports (public plane: Standard's own sanitized Executive Summaries, REQ-50a) ---
+# --- reports (v2): a client's own DELIVERED, signed-off, protected-PDF reports from the
+# review pipeline (db.reports) - not the legacy Redis Executive-Summary generator below,
+# which is a separate, older concept (REQ-50a) still used by /api/scans/{id}/report. ---
+def _delivered_report_view(r: dict) -> dict:
+    p = db.get_proposal_by_job(r["job_id"])
+    return {
+        "id": r["id"], "engagement": (p or {}).get("target", r["job_id"]),
+        "delivered": r["updated_at"], "findings": len(db.get_findings(r["job_id"])),
+        "templates": [r["template"]], "signed": True,
+    }
+
+
 @app.get("/api/reports")
 def list_reports(user: dict = Depends(current_user)):
-    # team sees every client's reports; a client sees only their own (v2 tenancy)
-    if models.is_team(user["role"]):
-        return report_store.list_all_reports()
-    return report_store.list_reports(user["username"])
+    # team sees every client's delivered reports; a client sees only their own (v2 tenancy)
+    owner = None if models.is_team(user["role"]) else user["username"]
+    rows = db.list_reports(owner=owner, stage=models.REPORT_DELIVERED)
+    return [_delivered_report_view(r) for r in rows]
+
+
+# --- client findings (v2): flat, tenancy-filtered, confirmed (tp) findings across all of a
+# client's own engagements - what ClientFindings.tsx shows. ---
+@app.get("/api/findings")
+def list_findings(user: dict = Depends(current_user)):
+    is_team = models.is_team(user["role"])
+    rows = db.list_findings(owner=None if is_team else user["username"])
+    # Clients only ever see confirmed (tp) findings; the team also triages false positives
+    # via FindingsReview, so they see everything.
+    return rows if is_team else [f for f in rows if f["verdict"] == "tp"]
+
+
+class FindingStatusBody(BaseModel):
+    status: str   # "open" | "fixed"
+
+
+@app.post("/api/findings/{fid}/status")
+def set_finding_status(fid: str, body: FindingStatusBody, user: dict = Depends(current_user)):
+    if body.status not in ("open", "fixed"):
+        raise HTTPException(status_code=422, detail="status must be open or fixed")
+    f = db.get_finding(fid)
+    if not f:
+        raise HTTPException(status_code=404, detail="no such finding")
+    if not tenancy.visible_to(user["role"], user["username"], f["owner"]):
+        raise HTTPException(status_code=403, detail="not your finding")
+    db.set_finding(fid, status=body.status)
+    return {"ok": True}
 
 
 @app.post("/api/scans/{job_id}/report")
@@ -279,9 +430,11 @@ def generate_report(job_id: str, user: dict = Depends(current_user)):
     job = redis_store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="no such job")
+    if not tenancy.visible_to(user["role"], user["username"], job["submitter"]):
+        raise HTTPException(status_code=403, detail="not your scan")
     # Public plane only serves the sanitized Executive Summary (REQ-49/50a). Pro full
     # templates are on the private plane.
-    data = generator.generate(job, redis_store.get_findings(job_id), "Executive Summary")
+    data = generator.generate(job, db.get_findings(job_id), "Executive Summary")
     return report_store.save_report(user["username"], job_id, "Executive Summary", data)
 
 

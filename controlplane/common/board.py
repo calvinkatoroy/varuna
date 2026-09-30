@@ -1,0 +1,152 @@
+"""Compose the team review-pipeline board (v2): pending -> scanning -> reporter -> lead ->
+governance -> delivered, plus a terminal rejected column (see proposals.reject_reason).
+
+Pure aggregation over the existing durable stores (proposals + findings in SQLite, jobs in
+Redis) - no new persistence, this just shapes what already exists into the Kanban view the
+frontend expects. Same "pure, unit-testable without HTTP" pattern as report_pipeline.py: no
+FastAPI here, the private API endpoint is a thin wrapper around build_board().
+"""
+from __future__ import annotations
+
+import db
+import redis_store
+import tokens
+
+COLUMNS = [
+    ("pending", "Pending approval", "accent"),
+    ("scanning", "Scanning", "info"),
+    ("in_review_reporter", "Reporter", "high"),
+    ("in_review_lead", "Lead", "crit"),
+    ("in_review_governance", "Governance", "med"),
+    ("delivered", "Delivered", "low"),
+    ("rejected", "Rejected", "crit"),
+]
+
+SEV_KEYS = {"critical": "c", "high": "h", "medium": "m", "low": "l"}
+META_TRUNC = 60
+
+
+def _sev_counts(job_id: str | None) -> dict:
+    counts = {"c": 0, "h": 0, "m": 0, "l": 0}
+    if not job_id:
+        return counts
+    for f in db.get_findings(job_id):
+        if f.get("verdict") != "tp":
+            continue
+        k = SEV_KEYS.get(f.get("severity"))
+        if k:
+            counts[k] += 1
+    return counts
+
+
+def _proposal_card(p: dict) -> dict:
+    return {
+        "id": p["id"], "client": p["submitter"], "target": p["target"], "mode": p["mode"],
+        "sev": {"c": 0, "h": 0, "m": 0, "l": 0}, "meta": f"Submitted {p['created_at']}",
+    }
+
+
+def _scanning_card(p: dict) -> dict:
+    job = redis_store.get_job(p["job_id"]) if p.get("job_id") else None
+    per_tool = (job or {}).get("per_tool_status", {})
+    meta = ", ".join(f"{t} {s}" for t, s in per_tool.items()) or (
+        "Queued" if tokens.is_online(p["submitter"]) else "Waiting for client agent")
+    return {
+        "id": p["id"], "client": p["submitter"], "target": p["target"], "mode": p["mode"],
+        "sev": _sev_counts(p.get("job_id")), "meta": meta,
+        "jobId": p.get("job_id"),   # needed by the frontend to call suspend/resume by job id
+        "suspended": redis_store.is_suspended(p["job_id"]) if p.get("job_id") else False,
+    }
+
+
+def _report_card(r: dict) -> dict:
+    # The job that produced this report may have already fallen out of Redis's 24h TTL by the
+    # time a multi-day review reaches this stage - fall back to the durable proposal row
+    # (matched by job_id) for target/mode rather than a possibly-expired job record.
+    p = db.get_proposal_by_job(r["job_id"])
+    target = p["target"] if p else r["job_id"]
+    mode = p["mode"] if p else "standard"
+    v = db.latest_version(r["id"])
+    stage_word = "delivered" if r["stage"] == "delivered" else "editing"
+    meta = f"v{v['version_no']} · {stage_word}" if v else "v1"
+    return {
+        "id": r["id"], "client": r["owner"], "target": target, "mode": mode,
+        "sev": _sev_counts(r["job_id"]), "meta": meta, "owner": (v or {}).get("editor"),
+    }
+
+
+def _delivered_card(r: dict) -> dict:
+    card = _report_card(r)
+    if r.get("delivered_pdf"):
+        card["meta"] = f"{r['updated_at']} · PDF sent"
+    return card
+
+
+def _rejected_card(p: dict) -> dict:
+    card = _proposal_card(p)
+    reason = p.get("reject_reason") or "No reason recorded."
+    card["meta"] = reason[:META_TRUNC] + ("…" if len(reason) > META_TRUNC else "")
+    card["rejectReason"] = reason
+    return card
+
+
+def build_board() -> list[dict]:
+    proposals = db.list_proposals()
+    reports = db.list_reports()
+    reported_job_ids = {r["job_id"] for r in reports}
+
+    cols: dict[str, list[dict]] = {cid: [] for cid, _, _ in COLUMNS}
+    for p in proposals:
+        if p["status"] == "pending":
+            cols["pending"].append(_proposal_card(p))
+        elif p["status"] == "rejected":
+            cols["rejected"].append(_rejected_card(p))
+        elif p["status"] == "approved" and p.get("job_id") not in reported_job_ids:
+            # Approved with no report yet: still counts as "scanning" whether the agent is
+            # actively running or the scan finished and just hasn't been turned into a report.
+            cols["scanning"].append(_scanning_card(p))
+    for r in reports:
+        if r["stage"] == "delivered":
+            cols["delivered"].append(_delivered_card(r))
+        elif r["stage"] in ("in_review_reporter", "in_review_lead", "in_review_governance"):
+            cols[r["stage"]].append(_report_card(r))
+
+    return [{"id": cid, "title": title, "accent": accent, "cards": cols[cid]}
+            for cid, title, accent in COLUMNS]
+
+
+if __name__ == "__main__":
+    import redis_store as _rs
+
+    class FakeRedis:
+        def __init__(self): self.d = {}
+        def get(self, k): return self.d.get(k)
+        def set(self, k, v, ex=None): self.d[k] = v
+
+    _rs._client = FakeRedis()
+    db.reset_for_test(":memory:")
+
+    pid = db.create_proposal({"submitter": "alice", "target": "http://t", "mode": "standard"})
+    board = build_board()
+    assert next(c for c in board if c["id"] == "pending")["cards"][0]["client"] == "alice"
+
+    db.update_proposal(pid, status="approved", job_id="j1")
+    _rs.set_job({"id": "j1", "submitter": "alice", "status": "running", "per_tool_status": {"katana": "done"}})
+    board = build_board()
+    scanning = next(c for c in board if c["id"] == "scanning")["cards"]
+    assert len(scanning) == 1 and "katana done" in scanning[0]["meta"]
+
+    rid = db.create_report(job_id="j1", owner="alice")
+    db.add_report_version(rid, filename="f.docx", editor="aisah", note="v1")
+    board = build_board()
+    assert next(c for c in board if c["id"] == "scanning")["cards"] == []
+    reporter = next(c for c in board if c["id"] == "in_review_reporter")["cards"]
+    assert len(reporter) == 1 and reporter[0]["target"] == "http://t" and reporter[0]["owner"] == "aisah"
+
+    pid2 = db.create_proposal({"submitter": "bob", "target": "http://t2", "mode": "standard"})
+    db.update_proposal(pid2, status="rejected", reject_reason="not authorized")
+    board = build_board()
+    rejected = next(c for c in board if c["id"] == "rejected")["cards"]
+    assert rejected[0]["rejectReason"] == "not authorized"
+
+    print("board.py self-check OK")

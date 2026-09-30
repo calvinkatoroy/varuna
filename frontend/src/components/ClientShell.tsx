@@ -2,14 +2,13 @@ import { ClientTopbar } from './ClientTopbar'
 import { useScrollThreshold } from '@/lib/useScrollThreshold'
 
 const BAND =
-  'radial-gradient(120% 150% at 88% -25%, rgba(242,106,67,.28), transparent 46%),' +
-  'linear-gradient(158deg,#154739 0%,#0d211b 62%,#070908 100%)'
+  'radial-gradient(120% 150% at 88% -25%, rgba(34,211,197,.26), transparent 46%),' +
+  'linear-gradient(158deg,#0B5FA5 0%,#0A2A43 62%,#060F18 100%)'
 
 // Compact page frame for the client sub-pages (Proposals / Findings / Reports): one merged
-// sticky hero (brand/nav/controls + title), matching the cockpit. Shrink/fade on scroll is a
-// threshold class toggle (useScrollThreshold), not a continuously-scrubbed value - see that
-// file for why (padding/max-height are layout properties; scrubbing them every scroll frame,
-// JS-driven or via native scroll-timeline, forces a reflow either way).
+// hero (brand/nav/controls + title), matching the cockpit. `position: fixed` (see .hero-sticky
+// in index.css) so its own shrink-on-scroll never moves `main` below it - `main` reserves a
+// constant gap instead of depending on the hero's live height.
 export function ClientShell({
   title, sub, action, children,
 }: { title: string; sub?: string; action?: React.ReactNode; children: React.ReactNode }) {
@@ -32,6 +31,9 @@ export function ClientShell({
           {action}
         </div>
       </header>
+      {/* Invisible spacer reserving room for the hero at its EXPANDED size - fixed height, never
+          toggles a class, never transitions - see ClientCockpit for why. */}
+      <div aria-hidden className="pointer-events-none" style={{ height: 178 }} />
       <main className="mt-3.5 rounded-bento-lg bg-panel p-3.5" style={{ viewTransitionName: 'page-body' }}>{children}</main>
     </div>
   )
