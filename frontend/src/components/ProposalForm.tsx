@@ -56,7 +56,7 @@ export function ProposalForm({ onSubmit, submitLabel = 'Submit for approval' }: 
             key={m}
             type="button"
             onClick={() => setMode(m)}
-            className={`flex-1 rounded-pill py-2 text-[13.5px] font-semibold transition-colors ${
+            className={`min-h-[44px] flex-1 rounded-pill py-2 text-[13.5px] font-semibold transition-colors ${
               mode === m ? 'bg-card text-ink shadow-sm' : 'text-ink-muted'
             }`}
           >
@@ -71,13 +71,13 @@ export function ProposalForm({ onSubmit, submitLabel = 'Submit for approval' }: 
       </p>
 
       <div>
-        <label className={label}>In-scope target(s)</label>
-        <input className={field} value={target} onChange={(e) => setTarget(e.target.value)} placeholder="https://api.acme.io" required />
+        <label htmlFor="proposal-1" className={label}>In-scope target(s)</label>
+        <input id="proposal-1" className={field} value={target} onChange={(e) => setTarget(e.target.value)} placeholder="https://api.acme.io" required />
       </div>
       <div className={mode === 'advanced' ? 'grid grid-cols-2 gap-3' : ''}>
         <div>
-          <label className={label}>Purpose (keperluan)</label>
-          <select className={field} value={purpose} onChange={(e) => setPurpose(e.target.value)}>
+          <label htmlFor="proposal-2" className={label}>Purpose (keperluan)</label>
+          <select id="proposal-2" className={field} value={purpose} onChange={(e) => setPurpose(e.target.value)}>
             <option value="pre-release">Pre-release</option>
             <option value="compliance">Compliance (ISO/PCI)</option>
             <option value="periodic">Periodic</option>
@@ -85,40 +85,40 @@ export function ProposalForm({ onSubmit, submitLabel = 'Submit for approval' }: 
           </select>
         </div>
         <div className={mode === 'advanced' ? '' : 'mt-4'}>
-          <label className={label}>Division</label>
-          <input className={field} value={division} onChange={(e) => setDivision(e.target.value)} placeholder="IT · Engineering" />
+          <label htmlFor="proposal-3" className={label}>Division</label>
+          <input id="proposal-3" className={field} value={division} onChange={(e) => setDivision(e.target.value)} placeholder="IT · Engineering" />
         </div>
       </div>
 
       {mode === 'advanced' && (
         <>
           <div>
-            <label className={label}>Out of scope <span className="text-ink-faint">(optional)</span></label>
-            <input className={field} value={outScope} onChange={(e) => setOutScope(e.target.value)} placeholder="admin.acme.io, /billing" />
+            <label htmlFor="proposal-4" className={label}>Out of scope <span className="text-ink-faint">(optional)</span></label>
+            <input id="proposal-4" className={field} value={outScope} onChange={(e) => setOutScope(e.target.value)} placeholder="admin.acme.io, /billing" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={label}>Environment</label>
-              <select className={field} value={environment} onChange={(e) => setEnvironment(e.target.value)}>
+              <label htmlFor="proposal-5" className={label}>Environment</label>
+              <select id="proposal-5" className={field} value={environment} onChange={(e) => setEnvironment(e.target.value)}>
                 <option value="production">Production</option>
                 <option value="staging">Staging</option>
               </select>
             </div>
             <div>
-              <label className={label}>Test window <span className="text-ink-faint">(optional)</span></label>
-              <input className={field} value={testWindow} onChange={(e) => setTestWindow(e.target.value)} placeholder="Jun 20-25, 09-17" />
+              <label htmlFor="proposal-6" className={label}>Test window <span className="text-ink-faint">(optional)</span></label>
+              <input id="proposal-6" className={field} value={testWindow} onChange={(e) => setTestWindow(e.target.value)} placeholder="Jun 20-25, 09-17" />
             </div>
           </div>
-          <div>
-            <label className={label}>Rules of engagement</label>
+          <div role="group" aria-labelledby="proposal-roe">
+            <span id="proposal-roe" className={label}>Rules of engagement</span>
             <div className="flex flex-col gap-2">
-              <label className="flex items-center gap-2.5 rounded-input border border-rule bg-panel px-3.5 py-2.5 text-[13px] text-ink">
-                <input type="checkbox" checked={authed} onChange={(e) => setAuthed(e.target.checked)} className="h-4 w-4 accent-[var(--color-accent)]" />
+              <label className="flex min-h-[44px] items-center gap-3 rounded-input border border-rule bg-panel px-3.5 py-2.5 text-[13px] text-ink">
+                <input type="checkbox" checked={authed} onChange={(e) => setAuthed(e.target.checked)} className="h-5 w-5 flex-none accent-[var(--color-accent)]" />
                 Authenticated test (provide test credentials)
               </label>
-              {authed && <input className={field} value={creds} onChange={(e) => setCreds(e.target.value)} placeholder="test-user / test-pass (or how to obtain)" />}
-              <label className="flex items-center gap-2.5 rounded-input border border-rule bg-panel px-3.5 py-2.5 text-[13px] text-ink">
-                <input type="checkbox" checked={dos} onChange={(e) => setDos(e.target.checked)} className="h-4 w-4 accent-[var(--color-accent)]" />
+              {authed && <input className={field} value={creds} onChange={(e) => setCreds(e.target.value)} aria-label="Test credentials, or how to obtain them" placeholder="test-user / test-pass (or how to obtain)" />}
+              <label className="flex min-h-[44px] items-center gap-3 rounded-input border border-rule bg-panel px-3.5 py-2.5 text-[13px] text-ink">
+                <input type="checkbox" checked={dos} onChange={(e) => setDos(e.target.checked)} className="h-5 w-5 flex-none accent-[var(--color-accent)]" />
                 Allow high-intensity / DoS-adjacent checks
               </label>
             </div>
@@ -127,7 +127,7 @@ export function ProposalForm({ onSubmit, submitLabel = 'Submit for approval' }: 
       )}
 
       <label className="flex cursor-pointer items-start gap-3 rounded-input border border-accent-soft bg-accent-soft/40 p-3.5">
-        <input type="checkbox" checked={attest} onChange={(e) => setAttest(e.target.checked)} className="mt-0.5 h-4 w-4 flex-none accent-[var(--color-accent)]" />
+        <input type="checkbox" checked={attest} onChange={(e) => setAttest(e.target.checked)} className="mt-0.5 h-5 w-5 flex-none accent-[var(--color-accent)]" />
         <span className="text-[12.5px] leading-relaxed text-ink-muted">
           I confirm I <b className="text-ink">own or am authorized</b> to test these assets. (Legally required. The lead verifies this.)
         </span>

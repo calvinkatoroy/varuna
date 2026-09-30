@@ -64,8 +64,8 @@ export function TwoFactor({ onClose }: { onClose: () => void }) {
           <>
             <p className="text-[13px] font-semibold text-low">Two-factor is on for your account.</p>
             <p className="text-[12.5px] text-ink-muted">To turn it off, confirm your password and a current code.</p>
-            <div><label className={label}>Password</label><input className={field} type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></div>
-            <div><label className={label}>Code</label><input className={field} inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} /></div>
+            <div><label htmlFor="twofa-1" className={label}>Password</label><input id="twofa-1" className={field} type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></div>
+            <div><label htmlFor="twofa-2" className={label}>Code</label><input id="twofa-2" className={field} inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} /></div>
             <Button variant="outline" className="w-full" disabled={!password || code.length !== 6} onClick={disable}>Turn off</Button>
           </>
         )}

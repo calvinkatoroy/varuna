@@ -17,6 +17,7 @@ export function ClientShell({
   const fade = useScrollThreshold<HTMLDivElement>(55, 'is-faded')
   return (
     <div className="mx-auto max-w-[1380px] p-[clamp(10px,2vw,28px)] pb-[92px] md:pb-[clamp(10px,2vw,28px)]">
+      <a href="#main" className="sr-only rounded-pill bg-cta-bg px-4 py-2 text-[13px] font-semibold text-cta-fg focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[70] focus:px-5 focus:py-3 focus:shadow-lg">Skip to content</a>
       <header
         ref={shrink}
         className="hero-sticky relative isolate flex flex-col overflow-hidden rounded-bento-lg px-[clamp(18px,2.6vw,34px)] text-[#F2F5EF]"
@@ -35,7 +36,7 @@ export function ClientShell({
       {/* Invisible spacer reserving room for the hero at its EXPANDED size - fixed height, never
           toggles a class, never transitions - see ClientCockpit for why. */}
       <div aria-hidden className="hero-spacer pointer-events-none" style={{ height: 178 }} />
-      <main className="mt-3.5 rounded-bento-lg bg-panel p-3.5" style={{ viewTransitionName: 'page-body' }}>{children}</main>
+      <main id="main" tabIndex={-1} className="mt-3.5 rounded-bento-lg bg-panel p-3.5 focus:outline-none" style={{ viewTransitionName: 'page-body' }}>{children}</main>
       <ClientDock />
     </div>
   )

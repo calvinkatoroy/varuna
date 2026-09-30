@@ -45,17 +45,17 @@ export function TeamLogin() {
         <div className="mb-5 flex items-center gap-2 text-[12.5px] text-ink-muted"><Lock size={13} /> Private plane · security team only</div>
         <form onSubmit={submit} className="space-y-4">
           <div>
-            <label className={label}>Username</label>
-            <input className={field} value={u} onChange={(e) => setU(e.target.value)} placeholder="admin" required autoFocus />
+            <label htmlFor="team-login-1" className={label}>Username</label>
+            <input id="team-login-1" className={field} value={u} onChange={(e) => setU(e.target.value)} placeholder="admin" required autoFocus />
           </div>
           <div>
-            <label className={label}>Password</label>
-            <input className={field} type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="••••••••" required />
+            <label htmlFor="team-login-2" className={label}>Password</label>
+            <input id="team-login-2" className={field} type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="••••••••" required />
           </div>
           {needCode && (
             <div>
-              <label className={label}>Authenticator code</label>
-              <input className={field} inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} placeholder="123456" required autoFocus />
+              <label htmlFor="team-login-3" className={label}>Authenticator code</label>
+              <input id="team-login-3" className={field} inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} placeholder="123456" required autoFocus />
             </div>
           )}
           {err && <div className="text-[12.5px] text-crit">{err}</div>}

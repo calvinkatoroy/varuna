@@ -152,12 +152,12 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
             </div>
             <form onSubmit={submitAuth} className="space-y-4">
               <div>
-                <label className={label}>Username</label>
-                <input className={field} value={u} onChange={(e) => setU(e.target.value)} placeholder="acme" required />
+                <label htmlFor="auth-1" className={label}>Username</label>
+                <input id="auth-1" className={field} value={u} onChange={(e) => setU(e.target.value)} placeholder="acme" required />
               </div>
               <div>
-                <label className={label}>Password</label>
-                <input className={field} type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="••••••••" required />
+                <label htmlFor="auth-2" className={label}>Password</label>
+                <input id="auth-2" className={field} type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="••••••••" required />
               </div>
               {err && <div className="text-[12.5px] text-crit">{err}</div>}
               <Button type="submit" size="lg" className="w-full" disabled={busy}>

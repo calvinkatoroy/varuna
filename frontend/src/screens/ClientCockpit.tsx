@@ -92,6 +92,7 @@ export default function ClientCockpit() {
           constant gap sized to the hero's COLLAPSED height; at rest the taller expanded hero
           simply overlaps the top of the cards (opaque bg, higher z-index) and recedes on scroll
           to reveal them - the cards themselves never move. */}
+      <a href="#main" className="sr-only rounded-pill bg-cta-bg px-4 py-2 text-[13px] font-semibold text-cta-fg focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[70] focus:px-5 focus:py-3 focus:shadow-lg">Skip to content</a>
       <header
         ref={shrink}
         className="hero-sticky relative isolate flex flex-col overflow-hidden rounded-bento-lg px-[clamp(18px,2.6vw,34px)] text-[#F2F5EF]"
@@ -124,7 +125,7 @@ export default function ClientCockpit() {
       <div aria-hidden className="hero-spacer pointer-events-none" style={{ height: 202 }} />
 
       {/* BENTO */}
-      <main className="mt-3.5 grid grid-cols-1 gap-3 lg:grid-cols-3 lg:grid-rows-[auto_1fr]" style={{ viewTransitionName: 'page-body' }}>
+      <main id="main" tabIndex={-1} className="mt-3.5 grid grid-cols-1 gap-3 focus:outline-none lg:grid-cols-3 lg:grid-rows-[auto_1fr]" style={{ viewTransitionName: 'page-body' }}>
         {error ? (
           <ErrorRetry message={error} onRetry={reload} />
         ) : !d ? (
