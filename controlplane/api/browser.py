@@ -134,6 +134,8 @@ def login(body: LoginBody, x_forwarded_for: str = Header(default="api")):
         token = jwt_auth.login(body.username, body.password, x_forwarded_for)
     except auth.LockedOut:
         raise HTTPException(status_code=429, detail="too many failed attempts; try again later")
+    except auth.MfaRequired:   # only team accounts can have two-factor, and they belong on the private plane
+        raise HTTPException(status_code=403, detail="security team accounts sign in on the private plane")
     except auth.BadCredentials:
         raise HTTPException(status_code=401, detail="invalid username or password")
     # NFR-24: the public (internet-facing) plane is for clients. Security-team accounts sign in

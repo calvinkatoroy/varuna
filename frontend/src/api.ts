@@ -58,6 +58,8 @@ async function req(base: string, path: string, opts: RequestInit = {}): Promise<
       try {
         detail = (await res.json()).detail || detail
       } catch {}
+      // Not an error to show: the password was right and the login form must now ask for the code.
+      if (detail === 'mfa_required') throw new ApiError(res.status, detail, true)
       throw new ApiError(res.status, detail)
     }
     const ct = res.headers.get('content-type') || ''

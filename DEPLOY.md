@@ -96,6 +96,15 @@ POST /api/admin/accounts/{user}/disable | enable
 ```
 A disabled account cannot log in and its live tokens stop working immediately.
 
+### Two-factor login for the team (TOTP)
+Team members turn it on from the account menu (Two-factor authentication): paste the setup key into
+any authenticator app (Google/Microsoft Authenticator, Authy, 1Password) and confirm with a code.
+From then on a password alone cannot sign in: the login asks for the 6-digit code. Codes are
+standard RFC 6238 (30 s, 6 digits), tolerate one step of clock drift, cannot be replayed, and wrong
+codes count toward the same lockout as wrong passwords. A lost phone is recovered by the lead
+pentester (`POST /api/admin/accounts/{user}/reset-mfa`, or "Reset 2FA" on `/team/accounts`). The
+private API prints which team accounts still lack two-factor at startup. Clients do not use it.
+
 ### Backups
 ```bash
 docker compose exec api-public python /app/controlplane/backup_db.py           # SQLite -> /data/backups (keeps 14)

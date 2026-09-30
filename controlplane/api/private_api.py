@@ -27,6 +27,7 @@ import secrets  # noqa: E402
 
 import audit  # noqa: E402
 import notify  # noqa: E402
+import totp  # noqa: E402
 import board  # noqa: E402
 import db  # noqa: E402
 import generator  # noqa: E402
@@ -53,6 +54,9 @@ def _mime(fname: str) -> str:
 
 @app.on_event("startup")
 def _warn_default_passwords() -> None:
+    no_mfa = [a["username"] for a in db.list_accounts() if a["role"] != "client" and not a["totp_enabled"]]
+    if no_mfa:
+        print(f"NOTE: team accounts without two-factor: {', '.join(no_mfa)}. Enable it from the account menu.", flush=True)
     weak = auth.default_password_accounts()
     if weak:
         print(f"WARNING: team accounts still use the default password 'changeme': {', '.join(weak)}. "
@@ -62,6 +66,7 @@ def _warn_default_passwords() -> None:
 class LoginBody(BaseModel):
     username: str
     password: str
+    code: str | None = None      # authenticator code, required once two-factor is enabled
 
 
 @app.post("/api/login")
@@ -69,11 +74,13 @@ def login(body: LoginBody, x_forwarded_for: str = Header(default="api")):
     """Security-team sign-in (NFR-24): same credentials/throttle as the public plane, but only
     team roles get a token here, so a rejected client login never leaves a session behind."""
     try:
-        token = jwt_auth.login(body.username, body.password, x_forwarded_for)
+        token = jwt_auth.login(body.username, body.password, x_forwarded_for, body.code)
     except auth.LockedOut:
         raise HTTPException(status_code=429, detail="too many failed attempts; try again later")
-    except auth.BadCredentials:
-        raise HTTPException(status_code=401, detail="invalid username or password")
+    except auth.MfaRequired:
+        raise HTTPException(status_code=401, detail="mfa_required")   # the UI then asks for the code
+    except auth.BadCredentials as e:
+        raise HTTPException(status_code=401, detail=str(e))
     if not models.is_team(jwt_auth.verify(token)["role"]):
         raise HTTPException(status_code=403, detail="that account doesn't have security-team access")
     return {"token": token}
@@ -99,6 +106,51 @@ def change_password(body: PasswordBody, user: dict = Depends(require_team)):
         raise HTTPException(status_code=422, detail=str(e))
     audit.log("password_changed", actor=user["username"])
     return {"ok": True}
+
+
+# --- two-factor (TOTP) for team accounts: enrol with an authenticator app, then logins need a code ---
+class CodeBody(BaseModel):
+    code: str
+
+
+class MfaDisableBody(BaseModel):
+    password: str
+    code: str = ""
+
+
+@app.get("/api/mfa")
+def mfa_status(user: dict = Depends(require_team)):
+    acct = db.get_account(user["username"]) or {}
+    return {"enabled": bool(acct.get("totp_enabled"))}
+
+
+@app.post("/api/mfa/setup")
+def mfa_setup(user: dict = Depends(require_team)):
+    """New secret (not enforced until confirmed). Shown once here; the app also gets the otpauth URI."""
+    secret = auth.mfa_begin(user["username"])
+    return {"secret": secret, "uri": totp.otpauth_uri(user["username"], secret)}
+
+
+@app.post("/api/mfa/enable")
+def mfa_enable(body: CodeBody, user: dict = Depends(require_team)):
+    try:
+        auth.mfa_confirm(user["username"], body.code)
+    except auth.BadCredentials as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except auth.AuthError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    audit.log("mfa_enabled", actor=user["username"])
+    return {"enabled": True}
+
+
+@app.post("/api/mfa/disable")
+def mfa_disable(body: MfaDisableBody, user: dict = Depends(require_team)):
+    try:
+        auth.mfa_disable(user["username"], body.password, body.code)
+    except auth.BadCredentials as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    audit.log("mfa_disabled", actor=user["username"])
+    return {"enabled": False}
 
 
 # --- account administration (lead pentester): provision/disable team accounts and reset
@@ -142,6 +194,15 @@ def admin_reset_password(username: str, body: ResetBody, user: dict = Depends(re
     except auth.AuthError as e:
         raise HTTPException(status_code=404 if "no such" in str(e) else 422, detail=str(e))
     audit.log("password_reset", actor=user["username"], account=username)
+    return {"ok": True}
+
+
+@app.post("/api/admin/accounts/{username}/reset-mfa")
+def admin_reset_mfa(username: str, user: dict = Depends(require_lead)):
+    """Recovery for a lost phone: clears the user's two-factor so they can enrol again."""
+    if not auth.mfa_reset(username):
+        raise HTTPException(status_code=404, detail="no such account")
+    audit.log("mfa_reset", actor=user["username"], account=username)
     return {"ok": True}
 
 

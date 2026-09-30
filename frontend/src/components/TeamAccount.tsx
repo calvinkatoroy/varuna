@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { KeyRound, LogOut, Users } from 'lucide-react'
+import { KeyRound, LogOut, ShieldCheck, Users } from 'lucide-react'
 import { api } from '@/api'
 import { useAuth } from '@/auth'
 import { ChangePassword } from './ChangePassword'
+import { TwoFactor } from './TwoFactor'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from './ui/dropdown-menu'
@@ -17,12 +18,14 @@ export function TeamAccount() {
   const { logout } = useAuth()
   const [me, setMe] = useState<{ username: string; name?: string; role: string } | null>(null)
   const [pw, setPw] = useState(false)
+  const [tf, setTf] = useState(false)
   useEffect(() => { api.pget('/api/me').then(setMe).catch(() => {}) }, [])
   const initials = (me?.name ?? me?.username ?? 'TM').slice(0, 2).toUpperCase()
   const signOut = () => { logout(); location.assign('/team') }
   return (
     <>
     {pw && <ChangePassword team onClose={() => setPw(false)} />}
+    {tf && <TwoFactor onClose={() => setTf(false)} />}
     <DropdownMenu>
       <DropdownMenuTrigger aria-label="Account" className="grid h-11 w-11 place-items-center rounded-full text-sm font-bold text-white" style={{ background: 'linear-gradient(160deg,#3fb98a,#268a63)' }}>{initials}</DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -30,6 +33,7 @@ export function TeamAccount() {
         <DropdownMenuSeparator />
         {me?.role === 'lead_pentester' && <DropdownMenuItem onClick={() => location.assign('/team/accounts')}><Users size={15} /> Team accounts</DropdownMenuItem>}
         <DropdownMenuItem onClick={() => setPw(true)}><KeyRound size={15} /> Change password</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTf(true)}><ShieldCheck size={15} /> Two-factor authentication</DropdownMenuItem>
         <DropdownMenuItem onClick={signOut} className="text-crit"><LogOut size={15} /> Sign out</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

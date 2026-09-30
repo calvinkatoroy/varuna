@@ -9,7 +9,7 @@ import { TeamAccount } from '@/components/TeamAccount'
 import { ErrorRetry } from '@/components/ErrorRetry'
 import { useApiData } from '@/lib/useApiData'
 
-type Acct = { username: string; role: string; disabled: number; created_at: string }
+type Acct = { username: string; role: string; disabled: number; totp_enabled: number; created_at: string }
 const ROLES = ['pentester', 'lead_pentester', 'reporter', 'governance', 'soc', 'client']
 const field = 'rounded-input border border-rule bg-panel px-3 py-2.5 text-[13px] text-ink outline-none focus:border-accent'
 
@@ -50,14 +50,16 @@ export default function TeamAccounts() {
       {error ? <ErrorRetry message={error} onRetry={reload} /> : (
         <div className="overflow-x-auto rounded-bento bg-card">
           <table className="w-full text-left text-[13px]">
-            <thead><tr className="border-b border-rule text-[11.5px] uppercase tracking-wide text-ink-faint"><th className="px-5 py-3">User</th><th>Role</th><th>Status</th><th className="pr-5 text-right">Actions</th></tr></thead>
+            <thead><tr className="border-b border-rule text-[11.5px] uppercase tracking-wide text-ink-faint"><th className="px-5 py-3">User</th><th>Role</th><th>Status</th><th>2FA</th><th className="pr-5 text-right">Actions</th></tr></thead>
             <tbody>
               {(data ?? []).map((a) => (
                 <tr key={a.username} className="border-b border-rule/60 last:border-0">
                   <td className="max-w-[260px] truncate px-5 py-3 font-semibold text-ink" title={a.username}>{a.username}</td>
                   <td className="text-ink-muted">{a.role}</td>
+                  <td className="text-ink-muted">{a.totp_enabled ? 'On' : '-'}</td>
                   <td>{a.disabled ? <span className="font-semibold text-crit">Disabled</span> : <span className="text-low">Active</span>}</td>
                   <td className="pr-5 text-right">
+                    {a.totp_enabled ? <button onClick={() => run(api.ppost(`/api/admin/accounts/${a.username}/reset-mfa`), `Two-factor reset for ${a.username}.`)} className="mr-3 inline-flex items-center gap-1 font-semibold text-accent">Reset 2FA</button> : null}
                     <button onClick={() => reset(a.username)} className="mr-3 inline-flex items-center gap-1 font-semibold text-accent"><KeyRound size={13} /> Reset password</button>
                     <button onClick={() => run(api.ppost(`/api/admin/accounts/${a.username}/${a.disabled ? 'enable' : 'disable'}`), `${a.username} ${a.disabled ? 'enabled' : 'disabled'}.`)} className="inline-flex items-center gap-1 font-semibold text-ink-muted"><Power size={13} /> {a.disabled ? 'Enable' : 'Disable'}</button>
                   </td>

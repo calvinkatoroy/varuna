@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import db
 import redis_store
+import totp
 from models import Account, ROLES
 
 FAIL_LIMIT = 5          # lock a source IP (or IP+account pair) after this many failures
@@ -24,6 +25,10 @@ class AuthError(Exception):
 
 class UsernameTaken(AuthError):
     pass
+
+
+class MfaRequired(AuthError):
+    """Password was right, but this account has two-factor enabled and no valid code was given."""
 
 
 class BadCredentials(AuthError):
@@ -100,8 +105,9 @@ def _clear_fails(username: str, ip: str) -> None:
     )
 
 
-def authenticate(username: str, password: str, ip: str) -> Account:
-    """Return the Account on success; raise LockedOut or BadCredentials otherwise."""
+def authenticate(username: str, password: str, ip: str, otp: str | None = None) -> Account:
+    """Return the Account on success; raise LockedOut, BadCredentials or MfaRequired otherwise.
+    A wrong/reused/missing code is counted against the same lockout as a wrong password."""
     if _is_locked(username, ip):
         raise LockedOut("too many failed attempts; try again later")
     acct = db.get_account(username)
@@ -109,8 +115,47 @@ def authenticate(username: str, password: str, ip: str) -> Account:
     if not acct or acct.get("disabled") or not check_password(password, acct["password_hash"]):
         _record_fail(username, ip)
         raise BadCredentials("invalid username or password")
+    if acct.get("totp_enabled"):
+        if not otp:
+            raise MfaRequired("two-factor code required")   # password OK; ask for the code (not a failure)
+        step = totp.verify(acct["totp_secret"], otp, acct.get("totp_last_step") or 0)
+        if step is None:
+            _record_fail(username, ip)
+            raise BadCredentials("invalid username, password or authentication code")
+        db.set_account(username, totp_last_step=step)    # replay protection
     _clear_fails(username, ip)
     return Account.from_dict(acct)
+
+
+def mfa_begin(username: str) -> str:
+    """Start (or restart) enrolment: store a fresh secret, NOT yet enforced until confirmed."""
+    secret = totp.new_secret()
+    db.set_account(username, totp_secret=secret, totp_enabled=0, totp_last_step=0)
+    return secret
+
+
+def mfa_confirm(username: str, code: str) -> None:
+    acct = db.get_account(username)
+    if not acct or not acct.get("totp_secret") or acct.get("totp_enabled"):
+        raise AuthError("start two-factor setup first")
+    step = totp.verify(acct["totp_secret"], code)
+    if step is None:
+        raise BadCredentials("that code is not right; check the time on your phone and try again")
+    db.set_account(username, totp_enabled=1, totp_last_step=step)
+
+
+def mfa_disable(username: str, password: str, code: str) -> None:
+    acct = db.get_account(username)
+    if not acct or not check_password(password, acct["password_hash"]):
+        raise BadCredentials("current password is incorrect")
+    if acct.get("totp_enabled") and totp.verify(acct["totp_secret"], code, acct.get("totp_last_step") or 0) is None:
+        raise BadCredentials("that code is not right")
+    db.set_account(username, totp_secret=None, totp_enabled=0, totp_last_step=0)
+
+
+def mfa_reset(username: str) -> bool:
+    """Admin recovery for a lost phone."""
+    return db.set_account(username, totp_secret=None, totp_enabled=0, totp_last_step=0)
 
 
 def _check_new_password(pw: str) -> None:
