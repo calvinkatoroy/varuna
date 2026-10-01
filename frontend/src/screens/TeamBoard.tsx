@@ -309,7 +309,7 @@ export default function TeamBoard() {
             </button>
           ))}
         </div>
-        <SwipeRail ref={railRef} label="Board columns. Swipe sideways to change stage." onActiveChange={(i) => { setStage(i); document.getElementById(`stage-chip-${i}`)?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }) }} className="gap-3 p-1">
+        <SwipeRail ref={railRef} label="Board columns. Swipe sideways to change stage." onActiveChange={(i) => { setStage(i); document.getElementById(`stage-chip-${i}`)?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }) }} className="gap-3 p-1 lg:mt-5">
           {view.map((col) => (
             <div key={col.id} className="flex w-[86vw] max-w-[340px] flex-none snap-start flex-col md:w-[280px]">
               <div className="mb-2.5 hidden items-center gap-2 px-1 md:flex">
