@@ -289,10 +289,10 @@ export default function TeamBoard() {
         <div className="p-10 text-ink-faint">Loading…</div>
       ) : (
         <>
-        {/* The stage rail: the review journey as a strip you can tap or swipe along. The lit chip
+        {/* The stage rail (phones and tablets only: from lg up the column headings already show every stage): the review journey as a strip you can tap or swipe along. The lit chip
             is where you are; its counts show where work is waiting. Replaces a bare 2,000px
             scrollbar that gave no sense of place. */}
-        <div role="tablist" aria-label="Review stages" className="no-scrollbar rail -mx-1 mt-3.5 flex gap-1.5 overflow-x-auto px-1 pb-1.5 pt-1">
+        <div role="tablist" aria-label="Review stages" className="no-scrollbar rail -mx-1 mt-3.5 flex gap-1.5 overflow-x-auto px-1 pb-1.5 pt-1 lg:hidden">
           {view.map((col, i) => (
             <button
               key={col.id}
