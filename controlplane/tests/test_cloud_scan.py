@@ -127,3 +127,25 @@ def test_owner_allow_list_lets_a_privately_resolving_own_site_be_approved(monkey
     assert pub.post(f"/api/proposals/{pid}/approve", headers=lead).status_code == 422                       # not listed: refused
     monkeypatch.setenv("VARUNA_CLOUD_ALLOW_HOSTS", "mine.example.org")
     assert pub.post(f"/api/proposals/{pid}/approve", headers=lead).status_code == 200                       # the owner's own site: allowed
+
+
+def test_agent_survives_connection_errors_instead_of_dying(monkeypatch):
+    """A control-plane restart or network blip used to raise out of run() and kill the agent for good."""
+    import httpx
+    import agent as agent_module
+    calls = {"n": 0}
+
+    class Resp:
+        status_code = 401
+        def json(self): return {"job": None}
+
+    def flaky(url, headers=None, **kw):
+        calls["n"] += 1
+        if calls["n"] <= 3:
+            raise httpx.ConnectError("control plane restarting")
+        return Resp()                                   # then a 401 ends the loop so the test terminates
+
+    monkeypatch.setattr(agent_module.httpx, "get", flaky)
+    monkeypatch.setattr(agent_module.time, "sleep", lambda s: None)
+    agent_module.run("token")
+    assert calls["n"] == 4                              # three blips survived, then it carried on polling

@@ -122,7 +122,12 @@ def run(token: str) -> None:
     headers = {"Authorization": f"Bearer {token}"}
     print("agent polling", BASE, "every", POLL_INTERVAL, "s")
     while True:
-        r = httpx.get(f"{BASE}/agent/poll", headers=headers)
+        try:
+            r = httpx.get(f"{BASE}/agent/poll", headers=headers)
+        except httpx.HTTPError as e:   # a restart or network blip must never kill the agent: wait and try again
+            print("control plane unreachable (" + type(e).__name__ + "), retrying", flush=True)
+            time.sleep(POLL_INTERVAL)
+            continue
         if r.status_code == 401:
             print("token rejected (revoked?). re-enroll needed.")
             return
