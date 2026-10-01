@@ -102,6 +102,15 @@ POST /api/admin/accounts/{user}/disable | enable
 ```
 A disabled account cannot log in and its live tokens stop working immediately.
 
+### Demo data and two-factor for the team
+- Demo clients (globex, initech, umbrella, acme, stark, wayne) sit at every stage: reporter, lead, governance, delivered,
+  pending and rejected. Seed with `docker compose exec api-public python /app/controlplane/seed_demo.py`; it prints
+  `CRED user password` lines, so redirect those into the gitignored `.demo-credentials.txt`. Passwords are random per
+  account, never a shared default. It skips itself if the demo clients already exist.
+- All four team accounts have two-factor. Secrets are in `.team-credentials.txt` (gitignored): add each to an
+  authenticator app with "Enter a setup key" (time based), or on this laptop run `python team-code.py <user>` for the
+  current code during a demo.
+
 ### Hosting on a laptop, no domain (the default for this PoC)
 Tailscale Funnel gives a free, permanent HTTPS address (`https://<machine>.<tailnet>.ts.net`) with a valid
 certificate and no inbound ports. One command starts everything and prints the addresses:

@@ -56,3 +56,4 @@ backups/
 agent-dist/agent-bundle.zip
 agent-dist/install.ps1
 .cloud-agent-token
+.demo-credentials.txt

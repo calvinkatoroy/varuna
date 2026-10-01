@@ -15,6 +15,7 @@ Usage (inside the api-public container, so imports/env match):
 from __future__ import annotations
 
 import os
+import secrets
 import sys
 import uuid
 
@@ -44,8 +45,12 @@ def user(username: str, role: str) -> dict:
 
 
 def ensure_account(username: str, role: str) -> None:
+    """Random password per demo client, printed as a CRED line for the wrapper to store (never a shared
+    default: this runs on a deployment that may be publicly reachable)."""
     if not db.get_account(username):
-        auth.create_account(username, "demo1234", role)
+        pw = secrets.token_urlsafe(9)
+        auth.create_account(username, pw, role)
+        print(f"CRED {username} {pw}")
 
 
 # Reusable, realistic finding sets (adapted from the same copy already used in the frontend's
@@ -108,6 +113,7 @@ def seed_proposal_at(client: str, target: str, purpose: str, division: str) -> t
     pid = db.create_proposal({
         "submitter": client, "target": target, "mode": "standard", "purpose": purpose,
         "division": division, "environment": "production", "authorization_attested": True,
+        "scan_mode": "cloud",   # approved demo clients have nothing to install: they unlock straight away
     })
     job = make_job(target, client)
     redis_store.set_job(job)
@@ -163,6 +169,15 @@ def main():
         "purpose": "incident", "division": "SecOps", "authorization_attested": True,
     })
     print("stark: fresh pending proposal, untouched")
+
+    # A rejected proposal with a plain-language reason: shows what a client sees and how they recover.
+    ensure_account("wayne", models.ROLE_CLIENT)
+    wid = db.create_proposal({
+        "submitter": "wayne", "target": "https://wayne-enterprises.example.org", "mode": "standard",
+        "purpose": "periodic", "division": "Facilities", "authorization_attested": True, "scan_mode": "cloud",
+    })
+    db.update_proposal(wid, status="rejected", reject_reason="We could not verify that Wayne Facilities owns this site. Please reply with proof of ownership (for example a file we can fetch from the site).")
+    print("wayne: rejected proposal with a reason")
 
     print("\nSeed complete. The acme testphp.vulnweb.com proposal (if present) was left alone for the live demo.")
 
