@@ -37,6 +37,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -hex 32)}
       - VARUNA_CORS_ORIGINS=${VARUNA_CORS_ORIGINS:-https://localhost}
       - VARUNA_PUBLIC_URL=${VARUNA_PUBLIC_URL:-}
+      - VARUNA_CLOUD_ALLOW_HOSTS=${VARUNA_CLOUD_ALLOW_HOSTS:-}
       - SMTP_HOST=${SMTP_HOST:-}
       - SMTP_PORT=${SMTP_PORT:-}
       - SMTP_USER=${SMTP_USER:-}
@@ -77,6 +78,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -hex 32)}
       - VARUNA_CORS_ORIGINS=${VARUNA_CORS_ORIGINS:-https://localhost}
       - VARUNA_REQUIRE_MFA=${VARUNA_REQUIRE_MFA:-}
+      - VARUNA_CLOUD_ALLOW_HOSTS=${VARUNA_CLOUD_ALLOW_HOSTS:-}
       - SCAN_TTL_SECONDS=${SCAN_TTL_SECONDS:-86400}
       - REPORTS_DIR=/data/reports
       - VARUNA_DB=/dbdata/varuna.db

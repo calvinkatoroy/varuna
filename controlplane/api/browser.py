@@ -312,7 +312,8 @@ def approve_proposal(pid: str, user: dict = Depends(require_lead)):
     except classifier.ClassifyRejected as e:
         raise HTTPException(status_code=422, detail=f"target rejected: {e}")
     cloud = p.get("scan_mode") == models.SCAN_CLOUD
-    if cloud and target_class != classifier.CLASS_CLOUD:
+    own_sites = {h.strip().lower() for h in os.environ.get("VARUNA_CLOUD_ALLOW_HOSTS", "").split(",") if h.strip()}   # owner's explicit exception
+    if cloud and target_class != classifier.CLASS_CLOUD and classifier._extract_host(p["target"]).lower() not in own_sites:
         raise HTTPException(status_code=422, detail="cloud scan needs a public target; this one resolves to a private or local address. Ask the client to choose a local scan.")
     # Safe-profile lock, decided by the submitter's ROLE (never by the client-chosen `mode`):
     # client proposals always run the fixed full stack with no custom opts.

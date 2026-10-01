@@ -12,17 +12,26 @@ clients, or unreviewed results.
 1. Open the Varuna address you were given and choose **Register**. Pick a username and a password of at
    least 8 characters. Add an email if you want to be able to reset a forgotten password (optional).
 2. Registering only creates your account. Nothing runs yet.
-3. Fill in the **scan proposal**: what to test, what is in and out of scope, why, and which division you
-   are from. Tick the authorization box: you must own the target or be authorized to test it. The lead
-   pentester checks this before approving.
+3. Fill in the **scan proposal**. First choose **where the scan runs**:
+   - **By Varuna (cloud):** nothing to install. Varuna scans your website from its own computer. Only for websites
+     that are open on the internet. This is the easiest choice.
+   - **On my computer:** you install one small program that runs the scan inside your network. Choose this for
+     internal or private systems (for example an address like `10.x.x.x`, `localhost` or `intranet.company`).
+   Then enter what to test, why, and which division you are from. Tick the authorization box: you must own the
+     target or be authorized to test it. The lead pentester checks this before approving.
 4. Wait for approval. The screen shows "Waiting for approval". If the proposal is rejected you will see
    the reason and can submit a corrected one.
 
-### Install your agent
-The scan runs on your own computer, so the target and its data stay with you.
-1. After approval the screen shows one command. Copy it.
-2. Open **PowerShell** (a normal window, not "as administrator"), paste it and press Enter.
-3. It installs the agent and starts it at every login. The screen unlocks when the agent is detected.
+### Install your agent (only for "On my computer")
+If you chose a cloud scan, skip this: your dashboard unlocks as soon as the proposal is approved.
+
+1. After approval, choose **Download installer (Windows)**. No command line is needed.
+2. Double-click the downloaded file **Install-Varuna**. If Windows says "Windows protected your PC", click
+   **More info**, then **Run anyway**.
+3. Wait a few minutes for "Done". Your screen unlocks by itself when the agent is detected.
+4. The installer only works for one hour. If it stops working, download it again.
+
+Prefer PowerShell? Open "I'd rather use PowerShell" on the same screen for the one-line command.
 
 ### Follow your scan and read the result
 - **Overview** shows agent status, the latest scan and your latest report.

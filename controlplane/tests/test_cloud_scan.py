@@ -117,3 +117,13 @@ def test_scanner_refuses_private_targets_even_if_the_server_is_fooled(monkeypatc
     scan.assert_cloud_safe(cloud("https://mine.example/x"), resolve=lambda h: {"100.70.151.71"})  # the owner's explicit exception
     with pytest.raises(RuntimeError):
         scan.assert_cloud_safe(cloud("https://not-listed.example"), resolve=lambda h: {"100.70.151.71"})
+
+
+def test_owner_allow_list_lets_a_privately_resolving_own_site_be_approved(monkeypatch):
+    H, lead = _h("cl6"), _h("cl6_lead", "lead_pentester")
+    monkeypatch.setattr(browser.classifier, "classify", lambda t, **k: browser.classifier.CLASS_LOCAL)      # resolves to a tailnet address
+    pid = _propose(H, "https://mine.example.org", "cloud").json()["proposal_id"]
+    monkeypatch.delenv("VARUNA_CLOUD_ALLOW_HOSTS", raising=False)
+    assert pub.post(f"/api/proposals/{pid}/approve", headers=lead).status_code == 422                       # not listed: refused
+    monkeypatch.setenv("VARUNA_CLOUD_ALLOW_HOSTS", "mine.example.org")
+    assert pub.post(f"/api/proposals/{pid}/approve", headers=lead).status_code == 200                       # the owner's own site: allowed
