@@ -18,6 +18,7 @@ export function Splash() {
       setTimeout(() => {
         if (!ref.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return setGone(true)
         anime({ targets: ref.current, opacity: [1, 0], duration: 420, easing: 'easeOutQuad', complete: () => setGone(true) })
+        setTimeout(() => setGone(true), 1200)   // Chrome pauses animations in a hidden tab: never depend on the animation to finish
       }, wait)
     }
     const fonts = (document as any).fonts
