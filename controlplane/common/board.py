@@ -82,7 +82,7 @@ def _report_card(r: dict) -> dict:
     stage_word = "delivered" if r["stage"] == "delivered" else "editing"
     meta = f"v{v['version_no']} · {stage_word}" if v else "v1"
     return {
-        "id": r["id"], "client": r["owner"], "target": target, "mode": mode,
+        "id": r["id"], "client": r["owner"], "target": target, "mode": mode, "scanMode": p.get("scan_mode", "local") if p else "local",
         "sev": _sev_counts(r["job_id"]), "meta": meta, "owner": (v or {}).get("editor"),
     }
 

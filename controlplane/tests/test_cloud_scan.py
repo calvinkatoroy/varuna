@@ -149,3 +149,12 @@ def test_agent_survives_connection_errors_instead_of_dying(monkeypatch):
     monkeypatch.setattr(agent_module.time, "sleep", lambda s: None)
     agent_module.run("token")
     assert calls["n"] == 4                              # three blips survived, then it carried on polling
+
+
+def test_cloud_badge_survives_after_the_scan_into_review_and_delivery_cards():
+    import board
+    H, lead = _h("cl7"), _h("cl7_lead", "lead_pentester")
+    jid = pub.post(f"/api/proposals/{_propose(H, PUBLIC_IP, 'cloud').json()['proposal_id']}/approve", headers=lead).json()["job_id"]
+    rid = db.create_report(job_id=jid, owner="cl7", template="Full Technical")
+    card = board._report_card(db.get_report(rid))
+    assert card["scanMode"] == "cloud"
