@@ -102,6 +102,15 @@ POST /api/admin/accounts/{user}/disable | enable
 ```
 A disabled account cannot log in and its live tokens stop working immediately.
 
+### Hosting on a laptop, no domain (the default for this PoC)
+Tailscale Funnel gives a free, permanent HTTPS address (`https://<machine>.<tailnet>.ts.net`) with a valid
+certificate and no inbound ports. One command starts everything and prints the addresses:
+`powershell -File start-varuna.ps1`. For it to stay reachable: keep the laptop on and awake (Power & sleep:
+never sleep while plugged in), set Docker Desktop to start at sign-in (containers restart on their own), and
+keep Tailscale and Ollama running. Funnel is set once with `tailscale funnel --bg 80`. Clients use the
+`.ts.net` address; the team uses `http://<tailscale-ip>:8080/team`. The Cloudflare options below are only
+for a custom domain.
+
 ### Public domain with valid HTTPS (Cloudflare Tunnel)
 The client plane needs a real hostname. A Cloudflare Tunnel gives a valid certificate, works behind
 CGNAT and opens no inbound port. You need a domain whose DNS is on Cloudflare (free plan is enough).
