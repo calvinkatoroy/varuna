@@ -14,11 +14,11 @@ $env:VARUNA_AGENT_TOKEN_FILE = $cloudTok
 $env:VARUNA_URL = 'http://localhost'
 if (-not (Test-Path $cloudTok)) {
     $t = (docker compose exec -T api-agent python /app/controlplane/mint_cloud_token.py | Select-Object -Last 1).Trim()
-    python agentgent.py --enroll $t | Out-Null
+    python agent\agent.py --enroll $t | Out-Null
 }
 $online = (docker compose exec -T api-agent python /app/controlplane/mint_cloud_token.py --online | Select-Object -Last 1).Trim()
 if ($online -ne 'True') {
-    Start-Process -WindowStyle Hidden python -ArgumentList 'agentgent.py' -WorkingDirectory $PSScriptRoot
+    Start-Process -WindowStyle Hidden python -ArgumentList 'agent\agent.py' -WorkingDirectory $PSScriptRoot
     Start-Sleep 8
 }
 $cloud = (docker compose exec -T api-agent python /app/controlplane/mint_cloud_token.py --online | Select-Object -Last 1).Trim()
