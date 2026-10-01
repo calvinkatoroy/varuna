@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import anime from 'animejs'
-import { Check, Clock, Terminal, Copy, ArrowRight, ShieldCheck } from 'lucide-react'
+import { Check, Clock, Terminal, Copy, ArrowRight, ShieldCheck, Download } from 'lucide-react'
 import { useAuth } from '@/auth'
-import { api } from '@/api'
+import { api, download } from '@/api'
 import { isMock } from '@/mock'
 import { Button } from '@/components/ui/button'
 import { ProposalForm } from '@/components/ProposalForm'
@@ -69,6 +69,23 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
 
   const copyOneLiner = async () => {
     try { await navigator.clipboard.writeText(oneLinerText); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch {}
+  }
+
+  // On the install step, notice the agent coming online by itself: a non-technical person should not have to
+  // know to come back and press a button.
+  useEffect(() => {
+    if (step !== 'install' || isMock()) return
+    const t = setInterval(() => {
+      api.get('/api/agent').then((a: { registered: boolean }) => { if (a.registered) onActivate(user?.username || u) }).catch(() => {})
+    }, 4000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step])
+
+  const [dl, setDl] = useState(false)
+  const getInstaller = async () => {
+    setErr('')
+    try { await download(api.publicBase, '/api/agent/installer', 'Install-Varuna.cmd'); setDl(true) } catch (e: any) { setErr(e.message || 'Could not download the installer.') }
   }
 
   // Animate the card in on each step change (microinteraction).
@@ -276,18 +293,28 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
               <span className="grid h-11 w-11 flex-none place-items-center rounded-full bg-low-bg text-low"><ShieldCheck size={20} /></span>
               <div>
                 <h2 className="text-[18px] font-bold tracking-[-0.02em] text-ink">Approved. Install your agent</h2>
-                <p className="text-[12.5px] text-ink-muted">Paste this in Windows PowerShell (no admin).</p>
+                <p className="text-[12.5px] text-ink-muted">One small program on your Windows computer runs the scan. No admin rights needed.</p>
               </div>
             </div>
-            <div className="mb-5 rounded-input border border-rule bg-panel p-3">
+            <Button size="lg" className="w-full" onClick={getInstaller}><Download size={16} /> Download installer (Windows)</Button>
+            <ol className="mb-5 mt-4 list-decimal space-y-1.5 pl-5 text-[13px] leading-relaxed text-ink-muted">
+              <li>Open the downloaded file <b className="text-ink">Install-Varuna</b> (double-click it).</li>
+              <li>If Windows says <b className="text-ink">"Windows protected your PC"</b>, click <b className="text-ink">More info</b>, then <b className="text-ink">Run anyway</b>.</li>
+              <li>Wait a few minutes for "Done". This page unlocks by itself.</li>
+            </ol>
+            {dl && <p role="status" className="mb-4 rounded-input bg-low-bg p-3 text-[12.5px] text-low">Downloaded. The installer works for one hour. If it stops working, download it again.</p>}
+            <details className="mb-5 rounded-input border border-rule bg-panel p-3">
+              <summary className="min-h-[44px] cursor-pointer text-[12.5px] font-semibold text-ink-muted">I'd rather use PowerShell</summary>
+              <div className="mt-2">
               <div className="mb-2 flex items-center justify-between">
                 <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint"><Terminal size={13} /> PowerShell</span>
                 <button onClick={copyOneLiner} className="flex items-center gap-1.5 text-[11.5px] font-semibold text-ink-muted hover:text-ink">{copied ? <><Check size={13} className="text-low" /> Copied</> : <><Copy size={13} /> Copy</>}</button>
               </div>
               <code className="block break-all font-mono text-[11.5px] leading-relaxed text-ink">{oneLinerText}</code>
-            </div>
+              </div>
+            </details>
             {err && <div className="mb-3 text-[12.5px] text-crit">{err}</div>}
-            <Button size="lg" className="w-full" onClick={unlock}>I've installed it. Unlock <ArrowRight size={16} /></Button>
+            <Button size="lg" className="w-full" onClick={unlock}>I've installed it. Check now <ArrowRight size={16} /></Button>
           </>
         )}
       </div>

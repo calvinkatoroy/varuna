@@ -53,3 +53,5 @@ agent-dist/*
 *.rar
 backups/
 .team-credentials.txt
+agent-dist/agent-bundle.zip
+agent-dist/install.ps1

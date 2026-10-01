@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "report"))
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv()  # repo-root .env, for host-run dev (REDIS_URL, JWT_SECRET, ...)
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response  # noqa: E402
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, StreamingResponse  # noqa: E402
 from pydantic import BaseModel, Field, StrictBool  # noqa: E402
@@ -446,6 +446,38 @@ def install_token(user: dict = Depends(current_user)):
             for p in db.list_proposals(submitter=user["username"])):
         raise HTTPException(status_code=403, detail="agent install unlocks once a proposal is approved")
     return {"enrollment_token": tokens.generate_enrollment_token(user["username"])}
+
+
+def _installer_cmd(base: str, token: str) -> str:
+    """A double-clickable Windows installer for non-technical clients: it runs the same one-liner, shows plain
+    progress, and never closes on its own so a failure can be read. The token inside is one-time and expires in an hour."""
+    lines = [
+        "@echo off",
+        "title Varuna agent installer",
+        "echo Installing the Varuna agent. This takes a few minutes. Please keep this window open.",
+        "echo.",
+        f'powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:VARUNA_URL=\'{base}\'; $env:VARUNA_TOKEN=\'{token}\'; irm {base}/dist/install.ps1 | iex"',
+        "if errorlevel 1 (",
+        "  echo.",
+        "  echo Something went wrong. Please send a screenshot of this window to your Varuna contact.",
+        ") else (",
+        "  echo.",
+        "  echo Done. You can close this window and go back to Varuna.",
+        ")",
+        "pause",
+    ]
+    return "\r\n".join(lines) + "\r\n"
+
+
+@app.get("/api/agent/installer")
+def agent_installer(request: Request, user: dict = Depends(current_user)):
+    """Same gate as /api/agent/install-token (approved proposals only); returns Install-Varuna.cmd with a fresh token."""
+    tok = install_token(user)["enrollment_token"]
+    base = (os.environ.get("VARUNA_PUBLIC_URL") or
+            f"{request.headers.get('x-forwarded-proto', request.url.scheme)}://{request.headers.get('x-forwarded-host') or request.headers.get('host')}").rstrip("/")
+    audit.log("agent_installer_downloaded", actor=user["username"])
+    return Response(content=_installer_cmd(base, tok), media_type="application/octet-stream",
+                    headers={"Content-Disposition": 'attachment; filename="Install-Varuna.cmd"', "Cache-Control": "no-store"})
 
 
 # --- legacy v1 approval queue (team only; RejectBody defined above) ---

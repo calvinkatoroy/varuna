@@ -2,6 +2,7 @@
 # Run:  powershell -File start-varuna.ps1
 Set-Location $PSScriptRoot
 $ts = (tailscale ip -4 | Select-Object -First 1)
+python build-agent-dist.py   # clients download the CURRENT agent, never a stale one
 docker compose up -d
 if ($LASTEXITCODE -ne 0) { "Docker is not running. Start Docker Desktop and run this again."; return }
 if (-not (tailscale funnel status 2>$null | Select-String "Funnel on")) { tailscale funnel --bg 80 | Out-Null }

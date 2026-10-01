@@ -403,3 +403,21 @@ def test_login_ignores_username_case_and_throttle_counts_all_spellings():
             auth.authenticate(spelling, "wrong-password", "ip2")
     with pytest.raises(auth.LockedOut):                                                      # still ONE account's counter
         auth.authenticate("MixedCase", "password1", "ip2")
+
+
+def test_installer_cmd_download_is_gated_and_carries_a_working_one_time_token(monkeypatch):
+    import tokens
+    monkeypatch.delenv("VARUNA_PUBLIC_URL", raising=False)
+    H = _h("inst_client", "client")
+    assert pub.get("/api/agent/installer", headers=H).status_code == 403            # nothing approved yet
+    lead = _h("inst_lead", "lead_pentester")
+    pid = _prop(H).json()["proposal_id"]
+    assert priv.post(f"/api/proposals/{pid}/approve", headers=lead).status_code in (200, 409)
+    r = pub.get("/api/agent/installer", headers={**H, "x-forwarded-proto": "https", "x-forwarded-host": "varuna.example"})
+    assert r.status_code == 200 and "attachment" in r.headers["content-disposition"] and "Install-Varuna.cmd" in r.headers["content-disposition"]
+    body = r.text
+    assert "\r\n" in body and "pause" in body and "https://varuna.example/dist/install.ps1" in body
+    tok = body.split("VARUNA_TOKEN=\'")[1].split("\'")[0] if "VARUNA_TOKEN=\'" in body else body.split("VARUNA_TOKEN='")[1].split("'")[0]
+    assert tokens.consume_enrollment_token(tok) == "inst_client"                     # a real token for THIS client
+    assert tokens.consume_enrollment_token(tok) is None                              # and it works once
+    assert pub.get("/api/agent/installer").status_code == 401                        # not for anonymous callers
