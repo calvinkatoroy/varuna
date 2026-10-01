@@ -10,6 +10,7 @@ import { BrandMark } from '@/components/BrandMark'
 
 // /api/proposals speaks the client vocabulary: anything past pending/rejected was approved.
 const isApproved = (x: { status: string }) => x.status !== 'pending' && x.status !== 'rejected'
+const isCloud = (x: { scan_mode?: string }) => x.scan_mode === 'cloud'
 
 type Step = 'auth' | 'proposal' | 'pending' | 'install'
 const oneLiner = (host: string, token: string) =>
@@ -97,7 +98,7 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
 
   // Where a returning user actually is in onboarding, decided by the server, not assumed.
   async function resumeFlow(username: string) {
-    const props: { status: string; reason?: string }[] = await api.get('/api/proposals')
+    const props: { status: string; reason?: string; scan_mode?: string }[] = await api.get('/api/proposals')
     if (!props.length) return setStep('proposal')
     if (!props.some(isApproved) && !props.some((x) => x.status === 'pending')) {
       const last = props.find((x) => x.status === 'rejected')
@@ -105,6 +106,7 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
       return setStep('proposal')
     }
     if (!props.some(isApproved)) return setStep('pending')
+    if (props.filter(isApproved).every(isCloud)) return onActivate(username)   // Varuna runs the scan: no agent to install
     const agent = await api.get('/api/agent')
     if (agent.registered) onActivate(username)
     else setStep('install')
@@ -121,8 +123,8 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
   useEffect(() => {
     if (step !== 'pending' || isMock()) return
     const t = setInterval(() => {
-      api.get('/api/proposals').then((ps: { status: string; reason?: string }[]) => {
-        if (ps.some(isApproved)) return setStep('install')
+      api.get('/api/proposals').then((ps: { status: string; reason?: string; scan_mode?: string }[]) => {
+        if (ps.some(isApproved)) return ps.filter(isApproved).every(isCloud) ? onActivate(user?.username || u) : setStep('install')
         if (ps.length && !ps.some((x) => x.status === 'pending')) {   // decided against: show why, allow a retry
           const last = ps.find((x) => x.status === 'rejected')
           setNotice(`Your proposal was not approved${last?.reason ? `: ${last.reason}` : '.'} Fix what they asked for and submit a new one.`)

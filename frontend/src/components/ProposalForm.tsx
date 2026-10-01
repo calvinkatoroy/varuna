@@ -8,7 +8,14 @@ const label = 'mb-1.5 block text-[12.5px] font-medium text-ink-muted'
 export type ProposalPayload = {
   target: string; in_scope: string; out_of_scope: string; purpose: string; division: string
   environment: string; test_window: string; roe: { authenticated: boolean; credentials: string; dos_allowed: boolean }
-  authorization_attested: true; mode: 'standard' | 'advanced'
+  authorization_attested: true; mode: 'standard' | 'advanced'; scan_mode: 'local' | 'cloud'
+}
+
+// Does this look like an address only the client's own network can reach? (Cloud scans cannot.)
+const looksPrivate = (t: string) => {
+  const h = t.trim().replace(/^[a-z]+:\/\//i, '').split(/[/:?#]/)[0].toLowerCase()
+  return !!h && (h === 'localhost' || !h.includes('.') || /\.(local|localhost|internal|lan|home|corp|intranet|test)$/.test(h) ||
+    /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h))
 }
 
 // The scan-proposal scoping form, shared by the onboarding gate and the in-app "New Proposal".
@@ -18,6 +25,7 @@ export type ProposalPayload = {
 // already uses elsewhere (engagements/cards are tagged standard/advanced).
 export function ProposalForm({ onSubmit, submitLabel = 'Submit for approval' }: { onSubmit: (p: ProposalPayload) => Promise<void> | void; submitLabel?: string }) {
   const [mode, setMode] = useState<'standard' | 'advanced'>('standard')
+  const [scan, setScan] = useState<'local' | 'cloud'>('cloud')
   const [target, setTarget] = useState('')
   const [outScope, setOutScope] = useState('')
   const [purpose, setPurpose] = useState('pre-release')
@@ -32,13 +40,13 @@ export function ProposalForm({ onSubmit, submitLabel = 'Submit for approval' }: 
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!attest) return
+    if (!attest || (scan === 'cloud' && looksPrivate(target))) return
     setBusy(true)
     try {
       await onSubmit({
         target, in_scope: target, out_of_scope: outScope, purpose, division, environment,
         test_window: testWindow, roe: { authenticated: authed, credentials: creds, dos_allowed: dos },
-        authorization_attested: true, mode,
+        authorization_attested: true, mode, scan_mode: scan,
       })
     } catch {
       // api.ts already surfaced a toast with the real reason - this just makes sure the button
@@ -70,9 +78,30 @@ export function ProposalForm({ onSubmit, submitLabel = 'Submit for approval' }: 
           : 'Full scoping detail, for teams that already know their environment and rules of engagement.'}
       </p>
 
+      <fieldset>
+        <legend className={label}>Where should the scan run?</legend>
+        <div role="radiogroup" className="grid gap-2 sm:grid-cols-2">
+          {([
+            ['cloud', 'By Varuna (cloud)', 'Nothing to install. Only for websites that are open on the internet.'],
+            ['local', 'On my computer', 'You install a small program once. Needed for internal or private systems.'],
+          ] as const).map(([v, title, text]) => (
+            <label key={v} className={`flex min-h-[44px] cursor-pointer items-start gap-3 rounded-input border p-3 transition-colors ${scan === v ? 'border-accent bg-accent-soft/40' : 'border-rule bg-panel'}`}>
+              <input type="radio" name="scan-mode" value={v} checked={scan === v} onChange={() => setScan(v)} className="mt-1 h-4 w-4 flex-none accent-[var(--color-accent)]" />
+              <span><b className="block text-[13px] text-ink">{title}</b><span className="text-[12px] leading-snug text-ink-muted">{text}</span></span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
       <div>
         <label htmlFor="proposal-1" className={label}>In-scope target(s)</label>
         <input id="proposal-1" className={field} value={target} onChange={(e) => setTarget(e.target.value)} placeholder="https://api.acme.io" required />
+        {scan === 'cloud' && looksPrivate(target) && (
+          <p role="alert" className="mt-2 rounded-input bg-med-bg p-3 text-[12.5px] leading-relaxed text-ink">
+            This looks like an internal address, which Varuna's cloud cannot reach.{' '}
+            <button type="button" onClick={() => setScan('local')} className="font-semibold text-accent-ink underline">Scan on my computer instead</button>
+          </p>
+        )}
       </div>
       <div className={mode === 'advanced' ? 'grid grid-cols-2 gap-3' : ''}>
         <div>
@@ -132,7 +161,7 @@ export function ProposalForm({ onSubmit, submitLabel = 'Submit for approval' }: 
           I confirm I <b className="text-ink">own or am authorized</b> to test these assets. (Legally required. The lead verifies this.)
         </span>
       </label>
-      <Button type="submit" size="lg" className="w-full" disabled={!attest || busy}>{submitLabel} <ArrowRight size={16} /></Button>
+      <Button type="submit" size="lg" className="w-full" disabled={!attest || busy || (scan === 'cloud' && looksPrivate(target))}>{submitLabel} <ArrowRight size={16} /></Button>
     </form>
   )
 }

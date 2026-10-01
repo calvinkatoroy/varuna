@@ -186,6 +186,28 @@ def authenticate(auth: dict, seed: str, post=None, get=None) -> dict:
         return out
 
 
+def assert_cloud_safe(job: dict, resolve=None) -> None:
+    """Defence in depth for CLOUD scans (run by the host, from the host's own network): the server already
+    insists on a public target, but the scanner re-checks, because a name can resolve differently here (the
+    tailnet, the LAN, localhost). Refuses anything that is not a global address. VARUNA_CLOUD_ALLOW_HOSTS
+    (comma separated) is an explicit, logged exception for the owner's own sites."""
+    if job.get("scan_mode") != "cloud":
+        return
+    import ipaddress
+    import socket
+    host = (urlsplit(job["target"] if "://" in job["target"] else "http://" + job["target"]).hostname or "").lower()
+    allow = {h.strip().lower() for h in os.environ.get("VARUNA_CLOUD_ALLOW_HOSTS", "").split(",") if h.strip()}
+    if host in allow:
+        print(f"cloud scan: {host} allowed by VARUNA_CLOUD_ALLOW_HOSTS")
+        return
+    try:
+        addrs = (resolve or (lambda h: {i[4][0] for i in socket.getaddrinfo(h, None)}))(host)
+    except OSError:
+        addrs = set()
+    if not addrs or any(not ipaddress.ip_address(a.split("%")[0]).is_global for a in addrs):
+        raise RuntimeError("cloud scans can only target addresses open on the internet; this one is private or unresolvable here")
+
+
 def normalize_target(target: str) -> str:
     """Tools' own resolvers fail on the name `localhost` on some hosts (Nuclei reports "no
     address found" and silently scans nothing), so scan the loopback IP instead."""

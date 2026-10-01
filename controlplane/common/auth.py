@@ -127,6 +127,8 @@ def register_client(username: str, password: str, email: str = "") -> Account:
     if len(password.encode()) > 72:   # bcrypt hard limit; refuse rather than truncate/crash
         raise AuthError("password must be at most 72 bytes")
     email = _clean_email(email)
+    if username.lower() == "varuna-cloud" or username.lower().startswith("varuna-"):   # reserved for system agents
+        raise UsernameTaken("username already taken")
     if db.get_account_ci(username):
         raise UsernameTaken("username already taken")
     acct = Account(username=username, password_hash=hash_password(password), role=ROLE_CLIENT)

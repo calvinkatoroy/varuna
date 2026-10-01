@@ -25,7 +25,7 @@ import scan  # noqa: E402
 
 load_dotenv()  # repo-root .env, if present (local dev convenience; not required)
 BASE = os.environ.get("VARUNA_URL", "http://localhost:8000")
-TOKEN_FILE = os.path.expanduser("~/.varuna-agent-token")
+TOKEN_FILE = os.environ.get("VARUNA_AGENT_TOKEN_FILE") or os.path.expanduser("~/.varuna-agent-token")   # the cloud scanner keeps its own
 POLL_INTERVAL = 5
 HEARTBEAT_INTERVAL = 15   # well under the server's 30s online threshold (tokens.ONLINE_THRESHOLD)
 
@@ -87,6 +87,7 @@ def handle(job: dict, headers: dict) -> None:
     print("got job", jid, "->", job.get("target"))
     httpx.post(f"{BASE}/agent/jobs/{jid}/status", headers=headers, json={"status": "running"})
     try:
+        scan.assert_cloud_safe(job)   # a cloud scan may never be pointed at private space
         scan.check_reachable(job["target"])
         raw, tool_status = scan.run_scan(
             job, checkpoint=lambda status: _checkpoint(jid, headers, status))   # Katana -> Nuclei/SQLMap, chained

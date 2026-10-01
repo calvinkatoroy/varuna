@@ -119,4 +119,4 @@ def offline_seconds(username: str, now: datetime.datetime | None = None) -> floa
 
 
 def owns_job(username: str, job: dict | None) -> bool:
-    return bool(job) and job.get("submitter") == username
+    return bool(job) and username in (job.get("submitter"), job.get("executor"))

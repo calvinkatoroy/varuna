@@ -49,6 +49,11 @@ CLASS_LOCAL = "local"
 CLASS_CLOUD = "cloud"
 
 # Proposal status (v2): a scan proposal awaits lead-pentester approval before any scan runs.
+# Where a scan runs: on the client's own computer (their agent) or by Varuna (the cloud scanner on the host).
+SCAN_LOCAL, SCAN_CLOUD = "local", "cloud"
+# The cloud scanner is an ordinary agent enrolled under this reserved name (clients cannot register it).
+CLOUD_AGENT = "varuna-cloud"
+
 PROPOSAL_PENDING = "pending"
 PROPOSAL_APPROVED = "approved"
 PROPOSAL_REJECTED = "rejected"
@@ -132,6 +137,8 @@ class Job:
     status: str = STATUS_QUEUED
     per_tool_status: dict = field(default_factory=dict)   # tool -> status (REQ-23)
     error: Optional[str] = None
+    scan_mode: str = "local"           # local = the client's agent runs it; cloud = the cloud scanner does
+    executor: Optional[str] = None     # agent username allowed to run this job when it is not the submitter
 
     def to_dict(self) -> dict:
         return asdict(self)

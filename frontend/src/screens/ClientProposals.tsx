@@ -22,7 +22,7 @@ const stageHint: Record<string, string> = {
   rejected: 'This proposal was not approved. See the reason below - you can submit a corrected proposal any time.',
 }
 
-type P = { id: string; target: string; purpose: string; division: string; status: string; when: string; reason?: string; job_id?: string }
+type P = { id: string; target: string; purpose: string; division: string; status: string; when: string; reason?: string; job_id?: string; scan_mode?: string }
 const meta: Record<string, { label: string; tone: string }> = {
   pending: { label: 'Pending approval', tone: 'med' },
   scanning: { label: 'Scanning', tone: 'info' },
@@ -103,7 +103,7 @@ export default function ClientProposals() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[15.5px] font-medium text-ink" title={p.target}>{bare(p.target)}</span>
-                      <span className="mt-0.5 block truncate text-[12px] text-ink-faint">{p.purpose}, {p.division}</span>
+                      <span className="mt-0.5 block truncate text-[12px] text-ink-faint">{p.purpose}, {p.division} · {p.scan_mode === 'cloud' ? 'Cloud scan' : 'Local scan'}</span>
                     </span>
                     <span className="mono hidden flex-none text-[12px] text-ink-faint sm:block">{when(p.when)}</span>
                     <span className="grid h-8 w-8 flex-none place-items-center rounded-full border border-rule text-ink-faint opacity-0 transition-opacity duration-200 group-hover:text-ink group-hover:opacity-100"><ArrowUpRight size={15} /></span>
@@ -137,7 +137,7 @@ export default function ClientProposals() {
               {sel.status === 'rejected' && sel.reason && (
                 <div className="rounded-input border border-crit-bg bg-crit-bg p-4 text-[13.5px] leading-relaxed text-crit">{sel.reason}</div>
               )}
-              {[['Purpose', sel.purpose], ['Division', sel.division]].map(([l, v]) => (
+              {[['Purpose', sel.purpose], ['Division', sel.division], ['Scan runs', sel.scan_mode === 'cloud' ? 'By Varuna (cloud)' : 'On your computer']].map(([l, v]) => (
                 <div key={l} className="flex items-center justify-between border-b border-rule pb-3 last:border-b-0">
                   <span className="text-[13px] text-ink-muted">{l}</span>
                   <b className="text-[13.5px] font-semibold text-ink">{v}</b>

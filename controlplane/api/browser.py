@@ -118,6 +118,7 @@ class RejectBody(BaseModel):
 class ProposalBody(BaseModel):
     target: str = Field(max_length=2048)
     mode: str = Field(default="standard", pattern="^(standard|advanced)$")
+    scan_mode: str = Field(default="local", pattern="^(local|cloud)$")   # local = my computer, cloud = run by Varuna
     in_scope: str = Field(default="", max_length=4000)
     out_of_scope: str = Field(default="", max_length=4000)
     division: str = Field(default="", max_length=200)
@@ -251,6 +252,11 @@ def submit_proposal(body: ProposalBody, user: dict = Depends(current_user)):
         classifier.validate_syntax(body.target)
     except classifier.ClassifyRejected as e:
         raise HTTPException(status_code=422, detail=f"invalid target: {e}")
+    if body.scan_mode == models.SCAN_CLOUD:
+        try:
+            classifier.require_public_syntax(body.target)
+        except classifier.ClassifyRejected as e:
+            raise HTTPException(status_code=422, detail=str(e))
     p = {**body.model_dump(), "submitter": user["username"], "status": models.PROPOSAL_PENDING}
     if models.is_client(user["role"]):
         # Safe-profile lock (NFR-17/18/19): `mode` for a client only labels the scoping form.
@@ -270,7 +276,7 @@ def _client_proposal_view(p: dict) -> dict:
     return {
         "id": p["id"], "target": p["target"], "purpose": p["purpose"], "division": p["division"],
         "status": cockpit.client_status(p), "when": p["updated_at"], "reason": p.get("reject_reason"),
-        "job_id": p.get("job_id"),
+        "job_id": p.get("job_id"), "scan_mode": p.get("scan_mode", "local"),
     }
 
 
@@ -305,6 +311,9 @@ def approve_proposal(pid: str, user: dict = Depends(require_lead)):
         target_class = classifier.classify(p["target"])
     except classifier.ClassifyRejected as e:
         raise HTTPException(status_code=422, detail=f"target rejected: {e}")
+    cloud = p.get("scan_mode") == models.SCAN_CLOUD
+    if cloud and target_class != classifier.CLASS_CLOUD:
+        raise HTTPException(status_code=422, detail="cloud scan needs a public target; this one resolves to a private or local address. Ask the client to choose a local scan.")
     # Safe-profile lock, decided by the submitter's ROLE (never by the client-chosen `mode`):
     # client proposals always run the fixed full stack with no custom opts.
     submitter = db.get_account(p["submitter"])
@@ -315,6 +324,7 @@ def approve_proposal(pid: str, user: dict = Depends(require_lead)):
         id=str(uuid.uuid4()), target=p["target"], target_class=target_class,
         submitter=p["submitter"], role=models.ROLE_CLIENT, tools=tools, opts=opts,
         status=models.STATUS_QUEUED, per_tool_status={},
+        scan_mode=models.SCAN_CLOUD if cloud else models.SCAN_LOCAL, executor=models.CLOUD_AGENT if cloud else None,
     ).to_dict()
     # Atomic claim: of N concurrent approvals exactly one flips pending->approved and proceeds.
     if not db.claim_proposal(pid, models.PROPOSAL_PENDING,
@@ -434,8 +444,12 @@ async def scan_events(job_id: str, user: dict = Depends(current_user)):
 # --- agent enrollment (REQ-71 to REQ-73) ---
 @app.get("/api/agent")
 def agent_status(user: dict = Depends(current_user)):
+    mine = [p for p in db.list_proposals(submitter=user["username"]) if p["status"] != models.PROPOSAL_REJECTED]
     return {"registered": bool(redis_store.get_agent(user["username"])),
-            "online": tokens.is_online(user["username"])}
+            "online": tokens.is_online(user["username"]),
+            # a client whose scans are all run by Varuna has no agent of their own to show
+            "cloud_only": bool(mine) and all(p.get("scan_mode") == models.SCAN_CLOUD for p in mine),
+            "cloud_online": tokens.is_online(models.CLOUD_AGENT)}
 
 
 @app.post("/api/agent/install-token")

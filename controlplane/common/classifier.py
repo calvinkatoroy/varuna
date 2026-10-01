@@ -91,6 +91,27 @@ def validate_syntax(target: str) -> None:
         raise ClassifyRejected("that host name is too long to be real")
 
 
+_INTERNAL_SUFFIXES = (".local", ".localhost", ".internal", ".lan", ".home", ".corp", ".intranet", ".test", ".example", ".invalid")
+
+
+def require_public_syntax(target: str) -> None:
+    """Submit-time check for a CLOUD scan (no DNS): the cloud scanner may only touch websites that are open
+    on the internet. Catches localhost, private/link-local IPs and single-label or internal-looking names.
+    The full DNS-based check still runs at approval (classify must say 'cloud')."""
+    host = _extract_host(target).lower().rstrip(".")
+    msg = "cloud scans only work for websites open on the internet. For internal systems choose 'On my computer'."
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        if "." not in host or host.endswith(_INTERNAL_SUFFIXES):
+            raise ClassifyRejected(msg)
+        return
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    if not ip.is_global:
+        raise ClassifyRejected(msg)
+
+
 def classify(target: str, resolve=_default_resolve) -> str:
     """Return CLASS_LOCAL or CLASS_CLOUD; raise ClassifyRejected when unsure.
 

@@ -23,7 +23,7 @@ import { revealTiles } from '@/lib/motion'
 import { toast } from '@/lib/toast'
 
 type Card = {
-  id: string; client: string; target: string; mode: string
+  id: string; client: string; target: string; mode: string; scanMode?: string
   sev: { c: number; h: number; m: number; l: number }; meta: string; owner?: string
   suspended?: boolean; rejectReason?: string; jobId?: string
 }
@@ -325,6 +325,7 @@ export default function TeamBoard() {
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate text-[13.5px] font-semibold text-ink">{c.client}</span>
                           <span className={`flex-none rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase ${c.mode === 'advanced' ? 'bg-accent-soft text-accent-ink' : 'bg-panel text-ink-muted'}`}>{c.mode}</span>
+                          {c.scanMode === 'cloud' && <span className="flex-none rounded-md bg-info/20 px-1.5 py-0.5 text-[10px] font-bold uppercase text-ink">cloud</span>}
                         </div>
                         <div className="mono mt-0.5 truncate text-[12px] text-ink-muted">{c.target}</div>
                         <div className="mt-2.5 flex items-center gap-1.5">
@@ -380,7 +381,7 @@ export default function TeamBoard() {
         {sel && (
           <DrawerContent>
             <div className="border-b border-rule p-6">
-              <span className="text-[12px] font-medium text-ink-muted">{sel.card.mode === 'advanced' ? 'Advanced' : 'Standard'} engagement · {stageName[sel.col]}</span>
+              <span className="text-[12px] font-medium text-ink-muted">{sel.card.mode === 'advanced' ? 'Advanced' : 'Standard'} engagement · {sel.card.scanMode === 'cloud' ? 'Cloud scan' : 'Local scan'} · {stageName[sel.col]}</span>
               <DrawerTitle className="mt-1 text-[20px] font-bold tracking-[-0.02em] text-ink">{sel.card.client}</DrawerTitle>
               <div className="mono text-[13px] text-ink-muted">{sel.card.target}</div>
             </div>

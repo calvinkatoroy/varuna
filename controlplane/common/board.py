@@ -9,6 +9,7 @@ FastAPI here, the private API endpoint is a thin wrapper around build_board().
 from __future__ import annotations
 
 import db
+import models
 import redis_store
 import tokens
 
@@ -42,6 +43,7 @@ def _sev_counts(job_id: str | None) -> dict:
 def _proposal_card(p: dict) -> dict:
     return {
         "id": p["id"], "client": p["submitter"], "target": p["target"], "mode": p["mode"],
+        "scanMode": p.get("scan_mode", "local"),
         "sev": {"c": 0, "h": 0, "m": 0, "l": 0}, "meta": f"Submitted {p['created_at']}",
     }
 
@@ -55,13 +57,14 @@ def _scanning_card(p: dict) -> dict:
             "sev": _sev_counts(p.get("job_id")), "meta": f"Failed: {job.get('error') or 'scan failed'}",
             "jobId": p.get("job_id"), "suspended": False,
         }
-    online = tokens.is_online(p["submitter"])
+    cloud = p.get("scan_mode") == "cloud"
+    online = tokens.is_online(models.CLOUD_AGENT if cloud else p["submitter"])
     meta = ", ".join(f"{t} {s}" for t, s in per_tool.items()) or (
-        "Queued" if online else "Waiting for client agent")
+        "Queued" if online else ("Waiting for the cloud scanner" if cloud else "Waiting for client agent"))
     if (job or {}).get("status") == "running" and not online:
-        meta += " - agent offline, scan stalled"   # the client's agent died mid-scan; team should chase it
+        meta += " - scanner offline, scan stalled" if cloud else " - agent offline, scan stalled"   # team should chase it
     return {
-        "id": p["id"], "client": p["submitter"], "target": p["target"], "mode": p["mode"],
+        "id": p["id"], "client": p["submitter"], "target": p["target"], "mode": p["mode"], "scanMode": p.get("scan_mode", "local"),
         "sev": _sev_counts(p.get("job_id")), "meta": meta,
         "jobId": p.get("job_id"),   # needed by the frontend to call suspend/resume by job id
         "suspended": redis_store.is_suspended(p["job_id"]) if p.get("job_id") else False,

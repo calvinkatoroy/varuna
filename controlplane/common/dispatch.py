@@ -78,7 +78,7 @@ def dispatch_job(job: dict, pre_approved: bool = False) -> None:
     approval, so it is normally offline at approve-time).
     """
     if pre_approved:
-        redis_store.enqueue_job(job["submitter"], job["id"])
+        redis_store.enqueue_job(job.get("executor") or job["submitter"], job["id"])   # cloud jobs go to the cloud scanner
         return
     if _is_gated(job["role"], job["target_class"]):
         appr = redis_store.get_approval(job["id"])

@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS proposals (
     submitter              TEXT NOT NULL,
     status                 TEXT NOT NULL DEFAULT 'pending',
     mode                   TEXT NOT NULL DEFAULT 'standard',
+    scan_mode              TEXT NOT NULL DEFAULT 'local',
     target                 TEXT NOT NULL,
     in_scope               TEXT DEFAULT '',
     out_of_scope           TEXT DEFAULT '',
@@ -135,6 +136,9 @@ def init_db(conn: sqlite3.Connection) -> None:
                      ("totp_last_step", "INTEGER NOT NULL DEFAULT 0")):
         if col not in cols:
             conn.execute(f"ALTER TABLE accounts ADD COLUMN {col} {ddl}")
+    pcols = {r[1] for r in conn.execute("PRAGMA table_info(proposals)")}
+    if "scan_mode" not in pcols:
+        conn.execute("ALTER TABLE proposals ADD COLUMN scan_mode TEXT NOT NULL DEFAULT 'local'")
     conn.commit()
 
 
@@ -273,14 +277,14 @@ def create_proposal(p: dict) -> str:
     get_conn().execute(
         "INSERT INTO proposals (id, submitter, status, mode, target, in_scope, out_of_scope, "
         "division, purpose, environment, test_window, roe_json, authorization_attested, "
-        "emergency_contact, tools_json, opts_json) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "emergency_contact, tools_json, opts_json, scan_mode) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (pid, p["submitter"], p.get("status", "pending"), p.get("mode", "standard"),
          p["target"], p.get("in_scope", ""), p.get("out_of_scope", ""), p.get("division", ""),
          p.get("purpose", ""), p.get("environment", ""), p.get("test_window", ""),
          json.dumps(p.get("roe", {})), 1 if p.get("authorization_attested") else 0,
          p.get("emergency_contact", ""), json.dumps(p.get("tools", [])),
-         json.dumps(p.get("opts", {}))),
+         json.dumps(p.get("opts", {})), p.get("scan_mode", "local")),
     )
     get_conn().commit()
     return pid
