@@ -16,13 +16,14 @@ from typing import Optional
 
 # Roles (SRS §4.11 v2): one client role + five security-team roles.
 ROLE_CLIENT = "client"
+ROLE_SYSADMIN = "sysadmin"
 ROLE_PENTESTER = "pentester"
 ROLE_LEAD = "lead_pentester"
-ROLE_REPORTER = "reporter"
+ROLE_LEAD_CYBER = "lead_cyber"
 ROLE_GOVERNANCE = "governance"
-ROLE_SOC = "soc"
-ROLES = (ROLE_CLIENT, ROLE_PENTESTER, ROLE_LEAD, ROLE_REPORTER, ROLE_GOVERNANCE, ROLE_SOC)
-SECURITY_TEAM = frozenset({ROLE_PENTESTER, ROLE_LEAD, ROLE_REPORTER, ROLE_GOVERNANCE, ROLE_SOC})
+ROLE_MANAGER = "manager"
+ROLES = (ROLE_CLIENT, ROLE_SYSADMIN, ROLE_PENTESTER, ROLE_LEAD, ROLE_LEAD_CYBER, ROLE_GOVERNANCE, ROLE_MANAGER)
+SECURITY_TEAM = frozenset({ROLE_PENTESTER, ROLE_LEAD, ROLE_LEAD_CYBER, ROLE_GOVERNANCE, ROLE_MANAGER})
 
 # Back-compat aliases (v1 used standard/pro); keep imports resolving during migration.
 ROLE_STANDARD = ROLE_CLIENT
@@ -37,12 +38,16 @@ def is_client(role: str) -> bool:
     return role == ROLE_CLIENT
 
 
+def is_sysadmin(role: str) -> bool:
+    return role == ROLE_SYSADMIN
+
+
 def can_approve(role: str) -> bool:
     return role == ROLE_LEAD
 
 
 def can_review(role: str) -> bool:
-    return role in (ROLE_REPORTER, ROLE_LEAD, ROLE_GOVERNANCE)
+    return role in (ROLE_PENTESTER, ROLE_LEAD, ROLE_GOVERNANCE)
 
 # Target classification (REQ-14).
 CLASS_LOCAL = "local"
@@ -71,7 +76,7 @@ def report_stage_owner(stage: str) -> frozenset:
     """Roles allowed to edit/forward at a stage. Lead can also act at the reporter stage
     (sees all, may edit). Governance forwarding delivers to the client."""
     return {
-        REPORT_REPORTER: frozenset({ROLE_REPORTER, ROLE_LEAD}),
+        REPORT_REPORTER: frozenset({ROLE_PENTESTER, ROLE_LEAD}),
         REPORT_LEAD: frozenset({ROLE_LEAD}),
         REPORT_GOVERNANCE: frozenset({ROLE_GOVERNANCE}),
     }.get(stage, frozenset())

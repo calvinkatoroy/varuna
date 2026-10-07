@@ -11,7 +11,7 @@ def test_client_sees_only_own():
 
 
 def test_team_sees_all():
-    for r in ("pentester", "lead_pentester", "reporter", "governance", "soc"):
+    for r in ("pentester", "lead_pentester", "lead_cyber", "governance", "manager"):
         assert tenancy.visible_to(r, "riyan", "bob")
 
 

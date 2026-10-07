@@ -37,7 +37,7 @@ def send_back(stage: str, role: str) -> str:
 
 
 if __name__ == "__main__":
-    assert advance(models.REPORT_REPORTER, "reporter") == models.REPORT_LEAD
+    assert advance(models.REPORT_REPORTER, "pentester") == models.REPORT_LEAD
     assert send_back(models.REPORT_GOVERNANCE, "governance") == models.REPORT_LEAD
     for bad in (("pentester",), ):
         try:
