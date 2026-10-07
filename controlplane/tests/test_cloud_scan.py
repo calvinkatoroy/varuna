@@ -27,7 +27,7 @@ PUBLIC_IP = "http://8.8.8.8"
 
 
 def _h(name, role="client"):
-    auth.create_account(name, "password1", role)
+    auth.create_account(name, "password1", role, org_id=db.create_org("org-" + name) if role == "client" else None)
     return {"Authorization": f"Bearer {jwt_auth.login(name, 'password1', 'ip')}"}
 
 

@@ -35,7 +35,7 @@ def reset():
 
 
 def _token(username, role):
-    auth.create_account(username, "pw", role)
+    auth.create_account(username, "pw", role, org_id=db.create_org("org-" + username) if role == "client" else None)
     tokens.issue_agent_token(username)   # register an online agent
     r = client.post("/api/login", json={"username": username, "password": "pw"})
     assert r.status_code == 200, r.text
@@ -188,7 +188,7 @@ def test_me_returns_identity():
     reset()
     H = _token("calvin", "pentester")
     body = client.get("/api/me", headers=H).json()
-    assert body == {"username": "calvin", "role": "pentester"}
+    assert body == {"username": "calvin", "role": "pentester", "org_id": None, "must_change_password": False}
 
 
 def test_client_cannot_direct_submit_scan():

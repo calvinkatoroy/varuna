@@ -52,12 +52,14 @@ def check_password(password: str, hashed: str) -> bool:
         return False
 
 
-def create_account(username: str, password: str, role: str) -> Account:
+def create_account(username: str, password: str, role: str, org_id: str | None = None) -> Account:
     """Provision an account (REQ-69: no self-registration; a Pro user calls this)."""
     if role not in ROLES:
         raise ValueError(f"invalid role: {role}")
+    if (role == "client") != bool(org_id):
+        raise ValueError("clients need an organization; staff must not have one")
     acct = Account(username=username, password_hash=hash_password(password), role=role)
-    db.upsert_account(acct.username, acct.password_hash, acct.role)
+    db.upsert_account(acct.username, acct.password_hash, acct.role, org_id=org_id)
     return acct
 
 
@@ -197,7 +199,9 @@ def authenticate(username: str, password: str, ip: str, otp: str | None = None) 
 def mfa_begin(username: str) -> str:
     """Start (or restart) enrolment: store a fresh secret, NOT yet enforced until confirmed."""
     secret = totp.new_secret()
-    db.set_account(username, totp_secret=secret, totp_enabled=0, totp_last_step=0)
+    # Only touch totp_enabled when restarting an enrolled account: writing it bumps token_version and ends sessions.
+    reset = {} if not (db.get_account(username) or {}).get("totp_enabled") else {"totp_enabled": 0}
+    db.set_account(username, totp_secret=secret, totp_last_step=0, **reset)
     return secret
 
 
@@ -238,7 +242,7 @@ def change_password(username: str, current: str, new: str) -> None:
     if not acct or not check_password(current, acct["password_hash"]):
         raise BadCredentials("current password is incorrect")
     _check_new_password(new)
-    db.set_account(username, password_hash=hash_password(new))
+    db.set_account(username, password_hash=hash_password(new), must_change_password=0)
 
 
 def admin_reset_password(username: str, new: str) -> None:

@@ -109,7 +109,12 @@ def change_password(body: PasswordBody, user: dict = Depends(require_team_setup)
     except auth.AuthError as e:
         raise HTTPException(status_code=422, detail=str(e))
     audit.log("password_changed", actor=user["username"])
-    return {"ok": True}
+    return {"ok": True, "token": jwt_auth.issue(user["username"])}
+
+
+@app.post("/api/refresh")
+def refresh(user: dict = Depends(current_user)):
+    return {"token": jwt_auth.issue(user["username"])}
 
 
 # --- two-factor (TOTP) for team accounts: enrol with an authenticator app, then logins need a code ---
@@ -144,7 +149,7 @@ def mfa_enable(body: CodeBody, user: dict = Depends(require_team_setup)):
     except auth.AuthError as e:
         raise HTTPException(status_code=409, detail=str(e))
     audit.log("mfa_enabled", actor=user["username"])
-    return {"enabled": True}
+    return {"enabled": True, "token": jwt_auth.issue(user["username"])}
 
 
 @app.post("/api/mfa/disable")
@@ -154,7 +159,7 @@ def mfa_disable(body: MfaDisableBody, user: dict = Depends(require_team_setup)):
     except auth.BadCredentials as e:
         raise HTTPException(status_code=403, detail=str(e))
     audit.log("mfa_disabled", actor=user["username"])
-    return {"enabled": False}
+    return {"enabled": False, "token": jwt_auth.issue(user["username"])}
 
 
 # --- account administration (lead pentester): provision/disable team accounts and reset

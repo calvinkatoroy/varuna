@@ -165,6 +165,11 @@ def register(body: RegisterBody):
     return {"token": jwt_auth.login(body.username, body.password, "api")}
 
 
+@app.post("/api/refresh")
+def refresh(user: dict = Depends(current_user)):
+    return {"token": jwt_auth.issue(user["username"])}
+
+
 @app.get("/api/me")
 def me(user: dict = Depends(current_user)):
     return user
@@ -231,7 +236,7 @@ def change_password(body: PasswordBody, user: dict = Depends(current_user)):
     except auth.AuthError as e:
         raise HTTPException(status_code=422, detail=str(e))
     audit.log("password_changed", actor=user["username"])
-    return {"ok": True}
+    return {"ok": True, "token": jwt_auth.issue(user["username"])}
 
 
 @app.get("/api/cockpit")

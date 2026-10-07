@@ -18,6 +18,7 @@ from _fakeredis import FakeRedis  # noqa: E402
 redis_store._client = FakeRedis()
 
 import auth  # noqa: E402
+import db  # noqa: E402
 import jwt_auth  # noqa: E402
 import ollama  # noqa: E402
 import private_api  # noqa: E402
@@ -52,7 +53,7 @@ def _pro_header(username="ihsan"):
 
 
 def _std_header(username="staff"):
-    auth.create_account(username, "pw", "client")
+    auth.create_account(username, "pw", "client", org_id=db.create_org("org-" + username))
     return {"Authorization": f"Bearer {jwt_auth.login(username, 'pw', 'ip')}"}
 
 
@@ -112,7 +113,7 @@ DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.docu
 
 
 def _hdr(username, role):
-    auth.create_account(username, "pw", role)
+    auth.create_account(username, "pw", role, org_id=db.create_org("org-" + username) if role == "client" else None)
     return {"Authorization": f"Bearer {jwt_auth.login(username, 'pw', 'ip')}"}
 
 

@@ -31,7 +31,7 @@ DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
 def _h(username, role, pw="password1"):
-    auth.create_account(username, pw, role)
+    auth.create_account(username, pw, role, org_id=db.create_org("org-" + username) if role == "client" else None)
     return {"Authorization": f"Bearer {jwt_auth.login(username, pw, 'ip')}"}
 
 
@@ -129,7 +129,7 @@ def test_register_rules_and_case_collision():                         # M3
 
 def test_lockout_is_per_source_not_account_wide():                    # M7
     redis_store._client = FakeRedis()
-    auth.create_account("victim", "password1", "client")
+    auth.create_account("victim", "password1", "client", org_id=db.create_org("org-victim"))
     for _ in range(auth.FAIL_LIMIT + 2):
         pub.post("/api/login", json={"username": "victim", "password": "bad"},
                  headers={"X-Forwarded-For": "6.6.6.6"})
@@ -159,7 +159,7 @@ def test_team_login_only_on_private_plane():                          # M5
     os.environ.pop("VARUNA_PUBLIC_TEAM_LOGIN", None)
     try:
         auth.create_account("riyan9", "password1", "lead_pentester")
-        auth.create_account("acme9", "password1", "client")
+        auth.create_account("acme9", "password1", "client", org_id=db.create_org("org-acme9"))
         creds = lambda u: {"username": u, "password": "password1"}
         assert pub.post("/api/login", json=creds("riyan9")).status_code == 403
         assert pub.post("/api/login", json=creds("acme9")).status_code == 200
