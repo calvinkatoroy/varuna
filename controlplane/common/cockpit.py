@@ -50,7 +50,7 @@ def client_status(p: dict) -> str:
     if p["status"] in ("pending", "rejected"):
         return p["status"]
     # approved: derive from report stage. No direct proposal->report FK; look it up by job.
-    reports = [r for r in db.list_reports() if r["job_id"] == p.get("job_id")]
+    reports = [r for r in db.list_reports(org_id=p["org_id"]) if r["job_id"] == p.get("job_id")]
     report = reports[0] if reports else None
     if report and report["stage"] == "delivered":
         return "delivered"
@@ -85,11 +85,12 @@ def _trend(findings: list[dict]) -> list[dict]:
     return [buckets[m] for m in sorted(buckets)]
 
 
-def build_cockpit(username: str) -> dict:
-    proposals = db.list_proposals(submitter=username)
+def build_cockpit(username: str, org_id: str) -> dict:
+    """One organization's dashboard (every member of the org sees the same data)."""
+    proposals = db.list_proposals(org_id=org_id)
     engagements = [e for e in (_engagement(p) for p in proposals) if e]
 
-    findings = [f for f in db.list_findings(owner=username) if f.get("verdict") == "tp"]
+    findings = [f for f in db.list_findings(org_id=org_id) if f.get("verdict") == "tp"]
     sev = {"critical": 0, "high": 0, "medium": 0, "low": 0}
     fixed = 0
     for f in findings:
@@ -103,7 +104,7 @@ def build_cockpit(username: str) -> dict:
         "resolved": round(100 * fixed / total) if total else 0,
     }
 
-    delivered = [r for r in db.list_reports(owner=username) if r["stage"] == "delivered"]
+    delivered = [r for r in db.list_reports(org_id=org_id) if r["stage"] == "delivered"]
     latest = delivered[0] if delivered else None
     if latest:
         rp = db.get_proposal_by_job(latest["job_id"])
@@ -136,24 +137,26 @@ if __name__ == "__main__":
     redis_store._client = FakeRedis()
     db.reset_for_test(":memory:")
 
-    pid = db.create_proposal({"submitter": "alice", "target": "http://t", "mode": "standard"})
-    c = build_cockpit("alice")
+    org = db.create_org("PT Alice")
+    pid = db.create_proposal({"submitter": "alice", "target": "http://t", "mode": "standard", "org_id": org})
+    assert build_cockpit("bob", db.create_org("PT Bob"))["engagements"] == []
+    c = build_cockpit("alice", org)
     assert c["engagements"][0]["status"] == "pending" and c["posture"]["total"] == 0
 
     db.update_proposal(pid, status="approved", job_id="j1")
-    db.save_findings("j1", "alice", [
+    db.save_findings("j1", "alice", org, [
         {"name": "SQLi", "severity": "critical", "host": "h"},
         {"name": "XSS", "severity": "low", "host": "h"},
     ])
-    c = build_cockpit("alice")
+    c = build_cockpit("alice", org)
     eng = c["engagements"][0]
     assert eng["status"] == "scanning" and eng["sev"]["c"] == 1 and eng["grade"] == "C"
     assert c["posture"]["total"] == 2 and c["posture"]["open"] == 2
     assert len(c["trend"]) >= 1
 
-    rid = db.create_report(job_id="j1", owner="alice")
+    rid = db.create_report("j1", org, "alice")
     db.set_report(rid, stage="delivered", delivered_pdf="x.pdf")
-    c = build_cockpit("alice")
+    c = build_cockpit("alice", org)
     assert c["engagements"][0]["status"] == "delivered"
     assert c["latestReport"]["engagement"] == "http://t"
 

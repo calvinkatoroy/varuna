@@ -585,7 +585,8 @@ if __name__ == "__main__":
     assert get_account("calvin")["password_hash"] == "h2", "upsert should update"
     assert get_account("nope") is None
 
-    save_findings("j1", "alice", [{"name": "SQLi", "severity": "critical", "host": "h", "url": "/x"}])
+    org = create_org("PT Alice")
+    save_findings("j1", "alice", org, [{"name": "SQLi", "severity": "critical", "host": "h", "url": "/x"}])
     fs = get_findings("j1")
     assert len(fs) == 1 and fs[0]["verdict"] == "tp" and fs[0]["status"] == "open"
     fid = fs[0]["id"]
@@ -593,10 +594,10 @@ if __name__ == "__main__":
     assert get_findings("j1")[0]["verdict"] == "fp", "verdict update failed"
     # re-saving (simulates re-correlation after a manual finding) must preserve that verdict,
     # not reset it back to the default - that's the whole point of the stable/upserted id.
-    save_findings("j1", "alice", [{"name": "SQLi", "severity": "critical", "host": "h", "url": "/x"}])
+    save_findings("j1", "alice", org, [{"name": "SQLi", "severity": "critical", "host": "h", "url": "/x"}])
     assert get_findings("j1")[0]["verdict"] == "fp", "save_findings must not clobber verdict"
-    assert len(list_findings(owner="alice")) == 1
-    assert list_findings(owner="bob") == []
+    assert len(list_findings(org_id=org)) == 1 and len(list_findings(org_id=None)) == 1
+    assert list_findings(org_id=create_org("PT Bob")) == []
     assert wipe_findings() == 1 and get_findings("j1") == []
 
     print("db.py self-check OK")

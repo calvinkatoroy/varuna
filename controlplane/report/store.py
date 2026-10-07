@@ -26,12 +26,13 @@ def _index_key(user: str) -> str:
     return f"reports:{user}"
 
 
-def save_report(user: str, job_id: str, template: str, data: bytes) -> dict:
+def save_report(user: str, job_id: str, template: str, data: bytes, *, org_id: str | None) -> dict:
+    """`user` is the author (audit); `org_id` is the job's organization and decides who may download."""
     os.makedirs(REPORTS_DIR, exist_ok=True)
     fname = f"{job_id}_{template.replace(' ', '_')}.docx"
     with open(os.path.join(REPORTS_DIR, fname), "wb") as f:
         f.write(data)
-    meta = {"user": user, "job_id": job_id, "template": template, "file": fname,
+    meta = {"user": user, "org_id": org_id, "job_id": job_id, "template": template, "file": fname,
             "ts": datetime.datetime.now(datetime.UTC).isoformat()}
     r = redis_store.get_redis()
     r.rpush(_index_key(user), json.dumps(meta))
@@ -57,11 +58,11 @@ def save_report_file(fname: str, data: bytes) -> None:
         f.write(data)
 
 
-def owner_of(fname: str) -> str | None:
-    """Owner (username) of a report file, from the global index; None if unknown (v2 tenancy)."""
+def org_of(fname: str) -> str | None:
+    """Organization of a report file, from the global index; None if unknown or org-less (tenancy)."""
     for m in list_all_reports():
         if m.get("file") == fname:
-            return m.get("user")
+            return m.get("org_id")
     return None
 
 

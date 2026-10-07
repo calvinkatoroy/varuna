@@ -144,6 +144,7 @@ class Job:
     error: Optional[str] = None
     scan_mode: str = "local"           # local = the client's agent runs it; cloud = the cloud scanner does
     executor: Optional[str] = None     # agent username allowed to run this job when it is not the submitter
+    org_id: Optional[str] = None       # owning organization, copied from the account/proposal (never request input)
 
     def to_dict(self) -> dict:
         return asdict(self)

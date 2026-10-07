@@ -17,6 +17,7 @@ import datetime
 import hashlib
 import secrets
 
+import db
 import redis_store
 
 ENROLL_TTL = 3600   # one-time enrollment token lifetime (seconds)
@@ -57,7 +58,8 @@ def issue_agent_token(username: str) -> str:
     revoke_agent(username)   # clear a previous binding before issuing a new one
     token = secrets.token_urlsafe(32)
     th = _hash(token)
-    redis_store.set_agent(username, {"status": STATUS_ONLINE, "last_seen": _now(), "token_hash": th})
+    org_id = (db.get_account(username) or {}).get("org_id")   # dispatch refuses jobs of any other org
+    redis_store.set_agent(username, {"status": STATUS_ONLINE, "last_seen": _now(), "token_hash": th, "org_id": org_id})
     redis_store.get_redis().set(redis_store.agent_token_key(th), username)
     return token
 
