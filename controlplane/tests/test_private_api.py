@@ -118,15 +118,15 @@ def _hdr(username, role):
 
 def test_review_pipeline_forward_and_versions():
     reset()
-    Hrep = _hdr("aisah", "reporter")
+    Hrep = _hdr("aisah", "pentester")
     Hlead = _hdr("riyan", "lead_pentester")
-    Hpen = _hdr("dodi", "pentester")
+    Hpen = _hdr("dodi", "governance")
     rid = _db.create_report(job_id="j1", owner="alice", template="Full Technical")
     # reporter uploads a new version
     r = client.post(f"/api/pipeline/reports/{rid}/version",
                     files={"file": ("edit.docx", EDITED, DOCX_MIME)}, headers=Hrep)
     assert r.status_code == 200 and r.json()["version_no"] == 1, r.text
-    # a pentester does not own the reporter stage -> cannot forward
+    # governance does not own the first review stage -> cannot forward
     assert client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hpen).status_code == 403
     # reporter forwards -> lead
     assert client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hrep).json()["stage"] \
@@ -182,7 +182,7 @@ def test_governance_forward_delivers_protected_pdf():
 def test_governance_reissue_password():
     reset()
     Hgov = _hdr("hani", "governance")
-    Hrep = _hdr("aisah", "reporter")
+    Hrep = _hdr("aisah", "pentester")
     rid = _db.create_report(job_id="j4", owner="dan", stage=models.REPORT_GOVERNANCE)
     client.post(f"/api/pipeline/reports/{rid}/version",
                 files={"file": ("f.docx", FINAL, DOCX_MIME)}, headers=Hgov)
@@ -271,7 +271,7 @@ def test_suspend_resume_requires_team_and_flags_job():
 
 def test_finding_verdict_requires_team_and_updates():
     reset()
-    Ht = _hdr("aisah", "reporter")
+    Ht = _hdr("aisah", "pentester")
     Hc = _hdr("alice", "client")
     _db.save_findings("jf", "alice", [{"name": "X", "severity": "low", "host": "h"}])
     fid = _db.get_findings("jf")[0]["id"]

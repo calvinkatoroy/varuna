@@ -96,7 +96,7 @@ def test_concurrent_submits_all_succeed():                            # H4
 
 
 def test_bad_docx_is_rejected_and_password_not_listed():              # H5, H6
-    Hrep, Hgov = _h("aisah", "reporter"), _h("hani", "governance")
+    Hrep, Hgov = _h("aisah", "pentester"), _h("hani", "governance")
     rid = db.create_report(job_id="j9", owner="dan")
     up = lambda data: priv.post(f"/api/pipeline/reports/{rid}/version",
                                 files={"file": ("f.docx", data, DOCX)}, headers=Hrep)
@@ -202,10 +202,10 @@ def test_change_password_and_disable_and_admin_reset():
     assert priv.get("/api/admin/accounts", headers=Hp).status_code == 403                # lead only
     rows = priv.get("/api/admin/accounts", headers=Hl).json()
     assert rows and all("password_hash" not in r for r in rows)
-    r = priv.post("/api/admin/accounts", json={"username": "newrep", "password": "reppass123", "role": "reporter"}, headers=Hl)
+    r = priv.post("/api/admin/accounts", json={"username": "newrep", "password": "reppass123", "role": "pentester"}, headers=Hl)
     assert r.status_code == 200
-    assert priv.post("/api/admin/accounts", json={"username": "NEWREP", "password": "reppass123", "role": "reporter"}, headers=Hl).status_code == 409
-    assert priv.post("/api/admin/accounts", json={"username": "x1", "password": "reppass123", "role": "reporter"}, headers=Hl).status_code == 422
+    assert priv.post("/api/admin/accounts", json={"username": "NEWREP", "password": "reppass123", "role": "pentester"}, headers=Hl).status_code == 409
+    assert priv.post("/api/admin/accounts", json={"username": "x1", "password": "reppass123", "role": "pentester"}, headers=Hl).status_code == 422
     assert priv.post("/api/admin/accounts/lena/reset-password", json={"password": "resetpass1"}, headers=Hl).status_code == 200
     assert pub.post("/api/login", json={"username": "lena", "password": "resetpass1"}).status_code == 200
     tok = pub.post("/api/login", json={"username": "lena", "password": "resetpass1"}).json()["token"]
@@ -219,7 +219,7 @@ def test_change_password_and_disable_and_admin_reset():
 
 def test_default_password_detection_and_backup(tmp_path):
     auth.create_account("seeded", "changeme", "pentester")
-    auth.create_account("fine", "notdefault1", "reporter")
+    auth.create_account("fine", "notdefault1", "pentester")
     assert auth.default_password_accounts() == ["seeded"]
     import backup_db
     backup_db.DB = db._db_path()
@@ -257,7 +257,7 @@ def test_finished_scan_starts_review_automatically(tmp_path):
 def test_reviewer_can_switch_template_and_history_is_kept(tmp_path):
     import store as report_store
     report_store.REPORTS_DIR = str(tmp_path)
-    Hrep, Hpen = _h("aisah2", "reporter"), _h("pen22", "pentester")
+    Hrep, Hpen = _h("aisah2", "pentester"), _h("pen22", "governance")
     redis_store._client = FakeRedis()
     rid = db.create_report(job_id="jt", owner="dan")
     db.save_findings("jt", "dan", [{"name": "X", "severity": "high", "host": "h"}])
