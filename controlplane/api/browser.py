@@ -46,6 +46,7 @@ import scanopts  # noqa: E402
 import store as report_store  # noqa: E402
 import tenancy  # noqa: E402
 import tokens  # noqa: E402
+import deps  # noqa: E402
 from deps import current_user, require_lead, require_pro  # noqa: E402
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -240,16 +241,17 @@ def change_password(body: PasswordBody, user: dict = Depends(current_user)):
 
 
 @app.get("/api/cockpit")
-def get_cockpit(user: dict = Depends(current_user)):
-    """Client dashboard aggregate: own engagements, posture, trend, latest delivered report."""
+def get_cockpit(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    """Client dashboard aggregate: the organization's engagements, posture, trend, latest delivered report."""
     if not models.is_client(user["role"]):
         raise HTTPException(status_code=403, detail="client role required")
-    return cockpit.build_cockpit(user["username"])
+    return cockpit.build_cockpit(user["username"], scope.org_id)
 
 
 # --- scan proposals (v2): client submits, lead pentester approves ---
 @app.post("/api/proposals")
-def submit_proposal(body: ProposalBody, user: dict = Depends(current_user)):
+def submit_proposal(body: ProposalBody, user: dict = Depends(current_user),
+                    scope: tenancy.Scope = Depends(deps.scope)):
     if not body.authorization_attested:
         raise HTTPException(status_code=422,
                             detail="authorization-to-test attestation is required")
@@ -262,7 +264,9 @@ def submit_proposal(body: ProposalBody, user: dict = Depends(current_user)):
             classifier.require_public_syntax(body.target)
         except classifier.ClassifyRejected as e:
             raise HTTPException(status_code=422, detail=str(e))
-    p = {**body.model_dump(), "submitter": user["username"], "status": models.PROPOSAL_PENDING}
+    # org from the server-side account (scope), never the request; "" = staff, no organization
+    p = {**body.model_dump(), "submitter": user["username"], "status": models.PROPOSAL_PENDING,
+         "org_id": scope.org_id or ""}
     if models.is_client(user["role"]):
         # Safe-profile lock (NFR-17/18/19): `mode` for a client only labels the scoping form.
         # Clients never choose tools or scan options; those are advanced-scan (team) inputs.
@@ -286,28 +290,27 @@ def _client_proposal_view(p: dict) -> dict:
 
 
 @app.get("/api/proposals")
-def list_proposals(user: dict = Depends(current_user)):
-    # team sees every client's proposals (raw shape - the team side reads /api/pipeline/board
+def list_proposals(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    # team sees every organization's proposals (raw shape - the team side reads /api/pipeline/board
     # instead, this is only kept broad in case something else needs the raw rows); a client
-    # sees only their own, reshaped for what the client UI actually renders (v2 tenancy).
+    # sees only their organization's, reshaped for what the client UI actually renders.
+    rows = db.list_proposals(org_id=scope.org_id)
     if models.is_team(user["role"]):
-        return db.list_proposals()
-    return [_client_proposal_view(p) for p in db.list_proposals(submitter=user["username"])]
+        return rows
+    return [_client_proposal_view(p) for p in rows]
 
 
 @app.get("/api/proposals/{pid}")
-def get_proposal(pid: str, user: dict = Depends(current_user)):
-    p = db.get_proposal(pid)
-    if not p:
+def get_proposal(pid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    p = db.get_proposal(pid, org_id=scope.org_id)
+    if not p:   # out of scope answers exactly like missing
         raise HTTPException(status_code=404, detail="no such proposal")
-    if not tenancy.visible_to(user["role"], user["username"], p["submitter"]):
-        raise HTTPException(status_code=403, detail="not your proposal")
     return p
 
 
 @app.post("/api/proposals/{pid}/approve")
-def approve_proposal(pid: str, user: dict = Depends(require_lead)):
-    p = db.get_proposal(pid)
+def approve_proposal(pid: str, user: dict = Depends(require_lead), scope: tenancy.Scope = Depends(deps.scope)):
+    p = db.get_proposal(pid, org_id=scope.org_id)
     if not p:
         raise HTTPException(status_code=404, detail="no such proposal")
     if p["status"] != models.PROPOSAL_PENDING:
@@ -331,13 +334,14 @@ def approve_proposal(pid: str, user: dict = Depends(require_lead)):
         submitter=p["submitter"], role=models.ROLE_CLIENT, tools=tools, opts=opts,
         status=models.STATUS_QUEUED, per_tool_status={},
         scan_mode=models.SCAN_CLOUD if cloud else models.SCAN_LOCAL, executor=models.CLOUD_AGENT if cloud else None,
+        org_id=p["org_id"],   # the job belongs to the proposal's organization
     ).to_dict()
     # Atomic claim: of N concurrent approvals exactly one flips pending->approved and proceeds.
     if not db.claim_proposal(pid, models.PROPOSAL_PENDING,
                              status=models.PROPOSAL_APPROVED, job_id=job["id"]):
         raise HTTPException(status_code=409, detail="proposal is not pending")
     redis_store.set_job(job)
-    redis_store.add_user_job(p["submitter"], job["id"])
+    redis_store.add_org_job(p["org_id"], job["id"])
     audit.log(audit.APPROVE, approver=user["username"], proposal=pid, job=job["id"])
     # Proposal is the gate; queue for the client's agent to pick up whenever it polls.
     dispatch.dispatch_job(job, pre_approved=True)
@@ -345,8 +349,9 @@ def approve_proposal(pid: str, user: dict = Depends(require_lead)):
 
 
 @app.post("/api/proposals/{pid}/reject")
-def reject_proposal(pid: str, body: RejectBody, user: dict = Depends(require_lead)):
-    p = db.get_proposal(pid)
+def reject_proposal(pid: str, body: RejectBody, user: dict = Depends(require_lead),
+                    scope: tenancy.Scope = Depends(deps.scope)):
+    p = db.get_proposal(pid, org_id=scope.org_id)
     if not p:
         raise HTTPException(status_code=404, detail="no such proposal")
     if not db.claim_proposal(pid, models.PROPOSAL_PENDING,
@@ -373,7 +378,9 @@ def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
     if not redis_store.get_agent(user["username"]):   # after validation: bad input gets its own error first
         raise HTTPException(status_code=409, detail="no agent registered; install your agent first")
     try:
-        return dispatch.submit_scan(user["username"], user["role"], body.target,
+        # Direct scans are staff-only and have no proposal: the job belongs to no organization
+        # (staff-only visibility), never to whatever a request names.
+        return dispatch.submit_scan(user["username"], user["role"], None, body.target,
                                     tools, opts=opts, division=body.division)
     except classifier.ClassifyRejected as e:
         raise HTTPException(status_code=422, detail=f"target rejected: {e}")
@@ -382,17 +389,15 @@ def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
 
 
 @app.get("/api/scans")
-def list_scans(user: dict = Depends(current_user)):
-    return dispatch.list_jobs(user["username"])
+def list_scans(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    return dispatch.list_jobs(scope.org_id)
 
 
 @app.get("/api/scans/{job_id}")
-def scan_status(job_id: str, user: dict = Depends(current_user)):
-    job = redis_store.get_job(job_id)
+def scan_status(job_id: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    job = dispatch.get_job(scope, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="no such job")
-    if not tenancy.visible_to(user["role"], user["username"], job["submitter"]):
-        raise HTTPException(status_code=403, detail="not your scan")
     return {
         "id": job["id"],
         "status": job["status"],
@@ -403,7 +408,8 @@ def scan_status(job_id: str, user: dict = Depends(current_user)):
 
 
 @app.get("/api/scans/{job_id}/events")
-async def scan_events(job_id: str, user: dict = Depends(current_user)):
+async def scan_events(job_id: str, user: dict = Depends(current_user),
+                      scope: tenancy.Scope = Depends(deps.scope)):
     """Live scan progress (v2): a phase-by-phase installer-style feed, not a smooth percentage
     - the agent only reports at tool-phase boundaries (scan.py's checkpoint), it doesn't have
     fractional progress within a single Katana/Nuclei/SQLMap run. Polls the same job record the
@@ -414,11 +420,8 @@ async def scan_events(job_id: str, user: dict = Depends(current_user)):
     Native EventSource can't send an Authorization header, so the frontend uses a fetch-based
     reader instead (see api.ts's streamEvents) - this is a plain authenticated GET either way.
     """
-    job = redis_store.get_job(job_id)
-    if not job:
+    if not dispatch.get_job(scope, job_id):
         raise HTTPException(status_code=404, detail="no such job")
-    if not tenancy.visible_to(user["role"], user["username"], job["submitter"]):
-        raise HTTPException(status_code=403, detail="not your scan")
 
     async def gen():
         last = None
@@ -448,9 +451,15 @@ async def scan_events(job_id: str, user: dict = Depends(current_user)):
 
 
 # --- agent enrollment (REQ-71 to REQ-73) ---
+def _own_proposals(user: dict, scope: tenancy.Scope) -> list[dict]:
+    """Agents are per user (a job goes to its submitter's agent), so agent questions look at this
+    user's own submissions within their organization."""
+    return [p for p in db.list_proposals(org_id=scope.org_id) if p["submitter"] == user["username"]]
+
+
 @app.get("/api/agent")
-def agent_status(user: dict = Depends(current_user)):
-    mine = [p for p in db.list_proposals(submitter=user["username"]) if p["status"] != models.PROPOSAL_REJECTED]
+def agent_status(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    mine = [p for p in _own_proposals(user, scope) if p["status"] != models.PROPOSAL_REJECTED]
     return {"registered": bool(redis_store.get_agent(user["username"])),
             "online": tokens.is_online(user["username"]),
             # a client whose scans are all run by Varuna has no agent of their own to show
@@ -459,11 +468,10 @@ def agent_status(user: dict = Depends(current_user)):
 
 
 @app.post("/api/agent/install-token")
-def install_token(user: dict = Depends(current_user)):
+def install_token(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
     # Agents are installed AFTER approval (v2): a client with nothing approved gets no token.
     if models.is_client(user["role"]) and not any(
-            p["status"] == models.PROPOSAL_APPROVED
-            for p in db.list_proposals(submitter=user["username"])):
+            p["status"] == models.PROPOSAL_APPROVED for p in _own_proposals(user, scope)):
         raise HTTPException(status_code=403, detail="agent install unlocks once a proposal is approved")
     return {"enrollment_token": tokens.generate_enrollment_token(user["username"])}
 
@@ -490,9 +498,10 @@ def _installer_cmd(base: str, token: str) -> str:
 
 
 @app.get("/api/agent/installer")
-def agent_installer(request: Request, user: dict = Depends(current_user)):
+def agent_installer(request: Request, user: dict = Depends(current_user),
+                    scope: tenancy.Scope = Depends(deps.scope)):
     """Same gate as /api/agent/install-token (approved proposals only); returns Install-Varuna.cmd with a fresh token."""
-    tok = install_token(user)["enrollment_token"]
+    tok = install_token(user, scope)["enrollment_token"]
     base = (os.environ.get("VARUNA_PUBLIC_URL") or
             f"{request.headers.get('x-forwarded-proto', request.url.scheme)}://{request.headers.get('x-forwarded-host') or request.headers.get('host')}").rstrip("/")
     audit.log("agent_installer_downloaded", actor=user["username"])
@@ -539,19 +548,18 @@ def _delivered_report_view(r: dict) -> dict:
 
 
 @app.get("/api/reports")
-def list_reports(user: dict = Depends(current_user)):
-    # team sees every client's delivered reports; a client sees only their own (v2 tenancy)
-    owner = None if models.is_team(user["role"]) else user["username"]
-    rows = db.list_reports(owner=owner, stage=models.REPORT_DELIVERED)
+def list_reports(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    # team sees every organization's delivered reports; a client sees only their organization's
+    rows = db.list_reports(stage=models.REPORT_DELIVERED, org_id=scope.org_id)
     return [_delivered_report_view(r) for r in rows]
 
 
 # --- client findings (v2): flat, tenancy-filtered, confirmed (tp) findings across all of a
 # client's own engagements - what ClientFindings.tsx shows. ---
 @app.get("/api/findings")
-def list_findings(user: dict = Depends(current_user)):
+def list_findings(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
     is_team = models.is_team(user["role"])
-    rows = db.list_findings(owner=None if is_team else user["username"])
+    rows = db.list_findings(org_id=scope.org_id)
     # Clients only ever see confirmed (tp) findings; the team also triages false positives
     # via FindingsReview, so they see everything.
     return rows if is_team else [f for f in rows if f["verdict"] == "tp"]
@@ -562,39 +570,33 @@ class FindingStatusBody(BaseModel):
 
 
 @app.post("/api/findings/{fid}/status")
-def set_finding_status(fid: str, body: FindingStatusBody, user: dict = Depends(current_user)):
+def set_finding_status(fid: str, body: FindingStatusBody, user: dict = Depends(current_user),
+                       scope: tenancy.Scope = Depends(deps.scope)):
     if body.status not in ("open", "fixed"):
         raise HTTPException(status_code=422, detail="status must be open or fixed")
-    f = db.get_finding(fid)
-    if not f:
+    if not db.get_finding(fid, org_id=scope.org_id):
         raise HTTPException(status_code=404, detail="no such finding")
-    if not tenancy.visible_to(user["role"], user["username"], f["owner"]):
-        raise HTTPException(status_code=403, detail="not your finding")
     db.set_finding(fid, status=body.status)
     return {"ok": True}
 
 
 @app.post("/api/scans/{job_id}/report")
-def generate_report(job_id: str, user: dict = Depends(current_user)):
-    job = redis_store.get_job(job_id)
+def generate_report(job_id: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    job = dispatch.get_job(scope, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="no such job")
-    if not tenancy.visible_to(user["role"], user["username"], job["submitter"]):
-        raise HTTPException(status_code=403, detail="not your scan")
     # Public plane only serves the sanitized Executive Summary (REQ-49/50a). Pro full
     # templates are on the private plane.
     data = generator.generate(job, db.get_findings(job_id), "Executive Summary")
-    return report_store.save_report(user["username"], job_id, "Executive Summary", data)
+    return report_store.save_report(user["username"], job_id, "Executive Summary", data, org_id=job.get("org_id"))
 
 
 @app.get("/api/reports/{rid}/delivered")
-def download_delivered(rid: str, user: dict = Depends(current_user)):
-    """Client downloads their own DELIVERED report as a password-protected PDF (read-only)."""
-    r = db.get_report(rid)
+def download_delivered(rid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    """Client downloads their organization's DELIVERED report as a password-protected PDF (read-only)."""
+    r = db.get_report(rid, org_id=scope.org_id)
     if not r:
         raise HTTPException(status_code=404, detail="no such report")
-    if not tenancy.visible_to(user["role"], user["username"], r["owner"]):
-        raise HTTPException(status_code=403, detail="not your report")
     if r["stage"] != models.REPORT_DELIVERED or not r["delivered_pdf"]:
         raise HTTPException(status_code=409, detail="report not delivered yet")
     try:
@@ -606,14 +608,12 @@ def download_delivered(rid: str, user: dict = Depends(current_user)):
 
 
 @app.get("/api/reports/{rid}/password")
-def view_password(rid: str, user: dict = Depends(current_user)):
-    """View-once PDF password for the owning client. After one view, the client must ask
+def view_password(rid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    """View-once PDF password for the owning organization. After one view, the client must ask
     governance to re-issue it."""
-    r = db.get_report(rid)
+    r = db.get_report(rid, org_id=scope.org_id)
     if not r:
         raise HTTPException(status_code=404, detail="no such report")
-    if not tenancy.visible_to(user["role"], user["username"], r["owner"]):
-        raise HTTPException(status_code=403, detail="not your report")
     if r["stage"] != models.REPORT_DELIVERED or not r["pdf_password"]:
         raise HTTPException(status_code=409, detail="report not delivered yet")
     if not db.claim_password_view(rid):   # atomic: two simultaneous requests cannot both see it
@@ -623,10 +623,9 @@ def view_password(rid: str, user: dict = Depends(current_user)):
 
 
 @app.get("/api/reports/{fname}/download")
-def download_report(fname: str, user: dict = Depends(current_user)):
-    owner = report_store.owner_of(fname)
-    if not (models.is_team(user["role"]) or owner == user["username"]):
-        raise HTTPException(status_code=403, detail="not your report")
+def download_report(fname: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    if scope.org_id is not None and report_store.org_of(fname) != scope.org_id:
+        raise HTTPException(status_code=404, detail="no such report")
     try:
         data = report_store.read_report(fname)
     except OSError:

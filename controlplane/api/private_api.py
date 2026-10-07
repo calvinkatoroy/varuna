@@ -40,6 +40,9 @@ import store as report_store  # noqa: E402
 import auth  # noqa: E402
 import jwt_auth  # noqa: E402
 import browser  # noqa: E402  (proposal/scan/finding logic is shared; only the auth plane differs)
+import deps  # noqa: E402
+import dispatch  # noqa: E402
+from tenancy import Scope  # noqa: E402
 from deps import current_user, mfa_required, require_lead, require_pro, require_team, require_team_setup  # noqa: E402
 
 app = FastAPI(title="Varuna Private API (Tailscale plane)")
@@ -230,13 +233,14 @@ def admin_set_disabled(username: str, action: str, user: dict = Depends(require_
 # --- team actions that used to live on the public plane (NFR-24): same logic as browser.py,
 # served here so team tokens are not needed on the internet-facing API at all. ---
 @app.post("/api/proposals/{pid}/approve")
-def approve_proposal(pid: str, user: dict = Depends(require_lead)):
-    return browser.approve_proposal(pid, user)
+def approve_proposal(pid: str, user: dict = Depends(require_lead), scope: Scope = Depends(deps.scope)):
+    return browser.approve_proposal(pid, user, scope)
 
 
 @app.post("/api/proposals/{pid}/reject")
-def reject_proposal(pid: str, body: browser.RejectBody, user: dict = Depends(require_lead)):
-    return browser.reject_proposal(pid, body, user)
+def reject_proposal(pid: str, body: browser.RejectBody, user: dict = Depends(require_lead),
+                    scope: Scope = Depends(deps.scope)):
+    return browser.reject_proposal(pid, body, user, scope)
 
 
 @app.post("/api/scans")
@@ -245,19 +249,20 @@ def submit_scan(body: browser.ScanBody, user: dict = Depends(require_team)):
 
 
 @app.get("/api/scans/{job_id}/events")
-async def scan_events(job_id: str, user: dict = Depends(require_team)):
+async def scan_events(job_id: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
     """Live scan progress for the team (the public plane refuses team tokens, NFR-24)."""
-    return await browser.scan_events(job_id, user)
+    return await browser.scan_events(job_id, user, scope)
 
 
 @app.get("/api/findings")
-def list_findings(user: dict = Depends(require_team)):
-    return browser.list_findings(user)
+def list_findings(user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    return browser.list_findings(user, scope)
 
 
 @app.post("/api/findings/{fid}/status")
-def set_finding_status(fid: str, body: browser.FindingStatusBody, user: dict = Depends(require_team)):
-    return browser.set_finding_status(fid, body, user)
+def set_finding_status(fid: str, body: browser.FindingStatusBody, user: dict = Depends(require_team),
+                       scope: Scope = Depends(deps.scope)):
+    return browser.set_finding_status(fid, body, user, scope)
 
 
 @app.get("/api/findings/{job_id}")
@@ -287,10 +292,11 @@ class VerdictBody(BaseModel):
 
 
 @app.post("/api/findings/{fid}/verdict")
-def set_finding_verdict(fid: str, body: VerdictBody, user: dict = Depends(require_team)):
+def set_finding_verdict(fid: str, body: VerdictBody, user: dict = Depends(require_team),
+                        scope: Scope = Depends(deps.scope)):
     if body.verdict not in ("tp", "fp"):
         raise HTTPException(status_code=422, detail="verdict must be tp or fp")
-    if not db.get_finding(fid):
+    if not db.get_finding(fid, org_id=scope.org_id):
         raise HTTPException(status_code=404, detail="no such finding")
     db.set_finding(fid, verdict=body.verdict)
     return {"ok": True}
@@ -300,8 +306,8 @@ def set_finding_verdict(fid: str, body: VerdictBody, user: dict = Depends(requir
 # /agent/jobs/{id}/suspended (controlplane/api/main.py) before each tool phase and blocks
 # there while suspended - see agent/scan.py's checkpoint. Not instant mid-tool pause. ---
 @app.post("/api/pipeline/scans/{job_id}/suspend")
-def suspend_scan(job_id: str, user: dict = Depends(require_team)):
-    if not redis_store.get_job(job_id):
+def suspend_scan(job_id: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    if not dispatch.get_job(scope, job_id):
         raise HTTPException(status_code=404, detail="no such job")
     redis_store.set_suspended(job_id, True)
     audit.log("scan_suspended", actor=user["username"], job=job_id)
@@ -309,8 +315,8 @@ def suspend_scan(job_id: str, user: dict = Depends(require_team)):
 
 
 @app.post("/api/pipeline/scans/{job_id}/resume")
-def resume_scan(job_id: str, user: dict = Depends(require_team)):
-    if not redis_store.get_job(job_id):
+def resume_scan(job_id: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    if not dispatch.get_job(scope, job_id):
         raise HTTPException(status_code=404, detail="no such job")
     redis_store.set_suspended(job_id, False)
     audit.log("scan_resumed", actor=user["username"], job=job_id)
@@ -319,17 +325,17 @@ def resume_scan(job_id: str, user: dict = Depends(require_team)):
 
 # --- team pipeline board (v2): kanban view composed from proposals + jobs + reports ---
 @app.get("/api/pipeline/board")
-def pipeline_board(user: dict = Depends(require_team)):
+def pipeline_board(user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
     board.reap_stalled()   # opportunistic: no scheduler needed, the board is polled while anyone watches
-    return board.build_board()
+    return board.build_board(scope.org_id)
 
 
 @app.get("/api/pipeline/detail/{id}")
-def pipeline_detail(id: str, user: dict = Depends(require_team)):
+def pipeline_detail(id: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
     """Card detail for the review drawer: the proposal it started as (with its own scope/RoE
     if the id itself is a proposal id) or the report's originating proposal (if id is a report
     id), plus version history where applicable."""
-    p = db.get_proposal(id)
+    p = db.get_proposal(id, org_id=scope.org_id)
     if p:
         return {
             "proposal": {
@@ -337,7 +343,7 @@ def pipeline_detail(id: str, user: dict = Depends(require_team)):
                 "environment": p["environment"], "authorized": p["authorization_attested"],
             },
         }
-    r = _require_report(id)
+    r = _require_report(id, scope)
     rp = db.get_proposal_by_job(r["job_id"])
     return {
         "proposal": {
@@ -360,15 +366,15 @@ class GenerateBody(BaseModel):
 
 
 @app.post("/api/reports/generate")
-def generate_report(body: GenerateBody, user: dict = Depends(require_pro)):
-    job = redis_store.get_job(body.job_id)
+def generate_report(body: GenerateBody, user: dict = Depends(require_pro), scope: Scope = Depends(deps.scope)):
+    job = dispatch.get_job(scope, body.job_id)
     if not job:
         raise HTTPException(status_code=404, detail="no such job")
     try:
         data = generator.generate(job, db.get_findings(body.job_id), body.template)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    return report_store.save_report(user["username"], body.job_id, body.template, data)
+    return report_store.save_report(user["username"], body.job_id, body.template, data, org_id=ingest.job_org(job))
 
 
 @app.get("/api/reports/{fname}/download")
@@ -388,10 +394,10 @@ class PipelineCreateBody(BaseModel):
 
 
 @app.post("/api/pipeline/reports")
-def pipeline_create(body: PipelineCreateBody, user: dict = Depends(require_team)):
+def pipeline_create(body: PipelineCreateBody, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
     """Start the review pipeline: generate v1 of the report and place it at the reporter stage.
-    The report owner is the client who owns the job (tenancy)."""
-    job = redis_store.get_job(body.job_id)
+    The report belongs to the job's organization (copied from its proposal, tenancy)."""
+    job = dispatch.get_job(scope, body.job_id)
     if not job:
         raise HTTPException(status_code=404, detail="no such job")
     try:
@@ -418,30 +424,30 @@ def _check_docx(data: bytes) -> None:
         raise HTTPException(status_code=422, detail="not a valid .docx file")
 
 
-def _require_report(rid: str) -> dict:
-    r = db.get_report(rid)
+def _require_report(rid: str, scope: Scope) -> dict:
+    r = db.get_report(rid, org_id=scope.org_id)
     if not r:
         raise HTTPException(status_code=404, detail="no such report")
     return r
 
 
 @app.get("/api/pipeline/reports")
-def pipeline_reports(user: dict = Depends(require_team)):
+def pipeline_reports(user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
     """Every client's reports in review (team sees all; lead sees all versions)."""
     # The PDF password is view-once and out-of-band: only governance's reissue returns it.
-    return [{k: v for k, v in r.items() if k != "pdf_password"} for r in db.list_reports()]
+    return [{k: v for k, v in r.items() if k != "pdf_password"} for r in db.list_reports(org_id=scope.org_id)]
 
 
 @app.get("/api/pipeline/reports/{rid}/versions")
-def pipeline_versions(rid: str, user: dict = Depends(require_team)):
-    _require_report(rid)
+def pipeline_versions(rid: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    _require_report(rid, scope)
     return db.list_report_versions(rid)
 
 
 @app.post("/api/pipeline/reports/{rid}/version")
 def pipeline_upload_version(rid: str, file: UploadFile = File(...), note: str = "",
-                            user: dict = Depends(require_team)):
-    r = _require_report(rid)
+                            user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    r = _require_report(rid, scope)
     if not report_pipeline.can_act(r["stage"], user["role"]):
         raise HTTPException(status_code=403, detail="you do not own this review stage")
     data = file.file.read(MAX_UPLOAD + 1)
@@ -464,10 +470,11 @@ def list_templates(user: dict = Depends(require_team)):
 
 
 @app.post("/api/pipeline/reports/{rid}/template")
-def pipeline_change_template(rid: str, body: TemplateBody, user: dict = Depends(require_team)):
+def pipeline_change_template(rid: str, body: TemplateBody, user: dict = Depends(require_team),
+                             scope: Scope = Depends(deps.scope)):
     """Regenerate the report from the current findings in another template, as a NEW version
     (history is kept; earlier edits stay downloadable). Only the role that owns the stage."""
-    r = _require_report(rid)
+    r = _require_report(rid, scope)
     if not report_pipeline.can_act(r["stage"], user["role"]):
         raise HTTPException(status_code=403, detail="you do not own this review stage")
     job = redis_store.get_job(r["job_id"]) or {"id": r["job_id"], "target": "", "submitter": r["owner"]}
@@ -486,7 +493,8 @@ def pipeline_change_template(rid: str, body: TemplateBody, user: dict = Depends(
 
 
 @app.get("/api/pipeline/reports/{rid}/versions/{n}/download")
-def pipeline_download_version(rid: str, n: int, user: dict = Depends(require_team)):
+def pipeline_download_version(rid: str, n: int, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    _require_report(rid, scope)
     v = next((v for v in db.list_report_versions(rid) if v["version_no"] == n), None)
     if not v:
         raise HTTPException(status_code=404, detail="no such version")
@@ -499,8 +507,8 @@ def pipeline_download_version(rid: str, n: int, user: dict = Depends(require_tea
 
 
 @app.post("/api/pipeline/reports/{rid}/forward")
-def pipeline_forward(rid: str, user: dict = Depends(require_team)):
-    r = _require_report(rid)
+def pipeline_forward(rid: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    r = _require_report(rid, scope)
     try:
         new_stage = report_pipeline.advance(r["stage"], user["role"])
     except PermissionError as e:
@@ -544,11 +552,11 @@ def _deliver_report(rid: str) -> None:
 
 
 @app.post("/api/pipeline/reports/{rid}/reissue-password")
-def pipeline_reissue_password(rid: str, user: dict = Depends(require_team)):
+def pipeline_reissue_password(rid: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
     """Governance re-issues the view-once PDF password when the client lost it."""
     if user["role"] != models.ROLE_GOVERNANCE:
         raise HTTPException(status_code=403, detail="only governance re-issues the password")
-    r = _require_report(rid)
+    r = _require_report(rid, scope)
     if r["stage"] != models.REPORT_DELIVERED or not r["pdf_password"]:
         raise HTTPException(status_code=409, detail="report is not delivered")
     db.set_report(rid, password_viewed=0)   # let the client view it once more
@@ -557,8 +565,8 @@ def pipeline_reissue_password(rid: str, user: dict = Depends(require_team)):
 
 
 @app.post("/api/pipeline/reports/{rid}/sendback")
-def pipeline_sendback(rid: str, user: dict = Depends(require_team)):
-    r = _require_report(rid)
+def pipeline_sendback(rid: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    r = _require_report(rid, scope)
     try:
         new_stage = report_pipeline.send_back(r["stage"], user["role"])
     except PermissionError as e:

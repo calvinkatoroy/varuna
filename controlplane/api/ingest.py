@@ -29,6 +29,13 @@ import notify  # noqa: E402
 import store as report_store  # noqa: E402
 
 
+def job_org(job: dict) -> str:
+    """Organization that owns a job's rows: the originating proposal's (authoritative), else the
+    job's own; "" for staff direct scans, which belong to no organization (staff-only)."""
+    p = db.get_proposal_by_job(job["id"])
+    return (p or {}).get("org_id") or job.get("org_id") or ""
+
+
 def add_manual_finding(job_id: str, fields: dict) -> list[dict]:
     """Append a Pro-entered finding to a job, then re-correlate + enrich (§4.6a, REQ-57 to 60).
 
@@ -42,7 +49,7 @@ def add_manual_finding(job_id: str, fields: dict) -> list[dict]:
     combined = db.get_findings(job_id) + [manual]
     combined = correlate.correlate(combined)          # dedup + tag + priority over the whole set
     combined = ollama.enrich_missing(combined)         # enrich only the not-yet-enriched (REQ-59)
-    db.save_findings(job_id, job["submitter"], combined)
+    db.save_findings(job_id, job["submitter"], job_org(job), combined)
     return combined
 
 
@@ -50,7 +57,7 @@ def start_review(job: dict, template: str = "Full Technical", editor: str = "sys
     """Generate v1 of the report and place it at the reporter stage (SCANNED -> IN_REVIEW_REPORTER).
     The owner is the client who owns the job (tenancy). Raises ValueError for an unknown template."""
     data = generator.generate(job, db.get_findings(job["id"]), template)
-    rid = db.create_report(job_id=job["id"], owner=job["submitter"], template=template)
+    rid = db.create_report(job["id"], job_org(job), job["submitter"], template=template)
     fname = f"{rid}_v1.docx"
     report_store.save_report_file(fname, data)
     db.add_report_version(rid, filename=fname, editor=editor, note="auto-generated v1")
@@ -68,10 +75,10 @@ def process_job(job_id: str, raw: dict) -> None:
     findings = ollama.enrich_all(findings)     # graceful fallback per finding (REQ-36)
     # Findings are durable (SQLite), unlike the job record they came from - they must outlive
     # the job's 24h Redis TTL to survive the (possibly multi-day) review pipeline.
-    db.save_findings(job_id, job["submitter"], findings)
+    db.save_findings(job_id, job["submitter"], job_org(job), findings)
     # An approved proposal's scan goes straight into review: nobody has to remember to start it.
     # (Direct team scans have no proposal; the team starts those via POST /api/pipeline/reports.)
-    if db.get_proposal_by_job(job_id) and not [r for r in db.list_reports() if r["job_id"] == job_id]:
+    if db.get_proposal_by_job(job_id) and not [r for r in db.list_reports(org_id=None) if r["job_id"] == job_id]:
         try:
             start_review(job)
         except Exception as e:   # a report-generation failure must not lose the findings
