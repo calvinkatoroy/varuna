@@ -328,15 +328,20 @@ def _proposal_row_to_dict(row: sqlite3.Row) -> dict:
     return d
 
 
+def _org_where(org_id, where: list, args: list) -> None:
+    if org_id is not None:
+        where.append("org_id=?"); args.append(org_id)
+
+
 def create_proposal(p: dict) -> str:
     import uuid
     pid = p.get("id") or str(uuid.uuid4())
     get_conn().execute(
-        "INSERT INTO proposals (id, submitter, status, mode, target, in_scope, out_of_scope, "
+        "INSERT INTO proposals (id, org_id, submitter, status, mode, target, in_scope, out_of_scope, "
         "division, purpose, environment, test_window, roe_json, authorization_attested, "
         "emergency_contact, tools_json, opts_json, scan_mode) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (pid, p["submitter"], p.get("status", "pending"), p.get("mode", "standard"),
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (pid, p["org_id"], p["submitter"], p.get("status", "pending"), p.get("mode", "standard"),
          p["target"], p.get("in_scope", ""), p.get("out_of_scope", ""), p.get("division", ""),
          p.get("purpose", ""), p.get("environment", ""), p.get("test_window", ""),
          json.dumps(p.get("roe", {})), 1 if p.get("authorization_attested") else 0,
@@ -347,18 +352,20 @@ def create_proposal(p: dict) -> str:
     return pid
 
 
-def get_proposal(pid: str) -> Optional[dict]:
-    row = get_conn().execute("SELECT * FROM proposals WHERE id=?", (pid,)).fetchone()
+def get_proposal(pid: str, *, org_id: Optional[str]) -> Optional[dict]:
+    q, args = "SELECT * FROM proposals WHERE id=?", [pid]
+    if org_id is not None:
+        q += " AND org_id=?"; args.append(org_id)
+    row = get_conn().execute(q, args).fetchone()
     return _proposal_row_to_dict(row) if row else None
 
 
-def list_proposals(status: Optional[str] = None, submitter: Optional[str] = None) -> list[dict]:
+def list_proposals(status: Optional[str] = None, *, org_id: Optional[str]) -> list[dict]:
     q, args = "SELECT * FROM proposals", []
     where = []
     if status:
         where.append("status=?"); args.append(status)
-    if submitter:
-        where.append("submitter=?"); args.append(submitter)
+    _org_where(org_id, where, args)
     if where:
         q += " WHERE " + " AND ".join(where)
     q += " ORDER BY created_at DESC"
@@ -399,20 +406,23 @@ def claim_proposal(pid: str, from_status: str, **fields) -> bool:
 
 
 # --- reports + versions (v2 review pipeline) ---
-def create_report(job_id: str, owner: str, template: str = "Full Technical",
+def create_report(job_id: str, org_id: str, owner: str, template: str = "Full Technical",
                   stage: str = "in_review_reporter") -> str:
     import uuid
     rid = str(uuid.uuid4())
     get_conn().execute(
-        "INSERT INTO reports (id, job_id, owner, stage, template) VALUES (?,?,?,?,?)",
-        (rid, job_id, owner, stage, template),
+        "INSERT INTO reports (id, job_id, org_id, owner, stage, template) VALUES (?,?,?,?,?,?)",
+        (rid, job_id, org_id, owner, stage, template),
     )
     get_conn().commit()
     return rid
 
 
-def get_report(rid: str) -> Optional[dict]:
-    row = get_conn().execute("SELECT * FROM reports WHERE id=?", (rid,)).fetchone()
+def get_report(rid: str, *, org_id: Optional[str]) -> Optional[dict]:
+    q, args = "SELECT * FROM reports WHERE id=?", [rid]
+    if org_id is not None:
+        q += " AND org_id=?"; args.append(org_id)
+    row = get_conn().execute(q, args).fetchone()
     if not row:
         return None
     d = dict(row)
@@ -420,10 +430,9 @@ def get_report(rid: str) -> Optional[dict]:
     return d
 
 
-def list_reports(owner: Optional[str] = None, stage: Optional[str] = None) -> list[dict]:
+def list_reports(stage: Optional[str] = None, *, org_id: Optional[str]) -> list[dict]:
     q, args, where = "SELECT * FROM reports", [], []
-    if owner:
-        where.append("owner=?"); args.append(owner)
+    _org_where(org_id, where, args)
     if stage:
         where.append("stage=?"); args.append(stage)
     if where:
@@ -503,17 +512,17 @@ def _finding_id(job_id: str, f: dict) -> str:
     return hashlib.sha1(key.encode()).hexdigest()[:16]
 
 
-def save_findings(job_id: str, owner: str, findings: list[dict]) -> None:
+def save_findings(job_id: str, owner: str, org_id: str, findings: list[dict]) -> None:
     """Replace-all per job, upserting by stable id so verdict/status survive re-correlation."""
     conn = get_conn()
     ids = [_finding_id(job_id, f) for f in findings]
     for fid, f in zip(ids, findings):
         conn.execute(
-            "INSERT INTO findings (id, job_id, owner, " + ", ".join(_FINDING_COLS) + ") "
-            "VALUES (?,?,?," + ",".join("?" for _ in _FINDING_COLS) + ") "
+            "INSERT INTO findings (id, job_id, owner, org_id, " + ", ".join(_FINDING_COLS) + ") "
+            "VALUES (?,?,?,?," + ",".join("?" for _ in _FINDING_COLS) + ") "
             "ON CONFLICT(id) DO UPDATE SET " +
             ", ".join(f"{c}=excluded.{c}" for c in _FINDING_COLS),
-            (fid, job_id, owner, *(f.get(c) for c in _FINDING_COLS)),
+            (fid, job_id, owner, org_id, *(f.get(c) for c in _FINDING_COLS)),
         )
     if ids:
         conn.execute(
@@ -532,15 +541,19 @@ def get_findings(job_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def get_finding(fid: str) -> Optional[dict]:
-    row = get_conn().execute("SELECT * FROM findings WHERE id=?", (fid,)).fetchone()
+def get_finding(fid: str, *, org_id: Optional[str]) -> Optional[dict]:
+    q, args = "SELECT * FROM findings WHERE id=?", [fid]
+    if org_id is not None:
+        q += " AND org_id=?"; args.append(org_id)
+    row = get_conn().execute(q, args).fetchone()
     return dict(row) if row else None
 
 
-def list_findings(owner: Optional[str] = None) -> list[dict]:
-    q, args = "SELECT * FROM findings", []
-    if owner:
-        q += " WHERE owner=?"; args.append(owner)
+def list_findings(*, org_id: Optional[str]) -> list[dict]:
+    q, args, where = "SELECT * FROM findings", [], []
+    _org_where(org_id, where, args)
+    if where:
+        q += " WHERE " + " AND ".join(where)
     q += " ORDER BY created_at DESC"
     return [dict(r) for r in get_conn().execute(q, args).fetchall()]
 

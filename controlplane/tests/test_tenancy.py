@@ -5,17 +5,20 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
 import tenancy  # noqa: E402
 
 
-def test_client_sees_only_own():
-    assert tenancy.visible_to("client", "alice", "alice")
-    assert not tenancy.visible_to("client", "alice", "bob")
+def test_client_sees_only_own_org():
+    s = tenancy.scope_for({"role": "client", "org_id": "o1"})
+    assert tenancy.visible(s, "o1")
+    assert not tenancy.visible(s, "o2")
 
 
 def test_team_sees_all():
     for r in ("pentester", "lead_pentester", "lead_cyber", "governance", "manager"):
-        assert tenancy.visible_to(r, "riyan", "bob")
+        assert tenancy.visible(tenancy.scope_for({"role": r, "org_id": None}), "o2")
 
 
-def test_filter_owned():
-    rows = [{"submitter": "alice", "id": 1}, {"submitter": "bob", "id": 2}]
-    assert tenancy.filter_owned("client", "alice", rows) == [{"submitter": "alice", "id": 1}]
-    assert len(tenancy.filter_owned("lead_pentester", "riyan", rows)) == 2
+def test_client_without_org_denied():
+    try:
+        tenancy.scope_for({"role": "client", "org_id": None})
+        assert False
+    except PermissionError:
+        pass

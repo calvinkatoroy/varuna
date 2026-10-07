@@ -23,6 +23,10 @@ def scope_for(user: dict) -> Scope:
     raise PermissionError("role has no access to tenant data")
 
 
+def visible(scope: Scope, row_org: str) -> bool:
+    return scope.org_id is None or scope.org_id == row_org
+
+
 def visible_to(viewer_role: str, viewer_name: str, owner_name: str) -> bool:
     if models.is_team(viewer_role):
         return True
