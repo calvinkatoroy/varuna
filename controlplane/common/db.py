@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS proposals (
     environment            TEXT DEFAULT '',
     test_window            TEXT DEFAULT '',
     roe_json               TEXT DEFAULT '{}',
+    org_id                 TEXT NOT NULL DEFAULT '',
     authorization_attested INTEGER NOT NULL DEFAULT 0,
     emergency_contact      TEXT DEFAULT '',
     tools_json             TEXT DEFAULT '[]',
@@ -69,6 +70,7 @@ CREATE TABLE IF NOT EXISTS reports (
     id              TEXT PRIMARY KEY,
     job_id          TEXT NOT NULL,
     owner           TEXT NOT NULL,
+    org_id          TEXT NOT NULL DEFAULT '',
     stage           TEXT NOT NULL DEFAULT 'in_review_reporter',
     template        TEXT NOT NULL DEFAULT 'Full Technical',
     delivered_pdf   TEXT,
@@ -94,6 +96,7 @@ CREATE TABLE IF NOT EXISTS findings (
     id            TEXT PRIMARY KEY,
     job_id        TEXT NOT NULL,
     owner         TEXT NOT NULL,
+    org_id        TEXT NOT NULL DEFAULT '',
     name          TEXT NOT NULL,
     severity      TEXT NOT NULL,
     host          TEXT NOT NULL,
@@ -123,6 +126,20 @@ CREATE TABLE IF NOT EXISTS reset_tokens (
     expires_at INTEGER NOT NULL,
     used       INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS orgs (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    status     TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS email_changes (
+    token_hash TEXT PRIMARY KEY,
+    username   TEXT NOT NULL,
+    email      TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used       INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -139,6 +156,17 @@ def init_db(conn: sqlite3.Connection) -> None:
     pcols = {r[1] for r in conn.execute("PRAGMA table_info(proposals)")}
     if "scan_mode" not in pcols:
         conn.execute("ALTER TABLE proposals ADD COLUMN scan_mode TEXT NOT NULL DEFAULT 'local'")
+    for col, ddl in (("org_id", "TEXT"), ("display_name", "TEXT"), ("phone", "TEXT"),
+                     ("token_version", "INTEGER NOT NULL DEFAULT 0"),
+                     ("must_change_password", "INTEGER NOT NULL DEFAULT 0")):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE accounts ADD COLUMN {col} {ddl}")
+    for table in ("proposals", "reports", "findings"):
+        tcols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if "org_id" not in tcols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN org_id TEXT NOT NULL DEFAULT ''")
+        # Index after the migration: on an old DB the column does not exist when SCHEMA runs.
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_org ON {table}(org_id)")
     conn.commit()
 
 
@@ -193,37 +221,66 @@ def reset_for_test(path: str) -> None:
 
 
 # --- accounts ---
-def upsert_account(username: str, password_hash: str, role: str) -> None:
+def create_org(name: str) -> str:
+    import uuid
+    oid = str(uuid.uuid4())
+    get_conn().execute("INSERT INTO orgs (id, name) VALUES (?, ?)", (oid, name.strip()))
+    get_conn().commit()
+    return oid
+
+
+def get_org(org_id: str) -> Optional[dict]:
+    row = get_conn().execute("SELECT * FROM orgs WHERE id=?", (org_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_orgs() -> list[dict]:
+    return [dict(r) for r in get_conn().execute("SELECT * FROM orgs ORDER BY name").fetchall()]
+
+
+def set_org_status(org_id: str, status: str) -> bool:
+    cur = get_conn().execute("UPDATE orgs SET status=? WHERE id=?", (status, org_id))
+    get_conn().commit()
+    return cur.rowcount == 1
+
+
+_ACCT_COLS = ("username, password_hash, role, disabled, org_id, display_name, phone, email, token_version, "
+              "must_change_password, totp_secret, totp_enabled, totp_last_step")
+_BUMPS = ("password_hash", "role", "org_id", "disabled", "totp_enabled")
+_SETTABLE = _BUMPS + ("display_name", "phone", "email", "must_change_password", "totp_secret", "totp_last_step")
+
+
+def upsert_account(username: str, password_hash: str, role: str, org_id: Optional[str] = None) -> None:
     get_conn().execute(
-        "INSERT INTO accounts (username, password_hash, role) VALUES (?, ?, ?) "
-        "ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, role=excluded.role",
-        (username, password_hash, role),
+        "INSERT INTO accounts (username, password_hash, role, org_id) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, role=excluded.role, "
+        "org_id=excluded.org_id, token_version=token_version+1",
+        (username, password_hash, role, org_id),
     )
     get_conn().commit()
 
 
 def get_account(username: str) -> Optional[dict]:
-    row = get_conn().execute(
-        "SELECT username, password_hash, role, disabled, totp_secret, totp_enabled, totp_last_step "
-        "FROM accounts WHERE username=?", (username,)
-    ).fetchone()
+    row = get_conn().execute(f"SELECT {_ACCT_COLS} FROM accounts WHERE username=?", (username,)).fetchone()
     return dict(row) if row else None
 
 
 def list_accounts() -> list[dict]:
-    """Account roster for admin screens: never includes password hashes."""
+    """Roster for admin screens: never includes password hashes or 2FA secrets."""
     return [dict(r) for r in get_conn().execute(
-        "SELECT username, role, disabled, totp_enabled, created_at FROM accounts ORDER BY role, username").fetchall()]
+        "SELECT username, role, org_id, display_name, email, disabled, totp_enabled, must_change_password, created_at "
+        "FROM accounts ORDER BY role, username").fetchall()]
 
 
 def set_account(username: str, **fields) -> bool:
-    """Update password_hash / disabled. True if the account exists."""
-    allowed = {k: v for k, v in fields.items()
-               if k in ("password_hash", "disabled", "email", "totp_secret", "totp_enabled", "totp_last_step")}
+    """Update account fields. True if the account exists. Security-relevant changes end old sessions."""
+    allowed = {k: v for k, v in fields.items() if k in _SETTABLE}
     if not allowed:
         return False
-    sets = ", ".join(f"{k}=?" for k in allowed)
-    cur = get_conn().execute(f"UPDATE accounts SET {sets} WHERE username=?", [*allowed.values(), username])
+    sets = [f"{k}=?" for k in allowed]
+    if any(k in _BUMPS for k in allowed):
+        sets.append("token_version=token_version+1")
+    cur = get_conn().execute(f"UPDATE accounts SET {', '.join(sets)} WHERE username=?", [*allowed.values(), username])
     get_conn().commit()
     return cur.rowcount == 1
 
