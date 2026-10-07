@@ -20,6 +20,14 @@ def _fresh_db(tmp_path):
     db.close()
 
 
+def make_client(name="alice", org="PT A", password="Passw0rd!x"):
+    """Create a client account `name` in organization `org` (created on first use); returns the org_id."""
+    import auth
+    oid = next((o["id"] for o in db.list_orgs() if o["name"] == org), None) or db.create_org(org)
+    auth.create_account(name, password, "client", org_id=oid)
+    return oid
+
+
 class _Api:
     """Thin TestClient wrapper shared by API tests: .login/.get/.post/.put/.request with a bearer token."""
 

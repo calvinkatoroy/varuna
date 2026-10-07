@@ -80,7 +80,7 @@ def test_full_report_templates_and_archive():
     H = _pro_header()
     redis_store.set_job({"id": "j2", "target": "http://t", "submitter": "ihsan",
                          "status": "done", "per_tool_status": {}})
-    _db.save_findings("j2", "ihsan", [{"name": "SQLi", "severity": "critical", "host": "h",
+    _db.save_findings("j2", "ihsan", "", [{"name": "SQLi", "severity": "critical", "host": "h",
                                        "cve": "CVE-1", "evidence": "x", "owasp": "A03:2021-Injection"}])
     for template in ("Full Technical", "OWASP Web App", "ILCS Internal"):
         r = client.post("/api/reports/generate", headers=H, json={"job_id": "j2", "template": template})
@@ -122,7 +122,7 @@ def test_review_pipeline_forward_and_versions():
     Hrep = _hdr("aisah", "pentester")
     Hlead = _hdr("riyan", "lead_pentester")
     Hpen = _hdr("dodi", "governance")
-    rid = _db.create_report(job_id="j1", owner="alice", template="Full Technical")
+    rid = _db.create_report("j1", _db.create_org("PT Alice"), "alice", template="Full Technical")
     # reporter uploads a new version
     r = client.post(f"/api/pipeline/reports/{rid}/version",
                     files={"file": ("edit.docx", EDITED, DOCX_MIME)}, headers=Hrep)
@@ -146,7 +146,7 @@ def test_review_pipeline_forward_and_versions():
 def test_review_pipeline_sendback():
     reset()
     Hgov = _hdr("hani", "governance")
-    rid = _db.create_report(job_id="j2", owner="bob", stage=models.REPORT_GOVERNANCE)
+    rid = _db.create_report("j2", _db.create_org("PT Bob"), "bob", stage=models.REPORT_GOVERNANCE)
     r = client.post(f"/api/pipeline/reports/{rid}/sendback", headers=Hgov)
     assert r.status_code == 200 and r.json()["stage"] == models.REPORT_LEAD
 
@@ -169,12 +169,12 @@ pdf_deliver.CONVERT = _fake_convert
 def test_governance_forward_delivers_protected_pdf():
     reset()
     Hgov = _hdr("hani", "governance")
-    rid = _db.create_report(job_id="j3", owner="carol", stage=models.REPORT_GOVERNANCE)
+    rid = _db.create_report("j3", _db.create_org("PT Carol"), "carol", stage=models.REPORT_GOVERNANCE)
     client.post(f"/api/pipeline/reports/{rid}/version",
                 files={"file": ("final.docx", FINAL, DOCX_MIME)}, headers=Hgov)
     r = client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hgov)
     assert r.status_code == 200 and r.json()["stage"] == models.REPORT_DELIVERED, r.text
-    rep = _db.get_report(rid)
+    rep = _db.get_report(rid, org_id=None)
     assert rep["delivered_pdf"] and rep["pdf_password"] and rep["password_viewed"] is False
     data = report_store.read_report(rep["delivered_pdf"])
     assert _PdfReader(_io.BytesIO(data)).is_encrypted
@@ -184,7 +184,7 @@ def test_governance_reissue_password():
     reset()
     Hgov = _hdr("hani", "governance")
     Hrep = _hdr("aisah", "pentester")
-    rid = _db.create_report(job_id="j4", owner="dan", stage=models.REPORT_GOVERNANCE)
+    rid = _db.create_report("j4", _db.create_org("PT Dan"), "dan", stage=models.REPORT_GOVERNANCE)
     client.post(f"/api/pipeline/reports/{rid}/version",
                 files={"file": ("f.docx", FINAL, DOCX_MIME)}, headers=Hgov)
     client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hgov)   # -> delivered
@@ -192,20 +192,22 @@ def test_governance_reissue_password():
     assert client.post(f"/api/pipeline/reports/{rid}/reissue-password", headers=Hrep).status_code == 403
     r = client.post(f"/api/pipeline/reports/{rid}/reissue-password", headers=Hgov)
     assert r.status_code == 200 and r.json()["password"]
-    assert _db.get_report(rid)["password_viewed"] is False
+    assert _db.get_report(rid, org_id=None)["password_viewed"] is False
 
 
 def test_pipeline_create_generates_v1_owned_by_client():
     reset()
     H = _hdr("dodi", "pentester")
+    org = _db.create_org("PT Alice")
     redis_store.set_job({"id": "jc", "target": "http://t", "submitter": "alice",
-                         "status": "done", "per_tool_status": {}})
-    _db.save_findings("jc", "alice", [{"name": "X", "severity": "high", "host": "h"}])
+                         "status": "done", "per_tool_status": {}, "org_id": org})
+    _db.save_findings("jc", "alice", org, [{"name": "X", "severity": "high", "host": "h"}])
     r = client.post("/api/pipeline/reports", json={"job_id": "jc", "template": "Full Technical"}, headers=H)
     assert r.status_code == 200 and r.json()["stage"] == models.REPORT_REPORTER, r.text
     rid = r.json()["report_id"]
     assert len(client.get(f"/api/pipeline/reports/{rid}/versions", headers=H).json()) == 1
-    assert _db.get_report(rid)["owner"] == "alice"
+    assert _db.get_report(rid, org_id=None)["owner"] == "alice"
+    assert _db.get_report(rid, org_id=org)["org_id"] == org   # the report belongs to the job's org
 
 
 # --- v2 board/detail/verdict views ---
@@ -218,13 +220,14 @@ def test_board_requires_team():
 def test_board_shape_and_stages():
     reset()
     H = _hdr("riyan", "lead_pentester")
-    pid = _db.create_proposal({"submitter": "alice", "target": "http://t", "mode": "standard"})
+    pid = _db.create_proposal({"submitter": "alice", "target": "http://t", "mode": "standard",
+                               "org_id": _db.create_org("PT Alice")})
     r = client.get("/api/pipeline/board", headers=H).json()
     ids = [c["id"] for c in r]
     assert ids == ["pending", "scanning", "in_review_reporter", "in_review_lead",
                    "in_review_governance", "delivered", "rejected"]
     pending = next(c for c in r if c["id"] == "pending")["cards"]
-    assert pending[0]["id"] == pid and pending[0]["client"] == "alice"
+    assert pending[0]["id"] == pid and pending[0]["client"] == "PT Alice"   # the org, not the submitter
 
     _db.update_proposal(pid, status="approved", job_id="j-scan")
     redis_store.set_job({"id": "j-scan", "submitter": "alice", "status": "running", "per_tool_status": {}})
@@ -236,14 +239,15 @@ def test_board_shape_and_stages():
 def test_detail_for_proposal_and_report():
     reset()
     H = _hdr("riyan", "lead_pentester")
+    org = _db.create_org("PT Alice")
     pid = _db.create_proposal({"submitter": "alice", "target": "http://t", "mode": "standard",
                                "purpose": "Compliance", "division": "IT",
-                               "authorization_attested": True})
+                               "authorization_attested": True, "org_id": org})
     d = client.get(f"/api/pipeline/detail/{pid}", headers=H).json()
     assert d["proposal"]["purpose"] == "Compliance" and d["proposal"]["authorized"] is True
     assert "versions" not in d
 
-    rid = _db.create_report(job_id="jd", owner="alice")
+    rid = _db.create_report("jd", org, "alice")
     _db.add_report_version(rid, filename="f.docx", editor="aisah", note="v1")
     _db.update_proposal(pid, job_id="jd")
     d2 = client.get(f"/api/pipeline/detail/{rid}", headers=H).json()
@@ -274,7 +278,7 @@ def test_finding_verdict_requires_team_and_updates():
     reset()
     Ht = _hdr("aisah", "pentester")
     Hc = _hdr("alice", "client")
-    _db.save_findings("jf", "alice", [{"name": "X", "severity": "low", "host": "h"}])
+    _db.save_findings("jf", "alice", _db.get_account("alice")["org_id"], [{"name": "X", "severity": "low", "host": "h"}])
     fid = _db.get_findings("jf")[0]["id"]
     assert client.post(f"/api/findings/{fid}/verdict", json={"verdict": "fp"},
                        headers=Hc).status_code == 403

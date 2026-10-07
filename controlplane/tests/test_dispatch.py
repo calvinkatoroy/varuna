@@ -47,7 +47,7 @@ def _queued(user):
 def test_pro_cloud_never_gated():
     reset()
     _agent_online("pentester")
-    res = dispatch.submit_scan("pentester", "pentester", CLOUD, ["katana", "nuclei"])
+    res = dispatch.submit_scan("pentester", "pentester", None, CLOUD, ["katana", "nuclei"])
     assert res["state"] == "dispatched"
     assert _queued("pentester") == res["job_id"], "pro cloud scan should dispatch immediately"
 
@@ -55,7 +55,7 @@ def test_pro_cloud_never_gated():
 def test_standard_local_dispatched_immediately():
     reset()
     _agent_online("staff")
-    res = dispatch.submit_scan("staff", "client", LOCAL, ["katana", "nuclei", "sqlmap"])
+    res = dispatch.submit_scan("staff", "client", None, LOCAL, ["katana", "nuclei", "sqlmap"])
     assert res["state"] == "dispatched"
     assert _queued("staff") == res["job_id"]
 
@@ -63,7 +63,7 @@ def test_standard_local_dispatched_immediately():
 def test_standard_cloud_is_gated_not_queued():
     reset()
     _agent_online("staff")
-    res = dispatch.submit_scan("staff", "client", CLOUD, ["katana"], division="Finance")
+    res = dispatch.submit_scan("staff", "client", None, CLOUD, ["katana"], division="Finance")
     assert res["state"] == "pending_approval"
     assert _queued("staff") is None, "gated request must NOT be enqueued before approval"
     pend = dispatch.pending_approvals()
@@ -73,7 +73,7 @@ def test_standard_cloud_is_gated_not_queued():
 def test_approve_dispatches_through_choke_point():
     reset()
     _agent_online("staff")
-    res = dispatch.submit_scan("staff", "client", CLOUD, ["katana"])
+    res = dispatch.submit_scan("staff", "client", None, CLOUD, ["katana"])
     dispatch.approve_request(res["job_id"], approver="ihsan")
     assert _queued("staff") == res["job_id"], "approved request should reach the agent queue"
     assert dispatch.pending_approvals() == [], "approved request should leave the queue"
@@ -82,7 +82,7 @@ def test_approve_dispatches_through_choke_point():
 def test_reject_discards_never_dispatched():
     reset()
     _agent_online("staff")
-    res = dispatch.submit_scan("staff", "client", CLOUD, ["katana"])
+    res = dispatch.submit_scan("staff", "client", None, CLOUD, ["katana"])
     dispatch.reject_request(res["job_id"], approver="ihsan", reason="unauthorized target")
     assert _queued("staff") is None, "rejected request must never be enqueued"
     assert dispatch.pending_approvals() == []
@@ -108,7 +108,7 @@ def test_offline_agent_rejected_not_queued():
     reset()
     _agent_offline("staff")
     try:
-        dispatch.submit_scan("staff", "client", LOCAL, ["katana"])
+        dispatch.submit_scan("staff", "client", None, LOCAL, ["katana"])
     except dispatch.OfflineAgent:
         assert _queued("staff") is None, "offline dispatch must not silently queue (REQ-76)"
         return
@@ -118,9 +118,9 @@ def test_offline_agent_rejected_not_queued():
 def test_list_jobs_newest_first():
     reset()
     _agent_online("pentester")
-    r1 = dispatch.submit_scan("pentester", "pentester", CLOUD, ["katana"])
-    r2 = dispatch.submit_scan("pentester", "pentester", CLOUD, ["nuclei"])
-    jobs = dispatch.list_jobs("pentester")
+    r1 = dispatch.submit_scan("pentester", "pentester", None, CLOUD, ["katana"])
+    r2 = dispatch.submit_scan("pentester", "pentester", None, CLOUD, ["nuclei"])
+    jobs = dispatch.list_jobs(None)   # staff direct scans belong to no organization
     assert [j["id"] for j in jobs] == [r2["job_id"], r1["job_id"]]
 
 
@@ -128,7 +128,7 @@ def test_classify_rejected_propagates():
     reset()
     _agent_online("staff")
     try:
-        dispatch.submit_scan("staff", "client", "http://0x7f000001", ["katana"])
+        dispatch.submit_scan("staff", "client", None, "http://0x7f000001", ["katana"])
     except classifier.ClassifyRejected:
         return   # fail closed: evasion target rejected before any dispatch
     raise AssertionError("an evasion target must be rejected, not classified")
@@ -151,3 +151,38 @@ def test_pre_approved_enqueues_skipping_gate_and_online():
            "submitter": "alice"}
     dispatch.dispatch_job(job, pre_approved=True)
     assert _queued("alice") == "pa1"
+
+
+def test_jobs_carry_org_and_are_listed_and_read_per_org():
+    reset()
+    import tenancy
+    _agent_online("pentester")
+    staff = dispatch.submit_scan("pentester", "pentester", None, CLOUD, ["katana"])
+    redis_store.set_job({"id": "ja", "submitter": "alice", "org_id": "org-a", "status": "queued"})
+    redis_store.add_org_job("org-a", "ja")
+    assert [j["id"] for j in dispatch.list_jobs("org-a")] == ["ja"]
+    assert [j["id"] for j in dispatch.list_jobs(None)] == [staff["job_id"]]
+    assert dispatch.list_jobs("org-b") == []
+    assert dispatch.get_job(tenancy.Scope("org-a"), "ja")["id"] == "ja"
+    assert dispatch.get_job(tenancy.Scope("org-b"), "ja") is None          # other org: as if missing
+    assert dispatch.get_job(tenancy.Scope(None), "ja")["id"] == "ja"       # staff see every org
+    assert dispatch.get_job(tenancy.Scope("org-a"), staff["job_id"]) is None
+
+
+def test_dispatch_refuses_a_job_of_another_org_and_fails_it():
+    reset()
+    import auth
+    import db
+    oa, ob = db.create_org("PT A"), db.create_org("PT B")
+    auth.create_account("alice", "Passw0rd!x", "client", org_id=oa)
+    _agent_online("alice")
+    assert redis_store.get_agent("alice")["org_id"] == oa      # enrolment records the org
+    job = {"id": "jx", "role": "client", "target_class": classifier.CLASS_LOCAL,
+           "submitter": "alice", "org_id": ob, "status": "queued"}
+    redis_store.set_job(job)
+    dispatch.dispatch_job(job, pre_approved=True)
+    assert _queued("alice") is None, "a job of another org must never reach the agent"
+    assert redis_store.get_job("jx")["status"] == "failed"
+    ok = {**job, "id": "jy", "org_id": oa}
+    dispatch.dispatch_job(ok, pre_approved=True)
+    assert _queued("alice") == "jy"

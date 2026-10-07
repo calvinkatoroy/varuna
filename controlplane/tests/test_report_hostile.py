@@ -56,7 +56,7 @@ def test_client_form_fields_are_cleaned_too(tmp_path):
     import db
     db.reset_for_test(str(tmp_path / "t.db"))
     pid = db.create_proposal({"submitter": "acme", "target": "http://t.example", "division": "IT\x00\x0bDiv",
-                              "purpose": "pre\x1b[1mrelease", "authorization_attested": True})
+                              "purpose": "pre\x1b[1mrelease", "authorization_attested": True, "org_id": "org-acme"})
     db.update_proposal(pid, status="approved", job_id="j-hostile")
     text = _text(generator.generate({**JOB, "submitter": "acme"}, DIRTY[:1], "Formal Handover"))
     assert "ITDiv" in text and "prerelease" in text

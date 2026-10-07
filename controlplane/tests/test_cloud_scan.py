@@ -68,10 +68,11 @@ def test_approved_cloud_job_goes_to_the_cloud_scanner_not_the_clients_queue():
 
 def test_cloud_approval_refuses_a_target_that_resolves_private():
     H, lead = _h("cl3"), _h("cl3_lead", "lead_pentester")
-    pid = db.create_proposal({"submitter": "cl3", "target": "http://127.0.0.1:3000", "scan_mode": "cloud", "authorization_attested": True})   # slipped past submit
+    pid = db.create_proposal({"submitter": "cl3", "target": "http://127.0.0.1:3000", "scan_mode": "cloud", "authorization_attested": True,
+                              "org_id": db.get_account("cl3")["org_id"]})   # slipped past submit
     r = pub.post(f"/api/proposals/{pid}/approve", headers=lead)
     assert r.status_code == 422 and "public target" in r.json()["detail"]
-    assert db.get_proposal(pid)["status"] == "pending"                  # nothing was claimed
+    assert db.get_proposal(pid, org_id=None)["status"] == "pending"     # nothing was claimed
 
 
 def test_only_the_cloud_scanner_may_run_a_cloud_job():
@@ -155,6 +156,6 @@ def test_cloud_badge_survives_after_the_scan_into_review_and_delivery_cards():
     import board
     H, lead = _h("cl7"), _h("cl7_lead", "lead_pentester")
     jid = pub.post(f"/api/proposals/{_propose(H, PUBLIC_IP, 'cloud').json()['proposal_id']}/approve", headers=lead).json()["job_id"]
-    rid = db.create_report(job_id=jid, owner="cl7", template="Full Technical")
-    card = board._report_card(db.get_report(rid))
+    rid = db.create_report(jid, db.get_account("cl7")["org_id"], "cl7", template="Full Technical")
+    card = board._report_card(db.get_report(rid, org_id=None))
     assert card["scanMode"] == "cloud"

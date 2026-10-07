@@ -35,6 +35,10 @@ def _h(username, role, pw="password1"):
     return {"Authorization": f"Bearer {jwt_auth.login(username, pw, 'ip')}"}
 
 
+def _org(username):
+    return db.get_account(username)["org_id"]
+
+
 def _prop(H, **over):
     body = {"target": CLOUD, "authorization_attested": True, **over}
     return pub.post("/api/proposals", json=body, headers=H)
@@ -73,7 +77,7 @@ def test_generate_report_is_tenant_scoped():                          # H2
     Ha, Hb = _h("acme", "client"), _h("globex", "client")
     pid = _prop(Ha).json()["proposal_id"]
     jid = pub.post(f"/api/proposals/{pid}/approve", headers=_h("lead1", "lead_pentester")).json()["job_id"]
-    assert pub.post(f"/api/scans/{jid}/report", headers=Hb).status_code == 403
+    assert pub.post(f"/api/scans/{jid}/report", headers=Hb).status_code == 404   # other org: as if missing
     assert pub.post(f"/api/scans/{jid}/report", headers=Ha).status_code == 200
 
 
@@ -84,7 +88,7 @@ def test_concurrent_approvals_create_one_job():                       # H3
     with cf.ThreadPoolExecutor(8) as ex:
         codes = list(ex.map(lambda _: pub.post(f"/api/proposals/{pid}/approve", headers=Hl).status_code, range(8)))
     assert codes.count(200) == 1 and codes.count(409) == 7, codes
-    assert len(redis_store.list_user_jobs("bob")) == 1
+    assert len(redis_store.list_org_jobs(_org("bob"))) == 1
 
 
 def test_concurrent_submits_all_succeed():                            # H4
@@ -92,12 +96,12 @@ def test_concurrent_submits_all_succeed():                            # H4
     with cf.ThreadPoolExecutor(30) as ex:
         codes = list(ex.map(lambda i: _prop(Hc, target=f"http://10.0.0.{i + 1}").status_code, range(30)))
     assert set(codes) == {200}, codes
-    assert len(db.list_proposals(submitter="carl")) == 30
+    assert len(db.list_proposals(org_id=_org("carl"))) == 30
 
 
 def test_bad_docx_is_rejected_and_password_not_listed():              # H5, H6
     Hrep, Hgov = _h("aisah", "pentester"), _h("hani", "governance")
-    rid = db.create_report(job_id="j9", owner="dan")
+    rid = db.create_report("j9", db.create_org("org-dan"), "dan")
     up = lambda data: priv.post(f"/api/pipeline/reports/{rid}/version",
                                 files={"file": ("f.docx", data, DOCX)}, headers=Hrep)
     assert up(b"").status_code == 422 and up(b"NOT A DOCX").status_code == 422
@@ -247,11 +251,13 @@ def test_finished_scan_starts_review_automatically(tmp_path):
     nuclei = {"info": {"name": "Exposed metrics", "severity": "medium", "tags": ["exposure"]},
               "host": "8.8.8.8", "matched-at": "http://8.8.8.8/metrics"}
     ingest.process_job(jid, {"nuclei": json.dumps(nuclei)})
-    reports = [r for r in db.list_reports() if r["job_id"] == jid]
+    reports = [r for r in db.list_reports(org_id=None) if r["job_id"] == jid]
     assert len(reports) == 1 and reports[0]["stage"] == models.REPORT_REPORTER and reports[0]["owner"] == "zed"
+    assert reports[0]["org_id"] == _org("zed")                         # copied from the proposal
+    assert {f["org_id"] for f in db.get_findings(jid)} == {_org("zed")}
     assert len(db.list_report_versions(reports[0]["id"])) == 1
     ingest.process_job(jid, {"nuclei": json.dumps(nuclei)})       # re-ingest must not duplicate
-    assert len([r for r in db.list_reports() if r["job_id"] == jid]) == 1
+    assert len([r for r in db.list_reports(org_id=None) if r["job_id"] == jid]) == 1
 
 
 def test_reviewer_can_switch_template_and_history_is_kept(tmp_path):
@@ -259,14 +265,15 @@ def test_reviewer_can_switch_template_and_history_is_kept(tmp_path):
     report_store.REPORTS_DIR = str(tmp_path)
     Hrep, Hpen = _h("aisah2", "pentester"), _h("pen22", "governance")
     redis_store._client = FakeRedis()
-    rid = db.create_report(job_id="jt", owner="dan")
-    db.save_findings("jt", "dan", [{"name": "X", "severity": "high", "host": "h"}])
+    org = db.create_org("org-dan")
+    rid = db.create_report("jt", org, "dan")
+    db.save_findings("jt", "dan", org, [{"name": "X", "severity": "high", "host": "h"}])
     assert "Formal Handover" in priv.get("/api/templates", headers=Hrep).json()
     assert priv.post(f"/api/pipeline/reports/{rid}/template", json={"template": "Formal Handover"}, headers=Hpen).status_code == 403
     assert priv.post(f"/api/pipeline/reports/{rid}/template", json={"template": "Nope"}, headers=Hrep).status_code == 422
     r = priv.post(f"/api/pipeline/reports/{rid}/template", json={"template": "Formal Handover"}, headers=Hrep)
     assert r.status_code == 200 and r.json()["version_no"] == 1
-    assert db.get_report(rid)["template"] == "Formal Handover"
+    assert db.get_report(rid, org_id=None)["template"] == "Formal Handover"
     priv.post(f"/api/pipeline/reports/{rid}/template", json={"template": "Raw Findings"}, headers=Hrep)
     assert [v["version_no"] for v in db.list_report_versions(rid)] == [1, 2]
 
@@ -334,7 +341,7 @@ def test_concurrent_forwards_deliver_exactly_once(tmp_path):
     pdf_deliver.CONVERT = fake_pdf
     try:
         Hg = _h("hani9", "governance")
-        rid = db.create_report(job_id="jr", owner="dan", stage=models.REPORT_GOVERNANCE)
+        rid = db.create_report("jr", db.create_org("org-dan"), "dan", stage=models.REPORT_GOVERNANCE)
         db.add_report_version(rid, filename=f"{rid}_v1.docx", editor="x")
         report_store.save_report_file(f"{rid}_v1.docx", _docx("final"))
         with cf.ThreadPoolExecutor(8) as ex:
@@ -342,7 +349,7 @@ def test_concurrent_forwards_deliver_exactly_once(tmp_path):
         assert codes.count(200) == 1, codes            # one delivery wins, the rest are refused
         assert set(codes) <= {200, 409}, codes
         assert len(calls) == 1, "the PDF must be produced once, with one password"
-        assert db.get_report(rid)["stage"] == models.REPORT_DELIVERED
+        assert db.get_report(rid, org_id=None)["stage"] == models.REPORT_DELIVERED
     finally:
         pdf_deliver.CONVERT = old
 
@@ -355,11 +362,11 @@ def test_failed_delivery_puts_the_report_back(tmp_path):
     pdf_deliver.CONVERT = lambda _: (_ for _ in ()).throw(RuntimeError("soffice died"))
     try:
         Hg = _h("hani10", "governance")
-        rid = db.create_report(job_id="jr2", owner="dan", stage=models.REPORT_GOVERNANCE)
+        rid = db.create_report("jr2", db.create_org("org-dan"), "dan", stage=models.REPORT_GOVERNANCE)
         db.add_report_version(rid, filename=f"{rid}_v1.docx", editor="x")
         report_store.save_report_file(f"{rid}_v1.docx", _docx("final"))
         assert priv.post(f"/api/pipeline/reports/{rid}/forward", headers=Hg).status_code == 502
-        assert db.get_report(rid)["stage"] == models.REPORT_GOVERNANCE, "not stuck in a transient stage"
+        assert db.get_report(rid, org_id=None)["stage"] == models.REPORT_GOVERNANCE, "not stuck in a transient stage"
     finally:
         pdf_deliver.CONVERT = old
 
@@ -367,7 +374,7 @@ def test_failed_delivery_puts_the_report_back(tmp_path):
 def test_view_once_password_is_shown_once_even_under_concurrency():
     redis_store._client = FakeRedis()
     Hc = _h("vera", "client")
-    rid = db.create_report(job_id="jv", owner="vera", stage=models.REPORT_DELIVERED)
+    rid = db.create_report("jv", _org("vera"), "vera", stage=models.REPORT_DELIVERED)
     db.set_report(rid, pdf_password="s3cr3t", delivered_pdf="x.pdf", password_viewed=0)
     with cf.ThreadPoolExecutor(8) as ex:
         codes = list(ex.map(lambda _: pub.get(f"/api/reports/{rid}/password", headers=Hc).status_code, range(8)))

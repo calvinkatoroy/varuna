@@ -34,12 +34,21 @@ def reset():
     redis_store._client = FakeRedis()
 
 
-def _token(username, role):
-    auth.create_account(username, "pw", role, org_id=db.create_org("org-" + username) if role == "client" else None)
+def _token(username, role, org=None):
+    """Account + online agent + login. A client gets organization `org` (default: its own one)."""
+    oid = None
+    if role == "client":
+        org = org or "org-" + username
+        oid = next((o["id"] for o in db.list_orgs() if o["name"] == org), None) or db.create_org(org)
+    auth.create_account(username, "pw", role, org_id=oid)
     tokens.issue_agent_token(username)   # register an online agent
     r = client.post("/api/login", json={"username": username, "password": "pw"})
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['token']}"}
+
+
+def _org(username):
+    return db.get_account(username)["org_id"]
 
 
 def test_login_bad_credentials_rejected():
@@ -65,9 +74,9 @@ def test_legacy_report_download_tenancy():
     Ha = _token("alice", "client")
     _token("bob", "client")
     Ht = _token("riyan", "pentester")
-    fa = browser.report_store.save_report("alice", "job-a", "Executive Summary", b"A")["file"]
-    fb = browser.report_store.save_report("bob", "job-b", "Executive Summary", b"B")["file"]
-    assert client.get(f"/api/reports/{fb}/download", headers=Ha).status_code == 403
+    fa = browser.report_store.save_report("alice", "job-a", "Executive Summary", b"A", org_id=_org("alice"))["file"]
+    fb = browser.report_store.save_report("bob", "job-b", "Executive Summary", b"B", org_id=_org("bob"))["file"]
+    assert client.get(f"/api/reports/{fb}/download", headers=Ha).status_code == 404   # other org: as if missing
     assert client.get(f"/api/reports/{fa}/download", headers=Ha).status_code == 200
     assert client.get(f"/api/reports/{fa}/download", headers=Ht).status_code == 200
 
@@ -77,12 +86,12 @@ def test_reports_list_is_v2_delivered_and_tenant_scoped():
     Ha = _token("alice", "client")
     _token("bob", "client")
     Ht = _token("riyan", "pentester")
-    ra_id = db.create_report(job_id="job-a", owner="alice")
+    ra_id = db.create_report("job-a", _org("alice"), "alice")
     db.set_report(ra_id, stage=models.REPORT_DELIVERED, delivered_pdf="a.pdf")
-    rb_id = db.create_report(job_id="job-b", owner="bob")
+    rb_id = db.create_report("job-b", _org("bob"), "bob")
     db.set_report(rb_id, stage=models.REPORT_DELIVERED, delivered_pdf="b.pdf")
     # a report still in review (not delivered yet) must not show up for anyone via this list
-    db.set_report(db.create_report(job_id="job-c", owner="alice"), stage=models.REPORT_LEAD)
+    db.set_report(db.create_report("job-c", _org("alice"), "alice"), stage=models.REPORT_LEAD)
 
     ra = client.get("/api/reports", headers=Ha).json()
     assert {r["id"] for r in ra} == {ra_id}
@@ -102,6 +111,7 @@ def test_client_submits_and_proposals_are_scoped():
     reset()
     Ha = _token("alice", "client")
     Hb = _token("bob", "client")
+    Hc = _token("carol", "client", org="org-alice")   # alice's colleague: same organization
     Ht = _token("riyan", "pentester")
     r = client.post("/api/proposals",
                     json={"target": "http://t.example", "authorization_attested": True,
@@ -114,9 +124,12 @@ def test_client_submits_and_proposals_are_scoped():
     assert [p["id"] for p in client.get("/api/proposals", headers=Ha).json()] == [pid]
     assert any(p["id"] == pid for p in client.get("/api/proposals", headers=Ha).json())
     assert not any(p["id"] == pid for p in client.get("/api/proposals", headers=Hb).json())
+    assert [p["id"] for p in client.get("/api/proposals", headers=Hc).json()] == [pid]   # org members share
     assert any(p["id"] == pid for p in client.get("/api/proposals", headers=Ht).json())
-    assert client.get(f"/api/proposals/{pid}", headers=Hb).status_code == 403
+    assert client.get(f"/api/proposals/{pid}", headers=Hb).status_code == 404   # other org: as if missing
+    assert client.get(f"/api/proposals/{pid}", headers=Hc).status_code == 200
     assert client.get(f"/api/proposals/{pid}", headers=Ha).status_code == 200
+    assert db.get_proposal(pid, org_id=None)["org_id"] == _org("alice")   # from the account, not the body
     assert client.get(f"/api/proposals/{pid}", headers=Ht).status_code == 200
 
 
@@ -242,8 +255,8 @@ def test_report_generate_and_download():
     reset()
     H = _token("staff", "client")
     redis_store.set_job({"id": "jr", "target": "http://t.local", "submitter": "staff",
-                         "status": "done", "per_tool_status": {}})
-    db.save_findings("jr", "staff", [{"name": "X", "severity": "high", "host": "h",
+                         "status": "done", "per_tool_status": {}, "org_id": _org("staff")})
+    db.save_findings("jr", "staff", _org("staff"), [{"name": "X", "severity": "high", "host": "h",
                                       "impact": "i", "remediation": "r"}])
     meta = client.post("/api/scans/jr/report", headers=H).json()
     assert meta["template"] == "Executive Summary"
@@ -266,11 +279,12 @@ def test_client_delivered_pdf_and_view_once_password():
     reset()
     Ha = _token("alice", "client")
     Hb = _token("bob", "client")
-    rid = db.create_report(job_id="j1", owner="alice")
+    rid = db.create_report("j1", _org("alice"), "alice")
     db.set_report(rid, stage=models.REPORT_DELIVERED, delivered_pdf=f"{rid}.pdf",
                   pdf_password="pw123", password_viewed=0)
     browser.report_store.save_report_file(f"{rid}.pdf", b"%PDF-1.4 fake")
-    assert client.get(f"/api/reports/{rid}/delivered", headers=Hb).status_code == 403  # not owner
+    assert client.get(f"/api/reports/{rid}/delivered", headers=Hb).status_code == 404  # other org
+    assert client.get(f"/api/reports/{rid}/password", headers=Hb).status_code == 404   # and burns nothing
     r = client.get(f"/api/reports/{rid}/delivered", headers=Ha)
     assert r.status_code == 200 and r.content == b"%PDF-1.4 fake"
     p = client.get(f"/api/reports/{rid}/password", headers=Ha)
@@ -281,7 +295,7 @@ def test_client_delivered_pdf_and_view_once_password():
 def test_client_cannot_access_undelivered_report():
     reset()
     Ha = _token("alice", "client")
-    rid = db.create_report(job_id="j2", owner="alice")   # still at reporter stage
+    rid = db.create_report("j2", _org("alice"), "alice")   # still at reporter stage
     assert client.get(f"/api/reports/{rid}/delivered", headers=Ha).status_code == 409
 
 
@@ -304,11 +318,11 @@ def test_client_findings_are_own_confirmed_only():
     Ha = _token("alice", "client")
     Hb = _token("bob", "client")
     Ht = _token("riyan", "pentester")
-    db.save_findings("ja", "alice", [
+    db.save_findings("ja", "alice", _org("alice"), [
         {"name": "SQLi", "severity": "critical", "host": "h"},
         {"name": "FalsePos", "severity": "low", "host": "h2"},
     ])
-    db.save_findings("jb", "bob", [{"name": "XSS", "severity": "high", "host": "h3"}])
+    db.save_findings("jb", "bob", _org("bob"), [{"name": "XSS", "severity": "high", "host": "h3"}])
     fp_id = next(f["id"] for f in db.get_findings("ja") if f["name"] == "FalsePos")
     db.set_finding(fp_id, verdict="fp")
 
@@ -320,7 +334,7 @@ def test_client_findings_are_own_confirmed_only():
 
     sqli_id = ra[0]["id"]
     assert client.post(f"/api/findings/{sqli_id}/status", headers=Hb,
-                       json={"status": "fixed"}).status_code == 403   # bob doesn't own alice's finding
+                       json={"status": "fixed"}).status_code == 404   # another org's finding: as if missing
     assert client.post(f"/api/findings/{sqli_id}/status", headers=Ha,
                        json={"status": "fixed"}).status_code == 200
     assert db.get_findings("ja")[0]["status"] == "fixed"
@@ -341,8 +355,10 @@ def test_scan_events_tenancy():
     Ha = _token("alice", "client")
     Hb = _token("bob", "client")
     redis_store.set_job({"id": "je1", "target": "http://t", "submitter": "alice",
-                         "status": "done", "per_tool_status": {}})
-    assert client.get("/api/scans/je1/events", headers=Hb).status_code == 403
+                         "status": "done", "per_tool_status": {}, "org_id": _org("alice")})
+    assert client.get("/api/scans/je1/events", headers=Hb).status_code == 404   # other org: as if missing
+    assert client.get("/api/scans/je1", headers=Hb).status_code == 404
+    assert client.get("/api/scans/je1", headers=Ha).json()["status"] == "done"
     assert client.get("/api/scans/nope/events", headers=Ha).status_code == 404
     with client.stream("GET", "/api/scans/je1/events", headers=Ha) as r:
         assert r.status_code == 200
@@ -351,7 +367,7 @@ def test_scan_events_tenancy():
 def test_scan_events_closes_immediately_when_already_done():
     reset()
     H = _token("alice", "client")
-    redis_store.set_job({"id": "je2", "target": "http://t", "submitter": "alice",
+    redis_store.set_job({"id": "je2", "target": "http://t", "submitter": "alice", "org_id": _org("alice"),
                          "status": "done", "per_tool_status": {"katana": "done", "nuclei": "done"}})
     with client.stream("GET", "/api/scans/je2/events", headers=H) as r:
         frames = _sse_frames(r)
@@ -365,7 +381,7 @@ def test_scan_events_streams_progress_until_done():
     browser.SSE_POLL_INTERVAL = 0.05
     try:
         H = _token("alice", "client")
-        redis_store.set_job({"id": "je3", "target": "http://t", "submitter": "alice",
+        redis_store.set_job({"id": "je3", "target": "http://t", "submitter": "alice", "org_id": _org("alice"),
                              "status": "running", "per_tool_status": {"katana": "running"}})
 
         def flip():
