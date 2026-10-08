@@ -27,7 +27,7 @@ load_dotenv()  # repo-root .env, for host-run dev (REDIS_URL, JWT_SECRET, ...)
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, StreamingResponse  # noqa: E402
-from pydantic import BaseModel, Field  # noqa: E402
+from pydantic import BaseModel, Field, StrictInt  # noqa: E402
 
 import audit  # noqa: E402
 import auth  # noqa: E402
@@ -203,7 +203,7 @@ def get_cockpit(user: dict = Depends(current_user), scope: tenancy.Scope = Depen
 class TaskBody(BaseModel):
     target: str = Field(max_length=2048)
     path: str = Field(default="", max_length=512)
-    port: int | None = None
+    port: StrictInt | None = None
     notes: str = Field(default="", max_length=4000)
     not_before: str = Field(max_length=64)
     not_after: str = Field(max_length=64)
@@ -221,6 +221,11 @@ def _client_task_view(t: dict) -> dict:
     }
 
 
+def _client_only(user: dict) -> None:
+    if not models.is_client(user["role"]):
+        raise HTTPException(status_code=403, detail="client role required")
+
+
 def _scoped_task(tid: str, scope: tenancy.Scope) -> dict:
     t = db.get_proposal(tid, org_id=scope.org_id)
     if not t:   # out of scope answers exactly like missing
@@ -230,24 +235,26 @@ def _scoped_task(tid: str, scope: tenancy.Scope) -> dict:
 
 @app.post("/api/tasks")
 def create_task(body: TaskBody, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
-    if not models.is_client(user["role"]):
-        raise HTTPException(status_code=403, detail="client role required")
+    _client_only(user)
     t = deps.run_workflow(workflow.create_task, user["username"], scope.org_id, **body.model_dump())
     return _client_task_view(t)
 
 
 @app.get("/api/tasks")
 def list_tasks(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    _client_only(user)
     return [_client_task_view(t) for t in db.list_proposals(org_id=scope.org_id)]
 
 
 @app.get("/api/tasks/{tid}")
 def get_task(tid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    _client_only(user)
     return {**_client_task_view(_scoped_task(tid, scope)), "timeline": workflow.client_timeline(tid)}
 
 
 @app.get("/api/tasks/{tid}/events")
 def task_timeline(tid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    _client_only(user)
     _scoped_task(tid, scope)
     return workflow.client_timeline(tid)
 

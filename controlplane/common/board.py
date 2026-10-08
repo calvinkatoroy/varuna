@@ -22,6 +22,9 @@ COLUMNS = [
 ]
 _STAGES = {"closed": ("declined", "expired"), "review_manager": ("review_manager", workflow.DELIVERING)}
 
+CAP = 50
+_CAPPED = ("delivered", "closed")
+
 SEV_KEYS = {"critical": "c", "high": "h", "medium": "m", "low": "l"}
 
 
@@ -134,5 +137,10 @@ def build_board(viewer: dict, column: str | None = None) -> list[dict]:
         if cid not in cols:
             continue
         tasks = [t for s in _STAGES.get(cid, (cid,)) for t in db.list_proposals(stage=s, org_id=None)]
-        out.append({"id": cid, "title": title, "accent": accent, "cards": [_card(t, viewer) for t in tasks]})
+        col = {"id": cid, "title": title, "accent": accent}
+        if cid in _CAPPED:   # long-lived columns show the newest cards only
+            tasks.sort(key=lambda t: t["updated_at"], reverse=True)
+            col["more"] = max(0, len(tasks) - CAP)
+            tasks = tasks[:CAP]
+        out.append({**col, "cards": [_card(t, viewer) for t in tasks]})
     return out

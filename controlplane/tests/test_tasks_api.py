@@ -230,3 +230,88 @@ def test_legacy_report_pipeline_routes_are_gone(priv):
         assert priv.post(path, tok).status_code in (404, 405), path
     assert priv.post("/api/pipeline/reports", tok, {"job_id": "j", "template": "Full Technical"}).status_code == 405
     assert db.get_report(db.create_report("j", "o", "alice"), org_id=None)["stage"] == "draft"
+
+
+def test_transition_without_version_is_422(priv):
+    _staff(("rizky", "pentester"))
+    tid = _new_task()
+    assert priv.post(f"/api/tasks/{tid}/transition", priv.login("rizky", PW), {"to": "scan/pending"}).status_code == 422
+
+
+def test_window_that_starts_after_it_ends_is_422(api):
+    make_client("alice", "PT A")
+    nb, na = window()
+    assert api.post("/api/tasks", api.login("alice", PW), _body(not_before=na, not_after=nb)).status_code == 422
+
+
+@pytest.mark.parametrize("port", [True, 80.5, "80"])
+def test_port_must_be_a_whole_number(api, port):
+    make_client("alice", "PT A")
+    body = _body(port=port)
+    assert api.post("/api/tasks", api.login("alice", PW), body).status_code == 422
+
+
+def test_client_task_view_has_exactly_these_keys(api):
+    make_client("alice", "PT A")
+    tok = api.login("alice", PW)
+    tid = api.post("/api/tasks", tok, _body()).json()["id"]
+    keys = {"id", "target", "path", "port", "notes", "scan_mode", "status", "when", "reason", "job_id",
+            "not_before", "not_after", "scheduled_at"}
+    assert set(api.get("/api/tasks", tok).json()[0]) == keys
+    assert set(api.get(f"/api/tasks/{tid}", tok).json()) == keys | {"timeline"}
+
+
+def test_team_token_on_the_public_plane_cannot_read_client_task_views(api):
+    make_client("alice", "PT A")
+    tid = api.post("/api/tasks", api.login("alice", PW), _body()).json()["id"]
+    _staff(("rizky", "pentester"))
+    staff = api.login("rizky", PW)
+    for path in ("/api/tasks", f"/api/tasks/{tid}", f"/api/tasks/{tid}/events"):
+        assert api.get(path, staff).status_code == 403, path
+
+
+def test_legacy_rows_show_as_expired_never_in_review(api):
+    org = make_client("alice", "PT A")
+    db.create_proposal({"submitter": "alice", "org_id": org, "target": "http://old.example", "status": "approved",
+                        "stage": "expired", "purpose": "legacy", "authorization_attested": True})
+    rows = api.get("/api/tasks", api.login("alice", PW)).json()
+    assert [r["status"] for r in rows] == ["expired"] and rows[0]["not_before"] is None
+
+
+def test_client_token_is_refused_on_private_task_reads(priv, api):
+    make_client("alice", "PT A")
+    tok = api.login("alice", PW)
+    tid = api.post("/api/tasks", tok, _body()).json()["id"]
+    for path in (f"/api/tasks/{tid}/events", f"/api/tasks/{tid}/detail"):
+        assert priv.get(path, tok).status_code == 403, path
+
+
+def test_install_unlock_negatives(api):
+    make_client("alice", "PT A")
+    make_client("carol", "PT A")          # colleague, same organization
+    make_client("bob", "PT B")
+    auth.create_account("rizky", PW, "pentester")
+    alice, bob = api.login("alice", PW), api.login("bob", PW)
+    mine = api.post("/api/tasks", alice, _body(scan_mode="local")).json()["id"]
+    theirs = api.post("/api/tasks", bob, _body(scan_mode="local")).json()["id"]
+    colleague = api.post("/api/tasks", api.login("carol", PW), _body(scan_mode="local")).json()["id"]
+    workflow.transition(colleague, "scan/pending", "rizky", org_id=None)     # same org, other submitter
+    workflow.transition(theirs, "scan/pending", "rizky", org_id=None)        # other org
+    assert api.post("/api/agent/install-token", alice).status_code == 403
+    workflow.transition(mine, "declined", "rizky", org_id=None, comment="no")   # a declined task never unlocks it
+    assert api.post("/api/agent/install-token", alice).status_code == 403
+    again = api.post("/api/tasks", alice, _body(scan_mode="local")).json()["id"]
+    workflow.transition(again, "scan/pending", "rizky", org_id=None)
+    assert api.post("/api/agent/install-token", alice).status_code == 200
+    db.cas_task(again, 1, {"stage": "expired", "scan_state": None})              # closed again: locked again
+    assert api.post("/api/agent/install-token", alice).status_code == 403
+
+
+def test_reviewer_cannot_ask_for_another_stages_column(priv):
+    _staff(("sari", "governance"), ("rizky", "pentester"))
+    _new_task(stage="review_governance")
+    _new_task(stage="review_lead_cyber")
+    gov = priv.login("sari", PW)
+    assert priv.get("/api/board?column=review_lead_cyber", gov).status_code == 403
+    cols = priv.get("/api/board?column=review_lead_cyber", priv.login("rizky", PW)).json()
+    assert [c["id"] for c in cols] == ["review_lead_cyber"] and len(cols[0]["cards"]) == 1

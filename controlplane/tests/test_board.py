@@ -68,3 +68,20 @@ def test_build_board_filters_by_stage_in_the_query(monkeypatch):
     monkeypatch.setattr(board.db, "list_proposals", lambda *a, **k: seen.append(k.get("stage")) or real(*a, **k))
     board.build_board({"username": "x", "role": "governance"})
     assert seen == ["review_governance", "delivered"]
+
+
+def test_delivered_and_closed_columns_are_capped_at_the_newest_50(priv):
+    org = make_client("alice", "PT A")
+    nb, na = window()
+    for i in range(55):
+        db.create_proposal({"id": f"d{i:02d}", "submitter": "alice", "org_id": org, "target": "http://8.8.8.8",
+                            "stage": "delivered", "not_before": nb, "not_after": na})
+        db.get_conn().execute("UPDATE proposals SET updated_at=? WHERE id=?", (f"2026-10-01 00:{i:02d}:00", f"d{i:02d}"))
+    db.create_proposal({"submitter": "alice", "org_id": org, "target": "http://8.8.8.8", "stage": "task",
+                        "not_before": nb, "not_after": na})
+    db.get_conn().commit()
+    auth.create_account("staff", PW, "pentester")
+    cols = {c["id"]: c for c in priv.get("/api/board", priv.login("staff", PW)).json()}
+    assert len(cols["delivered"]["cards"]) == 50 and cols["delivered"]["more"] == 5
+    assert cols["delivered"]["cards"][0]["id"] == "d54" and cols["delivered"]["cards"][-1]["id"] == "d05"
+    assert cols["closed"]["more"] == 0 and "more" not in cols["task"]
