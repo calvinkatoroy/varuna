@@ -92,3 +92,12 @@ def require_lead(user: dict = Depends(current_user)) -> dict:
     if not models.can_approve(user["role"]):
         raise HTTPException(status_code=403, detail="lead pentester role required")
     return user
+
+
+def run_workflow(fn, *args, **kwargs):
+    """Call a workflow function; its typed errors become HTTP answers (404/403/409/422) in one place."""
+    import workflow
+    try:
+        return fn(*args, **kwargs)
+    except workflow.WorkflowError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))

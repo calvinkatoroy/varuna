@@ -57,7 +57,7 @@ def _seed_two_orgs(tmp_path):
 def _candidates(b):
     """Every path parameter name the two apps use, mapped to org B's real ids."""
     return {
-        "pid": [b["pid"]], "rid": [b["rid"]], "fid": [b["fid"]], "job_id": [b["job_id"]],
+        "pid": [b["pid"]], "tid": [b["pid"]], "rid": [b["rid"]], "fid": [b["fid"]], "job_id": [b["job_id"]],
         "fname": [b["fname"], f"{b['rid']}_delivered.pdf", f"{b['rid']}_v1.docx"],
         "id": [b["pid"], b["rid"]], "n": ["1"], "username": ["beta"], "action": ["disable"], "org_id": [b["org"]],
     }

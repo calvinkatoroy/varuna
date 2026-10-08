@@ -46,6 +46,7 @@ import scanopts  # noqa: E402
 import store as report_store  # noqa: E402
 import tenancy  # noqa: E402
 import tokens  # noqa: E402
+import workflow  # noqa: E402
 import deps  # noqa: E402
 import profile_api  # noqa: E402
 from deps import current_user, require_lead, require_pro  # noqa: E402
@@ -215,6 +216,59 @@ def get_cockpit(user: dict = Depends(current_user), scope: tenancy.Scope = Depen
     if not models.is_client(user["role"]):
         raise HTTPException(status_code=403, detail="client role required")
     return cockpit.build_cockpit(user["username"], scope.org_id)
+
+
+# --- tasks (step 2): a client asks for a scan inside a time window; a pentester claims it ---
+class TaskBody(BaseModel):
+    target: str = Field(max_length=2048)
+    path: str = Field(default="", max_length=512)
+    port: int | None = None
+    notes: str = Field(default="", max_length=4000)
+    not_before: str = Field(max_length=64)
+    not_after: str = Field(max_length=64)
+    scan_mode: str = Field(default="local", pattern="^(local|cloud)$")
+
+
+def _client_task_view(t: dict) -> dict:
+    """What a client may see of a task: status words and the decline cause, never staff names or comments."""
+    return {
+        "id": t["id"], "target": t["target"], "path": t["path"] or "", "port": t["port"], "notes": t["notes"] or "",
+        "scan_mode": t["scan_mode"], "status": workflow.client_status(t), "when": t["updated_at"],
+        "reason": t["decline_cause"] if t["stage"] == "declined" else None, "job_id": t["job_id"],
+        "not_before": t["not_before"], "not_after": t["not_after"],
+        "scheduled_at": t["scheduled_at"] if t["stage"] == "scan" else None,
+    }
+
+
+def _scoped_task(tid: str, scope: tenancy.Scope) -> dict:
+    t = db.get_proposal(tid, org_id=scope.org_id)
+    if not t:   # out of scope answers exactly like missing
+        raise HTTPException(status_code=404, detail="no such task")
+    return t
+
+
+@app.post("/api/tasks")
+def create_task(body: TaskBody, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    if not models.is_client(user["role"]):
+        raise HTTPException(status_code=403, detail="client role required")
+    t = deps.run_workflow(workflow.create_task, user["username"], scope.org_id, **body.model_dump())
+    return _client_task_view(t)
+
+
+@app.get("/api/tasks")
+def list_tasks(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    return [_client_task_view(t) for t in db.list_proposals(org_id=scope.org_id)]
+
+
+@app.get("/api/tasks/{tid}")
+def get_task(tid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    return {**_client_task_view(_scoped_task(tid, scope)), "timeline": workflow.client_timeline(tid)}
+
+
+@app.get("/api/tasks/{tid}/events")
+def task_timeline(tid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    _scoped_task(tid, scope)
+    return workflow.client_timeline(tid)
 
 
 # --- scan proposals (v2): client submits, lead pentester approves ---
