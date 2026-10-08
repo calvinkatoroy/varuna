@@ -6,7 +6,7 @@ const BAND =
   'radial-gradient(120% 150% at 88% -25%, rgba(34,211,197,.26), transparent 46%),' +
   'linear-gradient(158deg,#0B5FA5 0%,#0A2A43 62%,#060F18 100%)'
 
-// Compact page frame for the client sub-pages (Proposals / Findings / Reports): one merged
+// Compact page frame for the client sub-pages (Tasks / Findings / Reports): one merged
 // hero (brand/nav/controls + title), matching the cockpit. `position: fixed` (see .hero-sticky
 // in index.css) so its own shrink-on-scroll never moves `main` below it - `main` reserves a
 // constant gap instead of depending on the hero's live height.

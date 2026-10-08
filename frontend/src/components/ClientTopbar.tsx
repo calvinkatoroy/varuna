@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Bell, CheckCircle2, FileText, KeyRound, LogOut, Moon, UserRound, XCircle } from 'lucide-react'
-import { api } from '@/api'
+import { tasks } from '@/api'
 import { useAuth } from '@/auth'
 import { ThemeToggle } from './ThemeToggle'
 import { ClientNav } from './ClientNav'
@@ -13,26 +13,25 @@ import { roleLabel } from '@/lib/roles'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu'
 
 // Solid bg-card (no backdrop-filter): stacking many blurred/glassed regions this close
-// together (nav pill + these 3 + AgentStatus + New Proposal, all in one row) triggers a real
+// together (nav pill + these 3 + AgentStatus + New task, all in one row) triggers a real
 // Chromium compositor limitation where adjacent backdrop-filter regions bleed into each
 // other's rendering - not fixable by tuning, only by not having that many at once.
 const ctrl = 'relative grid h-11 w-11 flex-none place-items-center rounded-full border border-rule bg-card text-ink shadow-[0_4px_14px_rgba(0,0,0,.16)] transition-colors hover:bg-panel'
 
-// Derived from the actual proposals list (not a couple of hardcoded demo lines), so it reflects
-// whatever really happened last: a delivered report, a rejection with its reason, or a proposal
-// that cleared into review. No push/real-time layer here (this is the mock) - it's read fresh
+// Derived from the actual tasks list (not a couple of hardcoded demo lines), so it reflects
+// whatever really happened last: a delivered report, a declined task, or a scan that got scheduled. No push/real-time layer here (this is the mock) - it's read fresh
 // whenever the menu is opened, same as everything else in the prototype.
 function useNotifications() {
   const [items, setItems] = useState<{ icon: React.ReactNode; text: string; when: string }[]>([])
   useEffect(() => {
-    api.get('/api/proposals').then((rows: any[]) => {
+    tasks.list().then((rows) => {
       const list: { icon: React.ReactNode; text: string; when: string }[] = []
-      const delivered = rows.find((p) => p.status === 'delivered')
+      const delivered = rows.find((t) => t.status === 'delivered')
       if (delivered) list.push({ icon: <FileText size={15} />, text: `Report delivered for ${delivered.target}`, when: delivered.when })
-      const rejected = rows.find((p) => p.status === 'rejected')
-      if (rejected) list.push({ icon: <XCircle size={15} className="text-crit" />, text: `Proposal rejected: ${rejected.target}`, when: rejected.when })
-      const inReview = rows.find((p) => p.status === 'in_review')
-      if (inReview) list.push({ icon: <CheckCircle2 size={15} />, text: `Approved, now in review: ${inReview.target}`, when: inReview.when })
+      const declined = rows.find((t) => t.status === 'declined')
+      if (declined) list.push({ icon: <XCircle size={15} className="text-crit" />, text: `Task declined: ${declined.target}`, when: declined.when })
+      const scheduled = rows.find((t) => t.status === 'scheduled')
+      if (scheduled) list.push({ icon: <CheckCircle2 size={15} />, text: `Scan scheduled: ${scheduled.target}`, when: scheduled.when })
       setItems(list)
     }).catch(() => {})
   }, [])

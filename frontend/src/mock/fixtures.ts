@@ -13,7 +13,7 @@ export const engagements = [
   { id: 'e3', target: 'staging.acme.io', mode: 'standard', status: 'scanning', grade: 'C', sev: { c: 1, h: 1, m: 2, l: 1 }, open: 3, fixed: 2, when: 'now' },
   { id: 'e4', target: 'shop.acme.io', mode: 'standard', status: 'in_review', grade: 'C', sev: { c: 1, h: 2, m: 2, l: 1 }, open: 4, fixed: 2, when: '5h ago' },
   { id: 'e5', target: 'admin.acme.io', mode: 'advanced', status: 'delivered', grade: 'B', sev: { c: 0, h: 1, m: 3, l: 2 }, open: 4, fixed: 2, when: 'Jun 2' },
-  { id: 'e6', target: 'vpn.acme.io', mode: 'advanced', status: 'pending', grade: 'D', sev: { c: 2, h: 1, m: 1, l: 1 }, open: 3, fixed: 2, when: '1d ago' },
+  { id: 'e6', target: 'vpn.acme.io', mode: 'advanced', status: 'waiting', grade: 'D', sev: { c: 2, h: 1, m: 1, l: 1 }, open: 3, fixed: 2, when: '1d ago' },
   { id: 'e7', target: 'cdn.acme.io', mode: 'standard', status: 'scanning', grade: 'B', sev: { c: 0, h: 2, m: 2, l: 3 }, open: 5, fixed: 2, when: '20m ago' },
   { id: 'e8', target: 'mail.acme.io', mode: 'standard', status: 'delivered', grade: 'A', sev: { c: 1, h: 0, m: 1, l: 2 }, open: 2, fixed: 2, when: 'May 22' },
 ]
@@ -44,21 +44,14 @@ export const latestReport = {
 
 export const cockpit = { me, engagements, posture, trend, latestReport }
 
-// Client's scan proposals (distinct from the cockpit's engagements list).
-export const proposals = [
-  { id: 'pr1', target: 'api.acme.io', purpose: 'Pre-release', division: 'Engineering', status: 'in_review', when: '2h ago' },
-  { id: 'pr2', target: 'acme.io', purpose: 'Compliance', division: 'IT', status: 'delivered', when: 'Jun 18' },
-  { id: 'pr3', target: 'staging.acme.io', purpose: 'Periodic', division: 'Platform', status: 'scanning', when: 'now' },
-  { id: 'pr4', target: 'shop.acme.io', purpose: 'Pre-release', division: 'E-commerce', status: 'in_review', when: '5h ago' },
-  { id: 'pr5', target: 'admin.acme.io', purpose: 'Compliance', division: 'IT', status: 'delivered', when: 'Jun 2' },
-  { id: 'pr6', target: 'vpn.acme.io', purpose: 'Incident', division: 'SecOps', status: 'pending', when: '1d ago' },
-  { id: 'pr7', target: 'cdn.acme.io', purpose: 'Periodic', division: 'Platform', status: 'scanning', when: '20m ago' },
-  { id: 'pr8', target: 'mail.acme.io', purpose: 'Compliance', division: 'IT', status: 'delivered', when: 'May 22' },
-  { id: 'pr9', target: 'partners.acme.io', purpose: 'Pre-release', division: 'Business Dev', status: 'pending', when: '2d ago' },
-  { id: 'pr10', target: 'checkout.acme.io', purpose: 'Incident', division: 'E-commerce', status: 'pending', when: '3d ago' },
-  { id: 'pr11', target: 'status.acme.io', purpose: 'Periodic', division: 'Platform', status: 'delivered', when: 'May 8' },
-  { id: 'pr12', target: 'docs.acme.io', purpose: 'Pre-release', division: 'Developer Relations', status: 'delivered', when: 'Apr 30' },
-  { id: 'pr13', target: 'legacy-vpn.acme.io', purpose: 'Incident', division: 'SecOps', status: 'rejected', when: '4d ago', reason: 'Authorization could not be verified: the submitting account is not listed as a technical or legal contact for this domain. Resubmit with proof of ownership or an authorization letter.' },
+// Client's tasks (mock VITE_MOCK=1), in the API's client vocabulary.
+const win = (from: string, to: string) => ({ not_before: from, not_after: to })
+export const tasks = [
+  { id: 't1', target: 'https://portal.samudera.co.id', path: '/app', port: null, notes: 'Akun uji: demo/demo', scan_mode: 'cloud', status: 'in_review', when: '2h ago', reason: null, job_id: null, scheduled_at: null, ...win('2026-10-08T01:00:00Z', '2026-10-12T10:00:00Z') },
+  { id: 't2', target: 'https://tracking.samudera.co.id', path: '', port: 8443, notes: '', scan_mode: 'cloud', status: 'scheduled', when: '20m ago', reason: null, job_id: null, scheduled_at: '2026-10-09T02:00:00Z', ...win('2026-10-08T01:00:00Z', '2026-10-10T10:00:00Z') },
+  { id: 't3', target: 'http://10.0.4.12', path: '', port: null, notes: 'Server internal gudang', scan_mode: 'local', status: 'waiting', when: '5m ago', reason: null, job_id: null, scheduled_at: null, ...win('2026-10-09T01:00:00Z', '2026-10-15T10:00:00Z') },
+  { id: 't4', target: 'https://app.samudera.co.id', path: '', port: null, notes: '', scan_mode: 'cloud', status: 'delivered', when: 'Sep 30', reason: null, job_id: null, scheduled_at: null, ...win('2026-09-20T01:00:00Z', '2026-09-30T10:00:00Z') },
+  { id: 't5', target: 'https://legacy.samudera.co.id', path: '', port: null, notes: '', scan_mode: 'cloud', status: 'declined', when: '3d ago', reason: 'Bukti kepemilikan domain belum kami terima. Mohon kirim ulang dengan surat kuasa.', job_id: null, scheduled_at: null, ...win('2026-10-01T01:00:00Z', '2026-10-05T10:00:00Z') },
 ]
 
 // Client's delivered reports (download + view-once password).
@@ -71,73 +64,25 @@ export const reports = [
   { id: 'rep6', engagement: 'docs.acme.io, Standard VA', delivered: 'Apr 30, 2026', findings: 5, templates: ['Formal handover', 'Executive summary', 'Raw (FP/TP)'], signed: true },
 ]
 
-// --- Team / advanced side: the review pipeline board (team sees ALL clients) ---
-type Card = {
-  id: string; client: string; target: string; mode: 'standard' | 'advanced'
-  sev: { c: number; h: number; m: number; l: number }; meta: string; owner?: string
-  suspended?: boolean; rejectReason?: string
-}
-export const board: { id: string; title: string; accent: string; cards: Card[] }[] = [
-  {
-    id: 'pending', title: 'Pending approval', accent: 'accent',
-    cards: [
-      { id: 'p1', client: 'Acme Corp', target: 'partners.acme.io', mode: 'standard', sev: { c: 0, h: 0, m: 0, l: 0 }, meta: 'Submitted 12m ago' },
-      { id: 'p2', client: 'Nimbus Ltd', target: 'nimbus.co/app', mode: 'standard', sev: { c: 0, h: 0, m: 0, l: 0 }, meta: 'Submitted 2h ago' },
-      { id: 'p3', client: 'Acme Corp', target: 'vpn.acme.io', mode: 'advanced', sev: { c: 0, h: 0, m: 0, l: 0 }, meta: 'Submitted 1d ago' },
-      { id: 'p4', client: 'Fernway Logistics', target: 'track.fernway.com', mode: 'standard', sev: { c: 0, h: 0, m: 0, l: 0 }, meta: 'Submitted 3h ago' },
-      { id: 'p5', client: 'Brightside Retail', target: 'checkout.brightside.io', mode: 'standard', sev: { c: 0, h: 0, m: 0, l: 0 }, meta: 'Submitted 40m ago' },
-    ],
-  },
-  {
-    id: 'scanning', title: 'Scanning', accent: 'info',
-    cards: [
-      { id: 's1', client: 'Vault Bank', target: 'vaultbank.id', mode: 'standard', sev: { c: 0, h: 1, m: 3, l: 2 }, meta: 'Nuclei · 62%' },
-      { id: 's2', client: 'Acme Corp', target: 'staging.acme.io', mode: 'standard', sev: { c: 1, h: 1, m: 2, l: 1 }, meta: 'Katana → Nuclei · 41%' },
-      { id: 's3', client: 'Acme Corp', target: 'cdn.acme.io', mode: 'standard', sev: { c: 0, h: 2, m: 2, l: 3 }, meta: 'Nuclei · 78%' },
-      { id: 's4', client: 'Lumen Health', target: 'portal.lumenhealth.io', mode: 'advanced', sev: { c: 0, h: 0, m: 1, l: 1 }, meta: 'SQLMap queued' },
-    ],
-  },
-  {
-    id: 'in_review_reporter', title: 'First review', accent: 'high',
-    cards: [
-      { id: 'r1', client: 'Acme Corp', target: 'acme.io', mode: 'standard', sev: { c: 2, h: 5, m: 11, l: 8 }, meta: 'v2 · editing', owner: 'Aisah' },
-      { id: 'r2', client: 'Acme Corp', target: 'api.acme.io', mode: 'advanced', sev: { c: 1, h: 2, m: 1, l: 0 }, meta: 'v1 · drafting', owner: 'Aisah' },
-      { id: 'r3', client: 'Northwind Freight', target: 'app.northwindfreight.com', mode: 'standard', sev: { c: 0, h: 1, m: 3, l: 4 }, meta: 'v1 · editing', owner: 'Aisah' },
-    ],
-  },
-  {
-    id: 'in_review_lead', title: 'Lead', accent: 'crit',
-    cards: [
-      { id: 'l1', client: 'Shopwave', target: 'shopwave.store', mode: 'advanced', sev: { c: 1, h: 3, m: 6, l: 4 }, meta: 'v3 · reviewing', owner: 'Riyan' },
-      { id: 'l2', client: 'Acme Corp', target: 'shop.acme.io', mode: 'standard', sev: { c: 1, h: 2, m: 2, l: 1 }, meta: 'v2 · reviewing', owner: 'Riyan' },
-    ],
-  },
-  {
-    id: 'in_review_governance', title: 'Governance', accent: 'med',
-    cards: [
-      { id: 'g1', client: 'Meridian Health', target: 'portal.meridian.health', mode: 'standard', sev: { c: 0, h: 2, m: 4, l: 9 }, meta: 'v4 · sign-off', owner: 'Hani' },
-      { id: 'g2', client: 'Acme Corp', target: 'admin.acme.io', mode: 'advanced', sev: { c: 0, h: 1, m: 3, l: 2 }, meta: 'v3 · sign-off', owner: 'Hani' },
-    ],
-  },
-  {
-    id: 'delivered', title: 'Delivered', accent: 'low',
-    cards: [
-      { id: 'd1', client: 'Acme Corp', target: 'acme.io', mode: 'standard', sev: { c: 0, h: 2, m: 4, l: 8 }, meta: 'Jun 18 · PDF sent' },
-      { id: 'd2', client: 'Orbit Media', target: 'orbit.media', mode: 'advanced', sev: { c: 0, h: 0, m: 2, l: 3 }, meta: 'Jun 14 · PDF sent' },
-      { id: 'd3', client: 'Acme Corp', target: 'mail.acme.io', mode: 'standard', sev: { c: 1, h: 0, m: 1, l: 2 }, meta: 'May 22 · PDF sent' },
-      { id: 'd4', client: 'Acme Corp', target: 'status.acme.io', mode: 'standard', sev: { c: 0, h: 0, m: 1, l: 2 }, meta: 'May 8 · PDF sent' },
-      { id: 'd5', client: 'Acme Corp', target: 'docs.acme.io', mode: 'standard', sev: { c: 0, h: 1, m: 2, l: 2 }, meta: 'Apr 30 · PDF sent' },
-      { id: 'd6', client: 'Calder Insurance', target: 'quote.calderinsurance.com', mode: 'standard', sev: { c: 0, h: 0, m: 2, l: 4 }, meta: 'Apr 25 · PDF sent' },
-    ],
-  },
-  {
-    // Terminal, off the pending->...->delivered stepper. Proposals land here (with a reason)
-    // instead of being deleted, so rejection has an audit trail on the team side too.
-    id: 'rejected', title: 'Rejected', accent: 'crit',
-    cards: [
-      { id: 'x1', client: 'Meridian Health', target: 'legacy-vpn.meridian.health', mode: 'standard', sev: { c: 0, h: 0, m: 0, l: 0 }, meta: 'Authorization could not be verified', rejectReason: 'Authorization could not be verified: submitter is not listed as a technical or legal contact for this domain.' },
-    ],
-  },
+// --- Team side (mock): the role-scoped task board ---
+const act = (to: string, kind: string, comment = false) => ({ to, kind, comment, allowed: true, why: null })
+const card = (id: string, stage: string, scanState: string | null, client: string, target: string, meta: string, actions: any[], extra: object = {}) => ({
+  id, version: 1, stage, scanState, client, target, scanMode: 'cloud', sev: { c: 0, h: 1, m: 2, l: 1 }, meta,
+  assignee: stage === 'task' ? null : 'dimas', jobId: null, suspended: scanState === 'suspended', reason: null, actions, ...extra,
+})
+export const taskBoard = [
+  { id: 'task', title: 'Tasks', accent: 'accent', cards: [card('k1', 'task', null, 'PT Samudera Logistik', 'http://10.0.4.12', 'Submitted 5m ago', [act('scan/pending', 'claim'), act('declined', 'decline', true)])] },
+  { id: 'scan', title: 'Scans', accent: 'info', cards: [
+    card('k2', 'scan', 'scheduled', 'PT Samudera Logistik', 'https://tracking.samudera.co.id:8443', 'Starts 2026-10-09T02:00:00+00:00', [act('scan/pending', 'unschedule')]),
+    card('k3', 'scan', 'suspended', 'PT Nusantara Pelabuhan', 'https://kapal.nusantara.co.id', 'agent offline', [act('scan/in_progress', 'resume'), act('scan/scheduled', 'schedule'), act('expired', 'close', true)]),
+  ] },
+  { id: 'completed', title: 'Completed', accent: 'high', cards: [card('k4', 'completed', null, 'PT Sinar Cargo', 'https://sinarcargo.co.id', 'Scan finished, ready to submit', [act('review_lead_pentester', 'submit')])] },
+  { id: 'review_lead_pentester', title: 'Lead Pentester review', accent: 'crit', cards: [card('k5', 'review_lead_pentester', null, 'PT Samudera Logistik', 'https://portal.samudera.co.id/app', 'v2 · riyan', [act('review_lead_cyber', 'approve'), act('completed', 'send_back', true)])] },
+  { id: 'review_lead_cyber', title: 'Lead Cyber review', accent: 'med', cards: [] },
+  { id: 'review_governance', title: 'Governance review', accent: 'med', cards: [] },
+  { id: 'review_manager', title: 'Manager review', accent: 'high', cards: [] },
+  { id: 'delivered', title: 'Delivered', accent: 'low', cards: [card('k6', 'delivered', null, 'PT Samudera Logistik', 'https://app.samudera.co.id', '2026-09-30 · PDF sent', [])] },
+  { id: 'closed', title: 'Declined / Expired', accent: 'crit', cards: [card('k7', 'declined', null, 'PT Samudera Logistik', 'https://legacy.samudera.co.id', 'Bukti kepemilikan domain belum kami terima', [])] },
 ]
 
 // Findings master-detail (team review + client-facing confirmed list). Sums to posture:
@@ -199,76 +144,12 @@ export const findings = [
   { id: 'fp5', name: 'Rate limit alert (legitimate load test)', severity: 'low', asset: '/api/v1/health', tool: 'nuclei', cve: 'CWE-307', verdict: 'fp', status: 'open', evidence: 'Burst of requests correlated with a scheduled internal load test, not an attacker', remediation: 'No action needed; exclude the load-test source IP range from future scans.' },
 ]
 
-// Per-engagement detail for the review drawer - one entry per board card, so opening any
-// card's drawer shows its own real scope/RoE instead of the same hardcoded placeholder.
-// version_no/created_at (not n/when) - matches what TeamBoard.tsx's whenOf() and downloadVersion()
-// actually consume (the real API's shape); a field-name mismatch here throws inside whenOf's
-// .replace() the moment "View details" opens a card with versions.
-type Detail = { proposal: { purpose: string; division: string; environment: string; authorized: boolean }; versions?: { version_no: number; editor: string; note: string; created_at: string }[] }
-export const engagementDetail: Record<string, Detail> = {
-  // Pending approval
-  p1: { proposal: { purpose: 'Pre-release', division: 'Business Dev', environment: 'Production', authorized: true } },
-  p2: { proposal: { purpose: 'Compliance', division: 'IT', environment: 'Production', authorized: true } },
-  p3: { proposal: { purpose: 'Incident', division: 'SecOps', environment: 'Production', authorized: true } },
-  p4: { proposal: { purpose: 'Periodic', division: 'Logistics', environment: 'Production', authorized: true } },
-  p5: { proposal: { purpose: 'Pre-release', division: 'E-commerce', environment: 'Staging', authorized: true } },
-  // Scanning
-  s1: { proposal: { purpose: 'Compliance', division: 'Risk & Compliance', environment: 'Production', authorized: true } },
-  s2: { proposal: { purpose: 'Periodic', division: 'Platform', environment: 'Staging', authorized: true } },
-  s3: { proposal: { purpose: 'Periodic', division: 'Platform', environment: 'Production', authorized: true } },
-  s4: { proposal: { purpose: 'Pre-release', division: 'Patient Portal', environment: 'Staging', authorized: true } },
-  // First review (in_review_reporter stage)
-  r1: {
-    proposal: { purpose: 'Pre-release', division: 'Engineering', environment: 'Production', authorized: true },
-    versions: [
-      { version_no: 1, editor: 'system', note: 'auto-generated v1', created_at: '2026-06-19 09:12:00' },
-      { version_no: 2, editor: 'Aisah', note: 'fixed exec summary, marked 2 FPs', created_at: '2026-06-19 14:40:00' },
-    ],
-  },
-  r2: { proposal: { purpose: 'Compliance', division: 'Engineering', environment: 'Production', authorized: true }, versions: [{ version_no: 1, editor: 'Aisah', note: 'auto-generated v1, drafting', created_at: '2026-06-20 10:05:00' }] },
-  r3: { proposal: { purpose: 'Periodic', division: 'Fleet Ops', environment: 'Production', authorized: true }, versions: [{ version_no: 1, editor: 'system', note: 'auto-generated v1', created_at: '2026-06-20 08:40:00' }] },
-  // Lead
-  l1: {
-    proposal: { purpose: 'Pre-release', division: 'E-commerce', environment: 'Production', authorized: true },
-    versions: [
-      { version_no: 1, editor: 'system', note: 'auto-generated v1', created_at: '2026-06-17 11:00:00' },
-      { version_no: 2, editor: 'Dimas', note: 'rewrote remediation for 3 findings', created_at: '2026-06-18 09:30:00' },
-      { version_no: 3, editor: 'Dimas', note: 'reviewing severity calls', created_at: '2026-06-19 16:12:00' },
-    ],
-  },
-  l2: {
-    proposal: { purpose: 'Pre-release', division: 'E-commerce', environment: 'Production', authorized: true },
-    versions: [
-      { version_no: 1, editor: 'system', note: 'auto-generated v1', created_at: '2026-06-18 13:00:00' },
-      { version_no: 2, editor: 'Dimas', note: 'reviewing', created_at: '2026-06-19 09:20:00' },
-    ],
-  },
-  // Governance
-  g1: {
-    proposal: { purpose: 'Compliance', division: 'Patient Data', environment: 'Production', authorized: true },
-    versions: [
-      { version_no: 1, editor: 'system', note: 'auto-generated v1', created_at: '2026-06-12 09:00:00' },
-      { version_no: 2, editor: 'Riyan', note: 'lead review, 1 FP marked', created_at: '2026-06-14 15:40:00' },
-      { version_no: 3, editor: 'Riyan', note: 'severity adjusted per client feedback', created_at: '2026-06-16 11:10:00' },
-      { version_no: 4, editor: 'Hani', note: 'final sign-off pass', created_at: '2026-06-17 10:00:00' },
-    ],
-  },
-  g2: {
-    proposal: { purpose: 'Compliance', division: 'IT', environment: 'Production', authorized: true },
-    versions: [
-      { version_no: 1, editor: 'system', note: 'auto-generated v1', created_at: '2026-06-15 09:00:00' },
-      { version_no: 2, editor: 'Riyan', note: 'lead review', created_at: '2026-06-16 14:20:00' },
-      { version_no: 3, editor: 'Hani', note: 'final sign-off pass', created_at: '2026-06-17 09:45:00' },
-    ],
-  },
-  // Delivered
-  d1: { proposal: { purpose: 'Compliance', division: 'IT', environment: 'Production', authorized: true } },
-  d2: { proposal: { purpose: 'Pre-release', division: 'Marketing', environment: 'Production', authorized: true } },
-  d3: { proposal: { purpose: 'Compliance', division: 'IT', environment: 'Production', authorized: true } },
-  d4: { proposal: { purpose: 'Periodic', division: 'Platform', environment: 'Production', authorized: true } },
-  d5: { proposal: { purpose: 'Pre-release', division: 'Developer Relations', environment: 'Production', authorized: true } },
-  d6: { proposal: { purpose: 'Compliance', division: 'Risk & Compliance', environment: 'Production', authorized: true } },
-}
+export const taskDetail = (id: string) => ({
+  task: { id, target: 'https://portal.samudera.co.id', path: '/app', port: null, notes: 'Akun uji: demo/demo', scan_mode: 'cloud',
+    not_before: '2026-10-08T01:00:00Z', not_after: '2026-10-12T10:00:00Z', max_minutes: 240, scheduled_at: null,
+    assignee: 'dimas', suspend_reason: null, decline_cause: null, stage: 'review_lead_pentester', scan_state: null, version: 1, job_id: null },
+  report_id: 'rep-' + id, versions: [{ version_no: 1, editor: 'system', note: 'auto-generated v1', created_at: '2026-10-08 09:12:00' }],
+})
 
 // System administrator console (VITE_MOCK=1): organizations and every account, Indonesian sample data.
 export const orgs = [

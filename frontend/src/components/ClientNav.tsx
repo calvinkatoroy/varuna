@@ -5,7 +5,7 @@ import { Link, useLocation } from 'react-router-dom'
 // see ClientTopbar's ctrl comment for why (too many adjacent blur regions bleed into each other).
 const items: [string, string][] = [
   ['Overview', '/'],
-  ['Proposals', '/proposals'],
+  ['Tasks', '/tasks'],
   ['Findings', '/findings'],
   ['Reports', '/reports'],
 ]

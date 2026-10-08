@@ -5,7 +5,7 @@ import { FilePlus2, FileText, LayoutDashboard, ShieldAlert } from 'lucide-react'
 // pill, one tap each, the current one lit. Hidden from tablet up (the pill nav returns there).
 const items = [
   { label: 'Overview', to: '/', icon: LayoutDashboard },
-  { label: 'Proposals', to: '/proposals', icon: FilePlus2 },
+  { label: 'Tasks', to: '/tasks', icon: FilePlus2 },
   { label: 'Findings', to: '/findings', icon: ShieldAlert },
   { label: 'Reports', to: '/reports', icon: FileText },
 ]

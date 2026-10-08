@@ -12,7 +12,8 @@ import { PostureBubbles } from '@/components/viz/PostureBubbles'
 import { useApiData } from '@/lib/useApiData'
 import { useScrollThreshold } from '@/lib/useScrollThreshold'
 import { useScrambleText } from '@/lib/useScrambleText'
-import { NewProposalDrawer } from './NewProposalDrawer'
+import { NewTaskDrawer } from './NewTaskDrawer'
+import { CLIENT_LABEL } from '@/lib/workflow'
 import { revealTiles, press } from '@/lib/motion'
 
 const TrendChart = lazy(() => import('@/components/viz/TrendChart'))
@@ -22,10 +23,12 @@ const HERO_BG =
   'linear-gradient(158deg,#0B5FA5 0%,#0A2A43 46%,#060F18 100%)'
 
 const statusPill: Record<string, string> = {
+  waiting: 'bg-med-bg text-med', accepted: 'bg-accent-soft text-accent-ink', scheduled: 'bg-accent-soft text-accent-ink',
+  scanning: 'bg-[rgba(125,151,216,.16)] text-info', paused: 'bg-med-bg text-med',
   in_review: 'bg-accent-soft text-accent-ink', delivered: 'bg-low-bg text-low',
-  scanning: 'bg-[rgba(125,151,216,.16)] text-info', pending: 'bg-med-bg text-med',
+  declined: 'bg-crit-bg text-crit', expired: 'bg-crit-bg text-crit',
 }
-const statusLabel: Record<string, string> = { in_review: 'In review', delivered: 'Delivered', scanning: 'Scanning', pending: 'Pending' }
+const statusLabel: Record<string, string> = CLIENT_LABEL
 const mono = (host: string) => bare(host).split(/[.:/]/)[0].slice(0, 2).toUpperCase()
 
 function Drill({ label, to }: { label: string; to?: string }) {
@@ -60,7 +63,7 @@ function MiniSev({ sev }: { sev: { c: number; h: number; m: number; l: number } 
   )
 }
 
-// Only work actually underway: a proposal still awaiting approval or a delivered report isn't.
+// Only work actually underway: a task still waiting for a pentester or a delivered report isn't.
 const inProgress = (es: { status: string }[]) => {
   const n = es.filter((e) => e.status === 'scanning' || e.status === 'in_review').length
   return `${n} engagement${n === 1 ? '' : 's'}`
@@ -71,7 +74,7 @@ export default function ClientCockpit() {
   const shrink = useScrollThreshold<HTMLElement>(65, 'is-shrunk')
   const fade = useScrollThreshold<HTMLDivElement>(55, 'is-faded')
   const { data: d, error, reload } = useApiData<any>(() => api.get('/api/cockpit'))
-  const [proposalOpen, setProposalOpen] = useState(false)
+  const [taskOpen, setTaskOpen] = useState(false)
   useEffect(() => { if (d) revealTiles('.tile') }, [d])
   const name = useScrambleText(d?.me.name ?? 'there', !!d)
   const p = d?.posture
@@ -111,9 +114,9 @@ export default function ClientCockpit() {
           </div>
           <div className="flex items-center gap-[11px]">
             <AgentStatus />
-            <Button variant="glass" size="pill" onClick={() => setProposalOpen(true)}>
+            <Button variant="glass" size="pill" onClick={() => setTaskOpen(true)}>
               <span className="-my-1.5 -ml-2 mr-0.5 grid h-[26px] w-[26px] place-items-center rounded-full bg-[#F2F5EF] text-[#12140F]"><Play size={12} className="fill-current" /></span>
-              New Proposal
+              New task
             </Button>
           </div>
         </div>
@@ -151,7 +154,7 @@ export default function ClientCockpit() {
 
             {/* Engagements (merged navigator, tall) */}
             <section className="tile glass-card liquid flex min-w-0 flex-col overflow-hidden rounded-bento p-5 lg:row-span-2" style={{ opacity: 0 }}>
-              <TileHead title="Engagements" sub={`${d.engagements.length} active`} to="/proposals" />
+              <TileHead title="Engagements" sub={`${d.engagements.length} active`} to="/tasks" />
               <div className="flex flex-col">
                 {d.engagements.map((e: any, i: number) => (
                   <button key={e.id} onClick={() => nav('/findings', { viewTransition: true })}
@@ -213,7 +216,7 @@ export default function ClientCockpit() {
           </>
         )}
       </main>
-      <NewProposalDrawer open={proposalOpen} onOpenChange={setProposalOpen} />
+      <NewTaskDrawer open={taskOpen} onOpenChange={setTaskOpen} onCreated={reload} />
       <ClientDock />
     </div>
   )

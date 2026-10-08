@@ -1,15 +1,16 @@
 // Mock API router: maps "METHOD /path" to a fixture so the whole app runs with no backend
 // (VITE_MOCK=1). Adds small latency for realism. api.ts routes through here when mock is on.
 //
-// board/findings/proposals are held as mutable module-level state (not read straight off `fx`)
+// board/findings/tasks are held as mutable module-level state (not read straight off `fx`)
 // so that actions taken through the UI (approve, reject, suspend, mark fixed, submit a new
-// proposal) actually persist for the session instead of reverting the moment a screen remounts
+// task) actually persist for the session instead of reverting the moment a screen remounts
 // and refetches - a real gap the static-fixture-only version had.
 import * as fx from './fixtures'
+import type { ClientTask } from '@/api'
 
-let boardState = structuredClone(fx.board)
+let boardState = structuredClone(fx.taskBoard)
 let findingsState = structuredClone(fx.findings)
-let proposalsState = structuredClone(fx.proposals)
+let tasksState = structuredClone(fx.tasks) as ClientTask[]
 
 // Accounts are provisioned by an administrator (no self-registration).
 // Any password is accepted here, same as the client login - this is a mock, not real auth.
@@ -102,10 +103,6 @@ const staticRoutes: Record<string, any> = {
   'GET /api/agent': { registered: true, online: true },
 }
 
-const purposeLabel: Record<string, string> = {
-  'pre-release': 'Pre-release', compliance: 'Compliance', periodic: 'Periodic', incident: 'Incident',
-}
-
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export function isMock(): boolean {
@@ -137,38 +134,27 @@ export async function mockRequest(method: string, path: string, body?: any): Pro
   }
   if (m === 'POST' && path.startsWith('/api/password-reset/')) return { ok: true }
   if (m === 'GET' && path === '/api/templates') return ['Full Technical', 'Formal Handover', 'Executive Summary', 'Raw Findings']
-  if (m === 'GET' && path === '/api/proposals') return proposalsState
   if (m === 'GET' && path === '/api/findings') return findingsState
-  if (m === 'GET' && path === '/api/pipeline/board') return boardState
-  const detailMatch = m === 'GET' && path.match(/^\/api\/pipeline\/detail\/(.+)$/)
-  if (detailMatch) return (fx.engagementDetail as any)[detailMatch[1]] ?? null
-
-  if (m === 'POST' && path === '/api/proposals') {
-    proposalsState = [
-      { id: 'pr-' + Math.random().toString(36).slice(2, 7), target: body.target, purpose: purposeLabel[body.purpose] ?? body.purpose, division: body.division, status: 'pending', when: 'Just now' },
-      ...proposalsState,
-    ]
-    return { ok: true }
+  if (m === 'GET' && path === '/api/tasks') return tasksState
+  if (m === 'POST' && path === '/api/tasks') {
+    const t: ClientTask = { id: 't-' + Math.random().toString(36).slice(2, 7), target: body.target, path: body.path ?? '', port: body.port ?? null,
+      notes: body.notes ?? '', scan_mode: body.scan_mode, status: 'waiting', when: 'Just now', reason: null, job_id: null,
+      scheduled_at: null, not_before: body.not_before, not_after: body.not_after }
+    tasksState = [t, ...tasksState]
+    return t
   }
-  if (m === 'POST' && path === '/api/pipeline/move') {
-    const { id, from, to } = body
-    const card = boardState.find((c) => c.id === from)?.cards.find((k) => k.id === id)
-    if (card) boardState = boardState.map((c) => (c.id === from ? { ...c, cards: c.cards.filter((k) => k.id !== id) } : c.id === to ? { ...c, cards: [card, ...c.cards] } : c))
-    return { ok: true }
+  const taskEvents = m === 'GET' && path.match(/^\/api\/tasks\/([^/]+)\/events$/)
+  if (taskEvents) {
+    const t = tasksState.find((x) => x.id === taskEvents[1])
+    return t ? [{ status: 'waiting', at: t.not_before }, ...(t.status === 'waiting' ? [] : [{ status: t.status, at: t.not_before, ...(t.reason ? { note: t.reason } : {}) }])] : []
   }
-  if (m === 'POST' && path === '/api/pipeline/reject') {
-    const { id, from, reason } = body
-    const card = boardState.find((c) => c.id === from)?.cards.find((k) => k.id === id)
-    if (card) {
-      const rejected = { ...card, rejectReason: reason || 'No reason recorded.' }
-      boardState = boardState.map((c) => (c.id === from ? { ...c, cards: c.cards.filter((k) => k.id !== id) } : c.id === 'rejected' ? { ...c, cards: [rejected, ...c.cards] } : c))
-    }
-    return { ok: true }
-  }
-  if (m === 'POST' && path === '/api/pipeline/suspend') {
-    const { id, col, suspended } = body
-    boardState = boardState.map((c) => (c.id === col ? { ...c, cards: c.cards.map((k) => (k.id === id ? { ...k, suspended } : k)) } : c))
-    return { ok: true }
+  if (m === 'GET' && path.startsWith('/api/board')) return boardState
+  const detail = m === 'GET' && path.match(/^\/api\/tasks\/([^/]+)\/detail$/)
+  if (detail) return fx.taskDetail(detail[1])
+  const move = m === 'POST' && path.match(/^\/api\/tasks\/([^/]+)\/transition$/)
+  if (move) {
+    boardState = boardState.map((c) => ({ ...c, cards: c.cards.filter((k) => k.id !== move[1]) }))
+    return { id: move[1], stage: body.to, scan_state: null, version: (body.version ?? 0) + 1 }
   }
   if (m === 'POST' && path === '/api/findings/verdict') {
     const { id, verdict } = body

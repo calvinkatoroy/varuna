@@ -4,7 +4,7 @@ import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-
 import { useAuth } from './auth'
 import { isMock } from './mock'
 import ClientCockpit from './screens/ClientCockpit'
-import ClientProposals from './screens/ClientProposals'
+import ClientTasks from './screens/ClientTasks'
 import ClientFindings from './screens/ClientFindings'
 import ClientReports from './screens/ClientReports'
 import { AuthGate } from './screens/AuthGate'
@@ -22,8 +22,8 @@ import { Toaster } from './lib/toast'
 
 const ACTIVATED = 'varuna-activated'
 
-// The client area is gated as a whole: until the account is activated (login -> proposal ->
-// lead approval -> agent -> unlock) AND the logged-in account is actually a client, every client
+// The client area is gated as a whole: until the account is activated (login -> task ->
+// pentester accepts -> agent -> unlock) AND the logged-in account is actually a client, every client
 // route shows the blurred cockpit + AuthGate. The role check matters on top of the localStorage
 // flag: without it, a team account that happens to share a browser with a previously-activated
 // client session would see the client dashboard rendered as themselves.
@@ -118,7 +118,8 @@ export default function App() {
         <Routes location={displayed}>
           <Route path="/reset" element={<ResetPassword />} />
           <Route path="/" element={<ClientRoute><ClientCockpit /></ClientRoute>} />
-          <Route path="/proposals" element={<ClientRoute><ClientProposals /></ClientRoute>} />
+          <Route path="/tasks" element={<ClientRoute><ClientTasks /></ClientRoute>} />
+          <Route path="/proposals" element={<Navigate to="/tasks" replace />} />
           <Route path="/findings" element={<ClientRoute><ClientFindings /></ClientRoute>} />
           <Route path="/reports" element={<ClientRoute><ClientReports /></ClientRoute>} />
           <Route path="/team" element={<RoleRoute><TeamBoard /></RoleRoute>} />
