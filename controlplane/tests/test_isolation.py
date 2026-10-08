@@ -24,7 +24,8 @@ PW = "Passw0rd!x"
 # ("... role required"), which fires before any lookup on staff-only routes. Nothing else may refuse.
 # One body that satisfies every action model (status/reject/verdict/template), so a refusal comes from
 # the tenancy check and not from body validation. Nothing in it names org B.
-BODY = {"status": "fixed", "reason": "x", "verdict": "fp", "template": "Full Technical"}
+BODY = {"status": "fixed", "reason": "x", "verdict": "fp", "template": "Full Technical",
+        "to": "declined", "version": 0, "comment": "x"}
 
 
 def _seed_org(name, user, host, job_id, reports_dir):

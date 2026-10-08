@@ -21,7 +21,7 @@ load_dotenv()  # repo-root .env, for host-run dev (REDIS_URL, JWT_SECRET, ...)
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Response, UploadFile  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from pydantic import BaseModel  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
 
 import secrets  # noqa: E402
 
@@ -36,6 +36,8 @@ import models  # noqa: E402
 import pdf_deliver  # noqa: E402
 import redis_store  # noqa: E402
 import report_pipeline  # noqa: E402
+import scanopts  # noqa: E402
+import workflow  # noqa: E402
 import store as report_store  # noqa: E402
 import auth  # noqa: E402
 import jwt_auth  # noqa: E402
@@ -488,6 +490,63 @@ def _deliver_report(rid: str) -> None:
     report_store.save_report_file(fname, pdf)
     db.set_report(rid, stage=models.REPORT_DELIVERED, delivered_pdf=fname,
                   pdf_password=password, password_viewed=0)
+
+
+def _deliver_task(task: dict) -> None:
+    """workflow's on_deliver hook: the manager's approval delivers the task's report as a protected PDF."""
+    r = db.get_report_by_job(task["job_id"]) if task.get("job_id") else None
+    if not r:
+        raise HTTPException(status_code=409, detail="this task has no report to deliver")
+    _deliver_report(r["id"])
+
+
+# --- task workflow (step 2): every staff move goes through one route; workflow.py decides who may ---
+class TransitionBody(BaseModel):
+    to: str = Field(max_length=40)
+    version: int
+    comment: str | None = Field(default=None, max_length=2000)
+    scheduled_at: str | None = Field(default=None, max_length=64)
+    max_minutes: int | None = None
+    opts: dict | None = None
+
+
+def _staff_task(tid: str, scope: Scope) -> dict:
+    t = db.get_proposal(tid, org_id=scope.org_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="no such task")
+    return t
+
+
+@app.post("/api/tasks/{tid}/transition")
+def task_transition(tid: str, body: TransitionBody, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    opts = None
+    if body.opts is not None:   # advanced options: allow-list + clamp, destructive ones lead-only (safe-profile lock)
+        try:
+            opts = scanopts.sanitize(body.opts, user["role"])
+        except scanopts.BadOpts as e:
+            raise HTTPException(status_code=422, detail=str(e))
+    t = deps.run_workflow(workflow.transition, tid, body.to, user["username"], org_id=scope.org_id,
+                          version=body.version, comment=body.comment, scheduled_at=body.scheduled_at,
+                          max_minutes=body.max_minutes, opts=opts, on_deliver=_deliver_task)
+    return {"id": t["id"], "stage": t["stage"], "scan_state": t["scan_state"], "version": t["version"]}
+
+
+@app.get("/api/tasks/{tid}/events")
+def task_events(tid: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    _staff_task(tid, scope)
+    return db.list_task_events(tid)
+
+
+_DETAIL_KEYS = ("id", "target", "path", "port", "notes", "scan_mode", "not_before", "not_after", "max_minutes",
+                "scheduled_at", "assignee", "suspend_reason", "decline_cause", "stage", "scan_state", "version", "job_id")
+
+
+@app.get("/api/tasks/{tid}/detail")
+def task_detail(tid: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    t = _staff_task(tid, scope)
+    r = db.get_report_by_job(t["job_id"]) if t.get("job_id") else None
+    return {"task": {k: t.get(k) for k in _DETAIL_KEYS}, "report_id": r["id"] if r else None,
+            "versions": db.list_report_versions(r["id"]) if r else []}
 
 
 @app.post("/api/pipeline/reports/{rid}/reissue-password")
