@@ -7,6 +7,7 @@ import pytest
 # pin the ones that change behaviour (set-but-empty wins over .env, dotenv never overrides).
 os.environ["VARUNA_REQUIRE_MFA"] = ""
 os.environ.setdefault("NOTIFY_WEBHOOK_URL", "")
+os.environ["BCRYPT_ROUNDS"] = "4"   # tests hash a lot of passwords; production keeps the default cost 12
 os.environ["VARUNA_SCHEDULER"] = "0"   # no background scheduler thread in tests; tests call scheduler.tick()
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))

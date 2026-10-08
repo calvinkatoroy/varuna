@@ -8,6 +8,8 @@ AND per-source-IP with a temporary lockout (NFR-25), this is not optional harden
 """
 from __future__ import annotations
 
+import os
+
 import db
 import redis_store
 import totp
@@ -41,7 +43,7 @@ class LockedOut(AuthError):
 
 def hash_password(password: str) -> str:
     import bcrypt
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(int(os.environ.get("BCRYPT_ROUNDS", "12")))).decode()
 
 
 def check_password(password: str, hashed: str) -> bool:
