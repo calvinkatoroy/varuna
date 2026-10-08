@@ -100,23 +100,23 @@ def test_bad_codes_count_toward_lockout():
     assert _login("mfa3", "000000").status_code == 429
 
 
-def test_disable_needs_password_and_code_and_lead_can_reset_lost_phone():
+def test_disable_needs_password_and_code_and_sysadmin_can_reset_lost_phone():
     redis_store._client = FakeRedis()
     H, secret, used = _enrol("mfa4")
     fresh = totp.code_at(secret, time.time() + totp.STEP)
     assert priv.post("/api/mfa/disable", json={"password": "nope", "code": fresh}, headers=H).status_code == 403
     assert priv.post("/api/mfa/disable", json={"password": "password1", "code": "111111"}, headers=H).status_code == 403
-    Hl = _account("boss2", "lead_pentester")
-    assert priv.post("/api/admin/accounts/mfa4/reset-mfa", headers=_account("pen5")).status_code == 403   # lead only
-    assert priv.post("/api/admin/accounts/mfa4/reset-mfa", headers=Hl).status_code == 200
+    Hl = _account("boss2", "sysadmin")
+    assert priv.post("/api/sysadmin/accounts/mfa4/reset-mfa", headers=_account("pen5")).status_code == 403   # sysadmin only
+    assert priv.post("/api/sysadmin/accounts/mfa4/reset-mfa", headers=Hl).status_code == 200
     assert _login("mfa4").status_code == 200                       # lost phone recovered: password alone works again
-    assert priv.post("/api/admin/accounts/ghost/reset-mfa", headers=Hl).status_code == 404
+    assert priv.post("/api/sysadmin/accounts/ghost/reset-mfa", headers=Hl).status_code == 404
 
 
 def test_admin_roster_shows_mfa_state_without_secrets():
     redis_store._client = FakeRedis()
     _enrol("mfa5")
-    rows = priv.get("/api/admin/accounts", headers=_account("boss3", "lead_pentester")).json()
+    rows = priv.get("/api/sysadmin/accounts", headers=_account("boss3", "sysadmin")).json()
     row = next(r for r in rows if r["username"] == "mfa5")
     assert row["totp_enabled"] == 1 and "totp_secret" not in row and "password_hash" not in row
 

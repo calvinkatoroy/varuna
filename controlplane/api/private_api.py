@@ -42,12 +42,14 @@ import jwt_auth  # noqa: E402
 import browser  # noqa: E402  (proposal/scan/finding logic is shared; only the auth plane differs)
 import deps  # noqa: E402
 import dispatch  # noqa: E402
+from sysadmin import router as sysadmin_router  # noqa: E402
 from tenancy import Scope  # noqa: E402
 from deps import current_user, mfa_required, require_lead, require_pro, require_team, require_team_setup  # noqa: E402
 
 app = FastAPI(title="Varuna Private API (Tailscale plane)")
 _CORS = os.environ.get("VARUNA_CORS_ORIGINS", "http://localhost:5173").split(",")
 app.add_middleware(CORSMiddleware, allow_origins=_CORS, allow_methods=["*"], allow_headers=["*"])
+app.include_router(sysadmin_router)
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
@@ -88,7 +90,7 @@ def login(body: LoginBody, x_forwarded_for: str = Header(default="api")):
         raise HTTPException(status_code=401, detail="mfa_required")   # the UI then asks for the code
     except auth.BadCredentials as e:
         raise HTTPException(status_code=401, detail=str(e))
-    if not models.is_team(jwt_auth.verify(token)["role"]):
+    if not (models.is_team(jwt_auth.verify(token)["role"]) or models.is_sysadmin(jwt_auth.verify(token)["role"])):
         raise HTTPException(status_code=403, detail="that account doesn't have security-team access")
     return {"token": token}
 
@@ -163,71 +165,6 @@ def mfa_disable(body: MfaDisableBody, user: dict = Depends(require_team_setup)):
         raise HTTPException(status_code=403, detail=str(e))
     audit.log("mfa_disabled", actor=user["username"])
     return {"enabled": False, "token": jwt_auth.issue(user["username"])}
-
-
-# --- account administration (lead pentester): provision/disable team accounts and reset
-# passwords without shell access to the server. ---
-class AccountBody(BaseModel):
-    username: str
-    password: str
-    role: str
-
-
-class ResetBody(BaseModel):
-    password: str
-
-
-@app.get("/api/admin/accounts")
-def admin_accounts(user: dict = Depends(require_lead)):
-    return db.list_accounts()
-
-
-@app.post("/api/admin/accounts")
-def admin_create_account(body: AccountBody, user: dict = Depends(require_lead)):
-    if body.role not in models.ROLES:
-        raise HTTPException(status_code=422, detail="unknown role")
-    if not re.fullmatch(r"[A-Za-z0-9._-]{3,32}", body.username):
-        raise HTTPException(status_code=422, detail="username must be 3-32 letters, digits, dot, dash or underscore")
-    if db.get_account_ci(body.username):
-        raise HTTPException(status_code=409, detail="username already taken")
-    try:
-        auth._check_new_password(body.password)
-    except auth.AuthError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    auth.create_account(body.username, body.password, body.role)
-    audit.log("account_created", actor=user["username"], account=body.username, role=body.role)
-    return {"username": body.username, "role": body.role}
-
-
-@app.post("/api/admin/accounts/{username}/reset-password")
-def admin_reset_password(username: str, body: ResetBody, user: dict = Depends(require_lead)):
-    try:
-        auth.admin_reset_password(username, body.password)
-    except auth.AuthError as e:
-        raise HTTPException(status_code=404 if "no such" in str(e) else 422, detail=str(e))
-    audit.log("password_reset", actor=user["username"], account=username)
-    return {"ok": True}
-
-
-@app.post("/api/admin/accounts/{username}/reset-mfa")
-def admin_reset_mfa(username: str, user: dict = Depends(require_lead)):
-    """Recovery for a lost phone: clears the user's two-factor so they can enrol again."""
-    if not auth.mfa_reset(username):
-        raise HTTPException(status_code=404, detail="no such account")
-    audit.log("mfa_reset", actor=user["username"], account=username)
-    return {"ok": True}
-
-
-@app.post("/api/admin/accounts/{username}/{action}")
-def admin_set_disabled(username: str, action: str, user: dict = Depends(require_lead)):
-    if action not in ("disable", "enable"):
-        raise HTTPException(status_code=404, detail="unknown action")
-    if action == "disable" and username == user["username"]:
-        raise HTTPException(status_code=409, detail="you cannot disable your own account")
-    if not db.set_account(username, disabled=1 if action == "disable" else 0):
-        raise HTTPException(status_code=404, detail="no such account")
-    audit.log(f"account_{action}d", actor=user["username"], account=username)
-    return {"ok": True}
 
 
 # --- team actions that used to live on the public plane (NFR-24): same logic as browser.py,

@@ -146,8 +146,8 @@ def login(body: LoginBody, x_forwarded_for: str = Header(default="api")):
     # NFR-24: the public (internet-facing) plane is for clients. Security-team accounts sign in
     # on the private plane, so their credentials can't be brute-forced from the internet.
     # Local dev without a private plane can opt in with VARUNA_PUBLIC_TEAM_LOGIN=1.
-    if (models.is_team(jwt_auth.verify(token)["role"])
-            and os.environ.get("VARUNA_PUBLIC_TEAM_LOGIN") != "1"):
+    role = jwt_auth.verify(token)["role"]
+    if models.is_sysadmin(role) or (role != models.ROLE_CLIENT and os.environ.get("VARUNA_PUBLIC_TEAM_LOGIN") != "1"):
         raise HTTPException(status_code=403,
                             detail="security team accounts sign in on the private plane")
     return {"token": token}

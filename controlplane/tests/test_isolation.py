@@ -59,7 +59,7 @@ def _candidates(b):
     return {
         "pid": [b["pid"]], "rid": [b["rid"]], "fid": [b["fid"]], "job_id": [b["job_id"]],
         "fname": [b["fname"], f"{b['rid']}_delivered.pdf", f"{b['rid']}_v1.docx"],
-        "id": [b["pid"], b["rid"]], "n": ["1"], "username": ["beta"], "action": ["disable"],
+        "id": [b["pid"], b["rid"]], "n": ["1"], "username": ["beta"], "action": ["disable"], "org_id": [b["org"]],
     }
 
 
@@ -79,7 +79,9 @@ def _sweep(app_api, token, b):
                 r = app_api.request(method.upper(), url, token, json=BODY)
                 hit += 1
                 if names and not (r.status_code == 404 or
-                                  (r.status_code == 403 and "role required" in r.text)):
+                                  (r.status_code == 403 and "role required" in r.text) or
+                                  (path.startswith("/api/sysadmin/") and r.status_code == 403
+                                   and "system administrator required" in r.text)):
                     wrong.append((method.upper(), path, url, r.status_code, r.text[:80]))
                 body = r.text.replace(url, "")
                 for marker in ("beta", "jobB", "PT Beta", b["pid"], b["rid"], b["fid"], "pw-beta"):
@@ -167,10 +169,10 @@ def test_staff_sees_both_orgs(priv, tmp_path, role):
 def test_sysadmin_has_no_tenant_access(api, priv, tmp_path):
     a, b = _seed_two_orgs(tmp_path)
     auth.create_account("root", PW, "sysadmin")
-    tok = api.login("root", PW)
+    tok = priv.login("root", PW)   # sysadmins sign in on the private plane only; the token is also tried on the public app
     for path in ("/api/proposals", "/api/findings", "/api/reports", "/api/scans", f"/api/proposals/{b['pid']}"):
         assert api.get(path, tok).status_code == 403, path
-    # the private plane refuses a sysadmin's token on its tenant GET routes too (sysadmin cannot sign in there)
+    # the private plane refuses a sysadmin's token on its tenant GET routes too
     for path in ("/api/findings", "/api/pipeline/board", "/api/pipeline/reports", "/api/reports/all",
                  f"/api/findings/{b['job_id']}", f"/api/pipeline/detail/{a['pid']}",
                  f"/api/pipeline/reports/{a['rid']}/versions", f"/api/scans/{b['job_id']}/events"):
@@ -186,9 +188,9 @@ def test_org_a_own_ids_work_so_the_sweep_is_not_vacuous(api, tmp_path):
     assert api.get(f"/api/reports/{a['rid']}/delivered", tok).status_code == 200
 
 
-def test_sysadmin_cannot_submit_a_scan(api):
+def test_sysadmin_cannot_submit_a_scan(api, priv):
     auth.create_account("root", PW, "sysadmin")
-    tok = api.login("root", PW)
+    tok = priv.login("root", PW)
     r = api.post("/api/scans", tok, json={"target": "http://t.example"})
     assert r.status_code == 403, r.text
 

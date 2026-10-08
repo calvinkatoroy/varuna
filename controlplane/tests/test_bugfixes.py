@@ -201,24 +201,26 @@ def test_change_password_and_disable_and_admin_reset():
     assert pub.post("/api/login", json={"username": "lena", "password": "firstpass1"}).status_code == 401
     assert pub.post("/api/login", json={"username": "lena", "password": "secondpass1"}).status_code == 200
 
-    Hl = _h("boss", "lead_pentester")
+    Hl = _h("root", "sysadmin")
     Hp = _h("pen9", "pentester")
-    assert priv.get("/api/admin/accounts", headers=Hp).status_code == 403                # lead only
-    rows = priv.get("/api/admin/accounts", headers=Hl).json()
+    assert priv.get("/api/sysadmin/accounts", headers=Hp).status_code == 403            # sysadmin only
+    rows = priv.get("/api/sysadmin/accounts", headers=Hl).json()
     assert rows and all("password_hash" not in r for r in rows)
-    r = priv.post("/api/admin/accounts", json={"username": "newrep", "password": "reppass123", "role": "pentester"}, headers=Hl)
+    r = priv.post("/api/sysadmin/accounts", json={"username": "newrep", "role": "pentester"}, headers=Hl)
     assert r.status_code == 200
-    assert priv.post("/api/admin/accounts", json={"username": "NEWREP", "password": "reppass123", "role": "pentester"}, headers=Hl).status_code == 409
-    assert priv.post("/api/admin/accounts", json={"username": "x1", "password": "reppass123", "role": "pentester"}, headers=Hl).status_code == 422
-    assert priv.post("/api/admin/accounts/lena/reset-password", json={"password": "resetpass1"}, headers=Hl).status_code == 200
-    assert pub.post("/api/login", json={"username": "lena", "password": "resetpass1"}).status_code == 200
-    tok = pub.post("/api/login", json={"username": "lena", "password": "resetpass1"}).json()["token"]
-    assert priv.post("/api/admin/accounts/lena/disable", headers=Hl).status_code == 200
-    assert pub.post("/api/login", json={"username": "lena", "password": "resetpass1"}).status_code == 401      # cannot log in
+    assert priv.post("/api/sysadmin/accounts", json={"username": "NEWREP", "role": "pentester"}, headers=Hl).status_code == 409
+    assert priv.post("/api/sysadmin/accounts", json={"username": "x1", "role": "pentester"}, headers=Hl).status_code == 422
+    temp = priv.post("/api/sysadmin/accounts/lena/reset-password", headers=Hl)
+    assert temp.status_code == 200
+    temp = temp.json()["temp_password"]
+    assert pub.post("/api/login", json={"username": "lena", "password": temp}).status_code == 200
+    tok = pub.post("/api/login", json={"username": "lena", "password": temp}).json()["token"]
+    assert priv.post("/api/sysadmin/accounts/lena/disable", headers=Hl).status_code == 200
+    assert pub.post("/api/login", json={"username": "lena", "password": temp}).status_code == 401      # cannot log in
     assert pub.get("/api/me", headers={"Authorization": "Bearer " + tok}).status_code == 401                   # live token dies too
-    assert priv.post("/api/admin/accounts/boss/disable", headers=Hl).status_code == 409                        # not yourself
-    assert priv.post("/api/admin/accounts/lena/enable", headers=Hl).status_code == 200
-    assert pub.post("/api/login", json={"username": "lena", "password": "resetpass1"}).status_code == 200
+    assert priv.post("/api/sysadmin/accounts/root/disable", headers=Hl).status_code == 409                        # not yourself
+    assert priv.post("/api/sysadmin/accounts/lena/enable", headers=Hl).status_code == 200
+    assert pub.post("/api/login", json={"username": "lena", "password": temp}).status_code == 200
 
 
 def test_default_password_detection_and_backup(tmp_path):
