@@ -48,7 +48,7 @@ import profile_api  # noqa: E402
 import dispatch  # noqa: E402
 from sysadmin import router as sysadmin_router  # noqa: E402
 from tenancy import Scope  # noqa: E402
-from deps import current_user, mfa_required, require_lead, require_pro, require_staff_setup, require_team  # noqa: E402
+from deps import current_user, mfa_required, require_pro, require_staff_setup, require_team  # noqa: E402
 
 app = FastAPI(title="Varuna Private API (Tailscale plane)")
 _CORS = os.environ.get("VARUNA_CORS_ORIGINS", "http://localhost:5173").split(",")
@@ -181,17 +181,6 @@ def mfa_disable(body: MfaDisableBody, user: dict = Depends(require_staff_setup))
 
 # --- team actions that used to live on the public plane (NFR-24): same logic as browser.py,
 # served here so team tokens are not needed on the internet-facing API at all. ---
-@app.post("/api/proposals/{pid}/approve")
-def approve_proposal(pid: str, user: dict = Depends(require_lead), scope: Scope = Depends(deps.scope)):
-    return browser.approve_proposal(pid, user, scope)
-
-
-@app.post("/api/proposals/{pid}/reject")
-def reject_proposal(pid: str, body: browser.RejectBody, user: dict = Depends(require_lead),
-                    scope: Scope = Depends(deps.scope)):
-    return browser.reject_proposal(pid, body, user, scope)
-
-
 @app.post("/api/scans")
 def submit_scan(body: browser.ScanBody, user: dict = Depends(require_team)):
     return browser.submit_scan(body, user)
@@ -251,27 +240,6 @@ def set_finding_verdict(fid: str, body: VerdictBody, user: dict = Depends(requir
     return {"ok": True}
 
 
-# --- scan suspend/resume (v2, phase-boundary): the agent checks in with GET
-# /agent/jobs/{id}/suspended (controlplane/api/main.py) before each tool phase and blocks
-# there while suspended - see agent/scan.py's checkpoint. Not instant mid-tool pause. ---
-@app.post("/api/pipeline/scans/{job_id}/suspend")
-def suspend_scan(job_id: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
-    if not dispatch.get_job(scope, job_id):
-        raise HTTPException(status_code=404, detail="no such job")
-    redis_store.set_suspended(job_id, True)
-    audit.log("scan_suspended", actor=user["username"], job=job_id)
-    return {"ok": True}
-
-
-@app.post("/api/pipeline/scans/{job_id}/resume")
-def resume_scan(job_id: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
-    if not dispatch.get_job(scope, job_id):
-        raise HTTPException(status_code=404, detail="no such job")
-    redis_store.set_suspended(job_id, False)
-    audit.log("scan_resumed", actor=user["username"], job=job_id)
-    return {"ok": True}
-
-
 # --- team board (step 2): role-scoped kanban columns built from task stages ---
 @app.get("/api/board")
 def get_board(column: str | None = None, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
@@ -280,31 +248,6 @@ def get_board(column: str | None = None, user: dict = Depends(require_team), sco
         return board.build_board(user, column)
     except PermissionError:
         raise HTTPException(status_code=403, detail="this column is not visible to your role")
-
-
-@app.get("/api/pipeline/detail/{id}")
-def pipeline_detail(id: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
-    """Card detail for the review drawer: the proposal it started as (with its own scope/RoE
-    if the id itself is a proposal id) or the report's originating proposal (if id is a report
-    id), plus version history where applicable."""
-    p = db.get_proposal(id, org_id=scope.org_id)
-    if p:
-        return {
-            "proposal": {
-                "purpose": p["purpose"], "division": p["division"],
-                "environment": p["environment"], "authorized": p["authorization_attested"],
-            },
-        }
-    r = _require_report(id, scope)
-    rp = db.get_proposal_by_job(r["job_id"])
-    return {
-        "proposal": {
-            "purpose": (rp or {}).get("purpose", ""), "division": (rp or {}).get("division", ""),
-            "environment": (rp or {}).get("environment", ""),
-            "authorized": bool((rp or {}).get("authorization_attested")),
-        },
-        "versions": db.list_report_versions(id),
-    }
 
 
 @app.get("/api/reports/all")

@@ -120,12 +120,12 @@ def test_lists_hide_other_org(api, tmp_path):
     a, b = _seed_two_orgs(tmp_path)
     tok = api.login("alpha", PW)
     seen = {
-        "/api/proposals": [p["id"] for p in api.get("/api/proposals", tok).json()],
+        "/api/tasks": [t["id"] for t in api.get("/api/tasks", tok).json()],
         "/api/findings": [f["id"] for f in api.get("/api/findings", tok).json()],
         "/api/reports": [r["id"] for r in api.get("/api/reports", tok).json()],
         "/api/scans": [j["id"] for j in api.get("/api/scans", tok).json()],
     }
-    assert seen == {"/api/proposals": [a["pid"]], "/api/findings": [a["fid"]],
+    assert seen == {"/api/tasks": [a["pid"]], "/api/findings": [a["fid"]],
                     "/api/reports": [a["rid"]], "/api/scans": [a["job_id"]]}
     cockpit = api.get("/api/cockpit", tok).json()
     assert [e["id"] for e in cockpit["engagements"]] == [a["pid"]]
@@ -136,8 +136,8 @@ def test_org_members_share_their_org_data(api, tmp_path):
     a, _ = _seed_two_orgs(tmp_path)
     auth.create_account("alpha2", PW, "client", org_id=a["org"])
     tok = api.login("alpha2", PW)
-    assert [p["id"] for p in api.get("/api/proposals", tok).json()] == [a["pid"]]
-    assert api.get(f"/api/proposals/{a['pid']}", tok).status_code == 200
+    assert [t["id"] for t in api.get("/api/tasks", tok).json()] == [a["pid"]]
+    assert api.get(f"/api/tasks/{a['pid']}", tok).status_code == 200
     assert api.get(f"/api/scans/{a['job_id']}", tok).status_code == 200
 
 
@@ -170,8 +170,7 @@ def test_sysadmin_has_no_tenant_access(api, priv, tmp_path):
     a, b = _seed_two_orgs(tmp_path)
     auth.create_account("root", PW, "sysadmin")
     tok = priv.login("root", PW)   # sysadmins sign in on the private plane only; the token is also tried on the public app
-    for path in ("/api/proposals", "/api/findings", "/api/reports", "/api/scans", f"/api/proposals/{b['pid']}",
-                 f"/api/tasks/{b['pid']}"):
+    for path in ("/api/tasks", "/api/findings", "/api/reports", "/api/scans", f"/api/tasks/{b['pid']}"):
         assert api.get(path, tok).status_code == 403, path
     # the private plane refuses a sysadmin's token on its tenant GET routes too
     for path in ("/api/findings", "/api/board", "/api/pipeline/reports", "/api/reports/all",
@@ -183,7 +182,7 @@ def test_sysadmin_has_no_tenant_access(api, priv, tmp_path):
 def test_org_a_own_ids_work_so_the_sweep_is_not_vacuous(api, tmp_path):
     a, _ = _seed_two_orgs(tmp_path)
     tok = api.login("alpha", PW)
-    assert api.get(f"/api/proposals/{a['pid']}", tok).status_code == 200
+    assert api.get(f"/api/tasks/{a['pid']}", tok).status_code == 200
     assert api.get(f"/api/scans/{a['job_id']}", tok).status_code == 200
     assert api.post(f"/api/findings/{a['fid']}/status", tok, json={"status": "fixed"}).status_code == 200
     assert api.get(f"/api/reports/{a['rid']}/delivered", tok).status_code == 200

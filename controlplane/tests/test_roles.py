@@ -19,12 +19,12 @@ def test_team_client_sysadmin_are_disjoint():
         assert models.is_team(r) and not models.is_client(r)
 
 
-def test_capabilities():
-    assert models.can_approve("lead_pentester") and not models.can_approve("pentester")
-    for r in ("pentester", "lead_pentester", "governance"):
-        assert models.can_review(r)
-    for r in ("client", "sysadmin", "manager"):
-        assert not models.can_review(r)
+def test_review_stage_owners():
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
+    import workflow
+    assert workflow.STAGE_ROLE == {"review_lead_pentester": "lead_pentester", "review_lead_cyber": "lead_cyber",
+                                   "review_governance": "governance", "review_manager": "manager"}
+    assert workflow.PENTESTERS == {"pentester", "lead_pentester"}
 
 
 def test_removed_roles_are_gone():

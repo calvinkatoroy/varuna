@@ -196,3 +196,28 @@ def test_staff_events_and_detail(priv):
     d = priv.get(f"/api/tasks/{tid}/detail", tok).json()
     assert d["task"]["decline_cause"] == "internal note" and d["report_id"] is None and d["versions"] == []
     assert priv.get("/api/tasks/nope/detail", tok).status_code == 404
+
+
+def test_legacy_proposal_routes_are_gone(api, priv):
+    make_client("alice", "PT A")
+    tok = api.login("alice", PW)
+    for path, method in (("/api/proposals", "POST"), ("/api/proposals", "GET"), ("/api/proposals/x", "GET"),
+                         ("/api/proposals/x/approve", "POST"), ("/api/proposals/x/reject", "POST")):
+        assert api.request(method, path, tok, json={}).status_code in (404, 405), path
+    auth.create_account("dewi", PW, "lead_pentester")
+    lead = priv.login("dewi", PW)
+    for path, method in (("/api/proposals/x/approve", "POST"), ("/api/pipeline/scans/x/suspend", "POST"),
+                         ("/api/pipeline/scans/x/resume", "POST"), ("/api/pipeline/detail/x", "GET")):
+        assert priv.request(method, path, lead, json={}).status_code in (404, 405), path
+    import models
+    assert not hasattr(models, "PROPOSAL_PENDING") and not hasattr(models, "can_approve")
+
+
+def test_install_token_unlocks_once_a_task_is_claimed(api):
+    make_client("alice", "PT A")
+    auth.create_account("rizky", PW, "pentester")
+    tok = api.login("alice", PW)
+    tid = api.post("/api/tasks", tok, _body(scan_mode="local")).json()["id"]
+    assert api.post("/api/agent/install-token", tok).status_code == 403
+    workflow.transition(tid, "scan/pending", "rizky", org_id=None)
+    assert api.post("/api/agent/install-token", tok).status_code == 200

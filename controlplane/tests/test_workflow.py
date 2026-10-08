@@ -328,13 +328,11 @@ def test_update_proposal_refuses_stage_changes():
         db.update_proposal(tid, stage="delivered")
 
 
-def test_update_and_claim_proposal_refuse_workflow_columns():
+def test_update_proposal_refuses_workflow_columns():
     tid = _task()
     for col in ("stage", "scan_state", "version"):
         with pytest.raises(ValueError):
             db.update_proposal(tid, **{col: 5})
-        with pytest.raises(ValueError):
-            db.claim_proposal(tid, "pending", **{col: 5})
     assert _get(tid)["version"] == 0
 
 

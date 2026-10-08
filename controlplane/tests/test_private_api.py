@@ -238,42 +238,39 @@ def test_board_shape_and_stages():
     assert next(c for c in scan if c["id"] == running)["jobId"] == "j-scan"
 
 
-def test_detail_for_proposal_and_report():
+def test_detail_for_a_task_with_its_report():
     reset()
     H = _hdr("riyan", "lead_pentester")
     org = _db.create_org("PT Alice")
-    pid = _db.create_proposal({"submitter": "alice", "target": "http://t", "mode": "standard",
-                               "purpose": "Compliance", "division": "IT",
-                               "authorization_attested": True, "org_id": org})
-    d = client.get(f"/api/pipeline/detail/{pid}", headers=H).json()
-    assert d["proposal"]["purpose"] == "Compliance" and d["proposal"]["authorized"] is True
-    assert "versions" not in d
-
+    pid = _db.create_proposal({"submitter": "alice", "target": "http://t", "org_id": org, "notes": "Compliance",
+                               "stage": "completed", "job_id": "jd", "assignee": "riyan"})
     rid = _db.create_report("jd", org, "alice")
     _db.add_report_version(rid, filename="f.docx", editor="aisah", note="v1")
-    _db.update_proposal(pid, job_id="jd")
-    d2 = client.get(f"/api/pipeline/detail/{rid}", headers=H).json()
-    assert d2["proposal"]["purpose"] == "Compliance"
-    assert len(d2["versions"]) == 1 and d2["versions"][0]["editor"] == "aisah"
-
-    assert client.get("/api/pipeline/detail/nope", headers=H).status_code == 404
+    d = client.get(f"/api/tasks/{pid}/detail", headers=H).json()
+    assert d["task"]["notes"] == "Compliance" and d["report_id"] == rid
+    assert len(d["versions"]) == 1 and d["versions"][0]["editor"] == "aisah"
+    assert client.get("/api/tasks/nope/detail", headers=H).status_code == 404
 
 
-def test_suspend_resume_requires_team_and_flags_job():
+def test_suspend_resume_requires_team_owner_and_reason_and_flags_job():
     reset()
+    from conftest import window
+    import tokens
     Ht = _hdr("riyan", "lead_pentester")
     Hc = _hdr("alice", "client")
-    redis_store.set_job({"id": "js", "target": "http://t", "submitter": "alice",
-                         "status": "running", "per_tool_status": {}})
-
-    assert client.post("/api/pipeline/scans/js/suspend", headers=Hc).status_code == 403
-    assert client.post("/api/pipeline/scans/nope/suspend", headers=Ht).status_code == 404
-
-    r = client.post("/api/pipeline/scans/js/suspend", headers=Ht)
-    assert r.status_code == 200 and redis_store.is_suspended("js") is True
-
-    r = client.post("/api/pipeline/scans/js/resume", headers=Ht)
-    assert r.status_code == 200 and redis_store.is_suspended("js") is False
+    nb, na = window()
+    pid = _db.create_proposal({"submitter": "alice", "target": "http://8.8.8.8", "scan_mode": "cloud",
+                               "org_id": _db.get_account("alice")["org_id"], "stage": "scan", "scan_state": "in_progress",
+                               "job_id": "js", "assignee": "riyan", "not_before": nb, "not_after": na})
+    redis_store.set_job({"id": "js", "target": "http://t", "submitter": "alice", "status": "running", "per_tool_status": {}})
+    move = lambda H, to, **b: client.post(f"/api/tasks/{pid}/transition", headers=H,
+                                          json={"to": to, "version": _db.get_proposal(pid, org_id=None)["version"], **b})
+    assert move(Hc, "scan/suspended", comment="x").status_code == 403
+    assert move(Ht, "scan/suspended", comment="  ").status_code == 422
+    assert move(Ht, "scan/suspended", comment="client maintenance").status_code == 200
+    assert redis_store.is_suspended("js") is True
+    tokens.issue_agent_token("varuna-cloud")
+    assert move(Ht, "scan/in_progress").status_code == 200 and redis_store.is_suspended("js") is False
 
 
 def test_finding_verdict_requires_team_and_updates():

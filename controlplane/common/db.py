@@ -416,11 +416,11 @@ def get_proposal(pid: str, *, org_id: Optional[str]) -> Optional[dict]:
     return _proposal_row_to_dict(row) if row else None
 
 
-def list_proposals(status: Optional[str] = None, *, org_id: Optional[str], stage: Optional[str] = None,
+def list_proposals(stage: Optional[str] = None, *, org_id: Optional[str],
                    scan_state: Optional[str] = None) -> list[dict]:
     q, args = "SELECT * FROM proposals", []
     where = []
-    for col, val in (("status", status), ("stage", stage), ("scan_state", scan_state)):
+    for col, val in (("stage", stage), ("scan_state", scan_state)):
         if val:
             where.append(f"{col}=?"); args.append(val)
     _org_where(org_id, where, args)
@@ -483,21 +483,6 @@ def get_report_by_job(job_id: str) -> Optional[dict]:
     d = dict(row)
     d["password_viewed"] = bool(d["password_viewed"])
     return d
-
-
-def claim_proposal(pid: str, from_status: str, **fields) -> bool:
-    """Atomically move a proposal out of `from_status`; True only for the one caller that wins
-    (concurrent approve/reject of the same proposal must not both proceed)."""
-    if _WORKFLOW_COLS & fields.keys():
-        raise ValueError("stage, scan_state and version change only through workflow.transition")
-    sets, args = ["updated_at=datetime('now')"], []
-    for k, v in fields.items():
-        sets.append(f"{k}=?"); args.append(v)
-    args += [pid, from_status]
-    cur = get_conn().execute(
-        f"UPDATE proposals SET {', '.join(sets)} WHERE id=? AND status=?", args)
-    get_conn().commit()
-    return cur.rowcount == 1
 
 
 # --- reports + versions (v2 review pipeline) ---

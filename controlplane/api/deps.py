@@ -87,13 +87,6 @@ def require_team(user: dict = Depends(require_team_setup)) -> dict:
 require_pro = require_team
 
 
-def require_lead(user: dict = Depends(current_user)) -> dict:
-    """Only the lead pentester approves/rejects proposals (v2)."""
-    if not models.can_approve(user["role"]):
-        raise HTTPException(status_code=403, detail="lead pentester role required")
-    return user
-
-
 def run_workflow(fn, *args, **kwargs):
     """Call a workflow function; its typed errors become HTTP answers (404/403/409/422) in one place."""
     import workflow

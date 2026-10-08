@@ -27,6 +27,17 @@ import browser  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 client = TestClient(browser.app)
+import private_api  # noqa: E402
+from conftest import start_task, window  # noqa: E402
+
+priv = TestClient(private_api.app)
+
+
+def _task_body(**over):
+    nb, na = window()
+    return {"target": "http://t.example", "not_before": nb, "not_after": na, **over}
+
+
 LOCAL, CLOUD = "http://10.0.0.5", "http://8.8.8.8"   # classify without DNS
 
 
@@ -97,108 +108,85 @@ def test_reports_list_is_v2_delivered_and_tenant_scoped():
     assert {r["id"] for r in rt} == {ra_id, rb_id}
 
 
-def test_client_proposal_requires_attestation():
+def test_client_task_requires_a_time_limit():
     reset()
     H = _token("alice", "client")
-    r = client.post("/api/proposals",
-                    json={"target": "http://t.example", "authorization_attested": False}, headers=H)
-    assert r.status_code == 422
+    assert client.post("/api/tasks", json={"target": "http://t.example"}, headers=H).status_code == 422
 
 
-def test_client_submits_and_proposals_are_scoped():
+def test_client_submits_and_tasks_are_scoped():
     reset()
     Ha = _token("alice", "client")
     Hb = _token("bob", "client")
     Hc = _token("carol", "client", org="org-alice")   # alice's colleague: same organization
     Ht = _token("riyan", "pentester")
-    r = client.post("/api/proposals",
-                    json={"target": "http://t.example", "authorization_attested": True,
-                          "division": "IT", "purpose": "pre-release"}, headers=Ha)
-    assert r.status_code == 200 and r.json()["status"] == "pending", r.text
-    pid = r.json()["proposal_id"]
-    # /api/proposals reshapes for the client UI (see _client_proposal_view) and doesn't carry
-    # `submitter` - a fresh DB (reset() above) means alice's own list is just this one proposal,
-    # so id-scoping alone proves tenancy without needing that field.
-    assert [p["id"] for p in client.get("/api/proposals", headers=Ha).json()] == [pid]
-    assert any(p["id"] == pid for p in client.get("/api/proposals", headers=Ha).json())
-    assert not any(p["id"] == pid for p in client.get("/api/proposals", headers=Hb).json())
-    assert [p["id"] for p in client.get("/api/proposals", headers=Hc).json()] == [pid]   # org members share
-    assert any(p["id"] == pid for p in client.get("/api/proposals", headers=Ht).json())
-    assert client.get(f"/api/proposals/{pid}", headers=Hb).status_code == 404   # other org: as if missing
-    assert client.get(f"/api/proposals/{pid}", headers=Hc).status_code == 200
-    assert client.get(f"/api/proposals/{pid}", headers=Ha).status_code == 200
-    assert db.get_proposal(pid, org_id=None)["org_id"] == _org("alice")   # from the account, not the body
-    assert client.get(f"/api/proposals/{pid}", headers=Ht).status_code == 200
+    r = client.post("/api/tasks", json=_task_body(notes="pre-release"), headers=Ha)
+    assert r.status_code == 200 and r.json()["status"] == "waiting", r.text
+    tid = r.json()["id"]
+    assert [t["id"] for t in client.get("/api/tasks", headers=Ha).json()] == [tid]
+    assert not any(t["id"] == tid for t in client.get("/api/tasks", headers=Hb).json())
+    assert [t["id"] for t in client.get("/api/tasks", headers=Hc).json()] == [tid]   # org members share
+    assert client.get(f"/api/tasks/{tid}", headers=Hb).status_code == 404               # other org: as if missing
+    assert client.get(f"/api/tasks/{tid}", headers=Hc).status_code == 200
+    assert db.get_proposal(tid, org_id=None)["org_id"] == _org("alice")                  # from the account, not the body
+    board = priv.get("/api/board", headers=Ht).json()                                    # staff see it on the board
+    assert any(c["id"] == tid for col in board for c in col["cards"])
 
 
-def test_proposal_org_submitter_status_come_from_the_account_not_the_body():
+def test_task_org_submitter_stage_come_from_the_account_not_the_body():
     reset()
     Ha = _token("alice", "client")
     _token("bob", "client")
-    r = client.post("/api/proposals",
-                    json={"target": "http://t.example", "authorization_attested": True,
-                          "org_id": _org("bob"), "submitter": "bob", "status": "approved"}, headers=Ha)
+    r = client.post("/api/tasks", json=_task_body(org_id=_org("bob"), submitter="bob", stage="delivered"), headers=Ha)
     assert r.status_code == 200, r.text
-    p = db.get_proposal(r.json()["proposal_id"], org_id=None)
-    assert (p["org_id"], p["submitter"], p["status"]) == (_org("alice"), "alice", "pending")
+    t = db.get_proposal(r.json()["id"], org_id=None)
+    assert (t["org_id"], t["submitter"], t["stage"]) == (_org("alice"), "alice", "task")
 
 
-def test_lead_approves_proposal_and_dispatches():
+def test_pentester_claims_and_starts_task_and_dispatches():
     reset()
     Hc = _token("alice", "client")
-    Hlead = _token("riyan", "lead_pentester")
     Hpen = _token("dodi", "pentester")
-    pid = client.post("/api/proposals",
-                      json={"target": CLOUD, "authorization_attested": True}, headers=Hc).json()["proposal_id"]
-    # only the lead may approve
-    assert client.post(f"/api/proposals/{pid}/approve", headers=Hpen).status_code == 403
-    r = client.post(f"/api/proposals/{pid}/approve", headers=Hlead)
+    Hgov = _token("hani", "governance")
+    tid = client.post("/api/tasks", json=_task_body(target=CLOUD), headers=Hc).json()["id"]
+    move = lambda H, to: priv.post(f"/api/tasks/{tid}/transition", headers=H,
+                                   json={"to": to, "version": db.get_proposal(tid, org_id=None)["version"]})
+    assert move(Hgov, "scan/pending").status_code == 403                   # only pentesters claim
+    assert move(Hpen, "scan/pending").status_code == 200
+    r = move(Hpen, "scan/in_progress")                                     # alice's agent is online (_token)
     assert r.status_code == 200, r.text
-    jid = r.json()["job_id"]
-    assert r.json()["status"] == "approved" and jid
-    p = client.get(f"/api/proposals/{pid}", headers=Hlead).json()
-    assert p["status"] == "approved" and p["job_id"] == jid
-    assert redis_store.dequeue_job("alice") == jid   # queued for the client's agent
+    jid = db.get_proposal(tid, org_id=None)["job_id"]
+    assert redis_store.dequeue_job("alice") == jid                         # queued for the client's agent
 
 
-def test_lead_rejects_proposal():
+def test_pentester_declines_task_with_a_cause():
     reset()
     Hc = _token("alice", "client")
-    Hlead = _token("riyan", "lead_pentester")
-    pid = client.post("/api/proposals",
-                      json={"target": CLOUD, "authorization_attested": True}, headers=Hc).json()["proposal_id"]
-    r = client.post(f"/api/proposals/{pid}/reject", json={"reason": "out of scope"}, headers=Hlead)
-    assert r.status_code == 200 and r.json()["status"] == "rejected"
-    p = client.get(f"/api/proposals/{pid}", headers=Hlead).json()
-    assert p["status"] == "rejected" and p["reject_reason"] == "out of scope"
+    Hpen = _token("dodi", "pentester")
+    tid = client.post("/api/tasks", json=_task_body(), headers=Hc).json()["id"]
+    r = priv.post(f"/api/tasks/{tid}/transition", headers=Hpen, json={"to": "declined", "version": 0, "comment": "out of scope"})
+    assert r.status_code == 200 and r.json()["stage"] == "declined"
+    row = client.get("/api/tasks", headers=Hc).json()[0]
+    assert row["status"] == "declined" and row["reason"] == "out of scope"
 
 
-def test_client_proposals_list_uses_client_status_vocabulary():
-    """Regression: the list endpoint used to return the raw DB status (pending/approved/
-    rejected) straight through, which crashed the frontend the moment a proposal was approved
-    (it only knows pending/scanning/in_review/delivered/rejected). Every field the client UI
-    actually reads (status/when/reason/job_id) must be present with the right name/vocabulary."""
+def test_client_task_list_uses_client_status_vocabulary():
+    """Every field the client UI reads (status/when/reason/job_id) is present with the client vocabulary."""
     reset()
     Hc = _token("alice", "client")
-    Hlead = _token("riyan", "lead_pentester")
-
-    pending_id = client.post("/api/proposals", json={"target": "http://a.example",
-                             "authorization_attested": True}, headers=Hc).json()["proposal_id"]
-    approved_id = client.post("/api/proposals", json={"target": CLOUD,
-                              "authorization_attested": True}, headers=Hc).json()["proposal_id"]
-    client.post(f"/api/proposals/{approved_id}/approve", headers=Hlead)
-    rejected_id = client.post("/api/proposals", json={"target": "http://b.example",
-                              "authorization_attested": True}, headers=Hc).json()["proposal_id"]
-    client.post(f"/api/proposals/{rejected_id}/reject", json={"reason": "not authorized"}, headers=Hlead)
-
-    rows = {p["id"]: p for p in client.get("/api/proposals", headers=Hc).json()}
-    assert rows[pending_id]["status"] == "pending"
-    assert rows[approved_id]["status"] == "scanning"   # approved, no report yet
-    assert rows[approved_id]["job_id"]
-    assert rows[rejected_id]["status"] == "rejected"
-    assert rows[rejected_id]["reason"] == "not authorized"
-    for p in rows.values():
-        assert "when" in p and "submitter" not in p
+    _token("dodi", "pentester")
+    waiting = client.post("/api/tasks", json=_task_body(), headers=Hc).json()["id"]
+    scanning = client.post("/api/tasks", json=_task_body(target=CLOUD), headers=Hc).json()["id"]
+    start_task(scanning, "dodi")
+    declined = client.post("/api/tasks", json=_task_body(), headers=Hc).json()["id"]
+    import workflow
+    workflow.transition(declined, "declined", "dodi", org_id=None, comment="not authorized")
+    rows = {t["id"]: t for t in client.get("/api/tasks", headers=Hc).json()}
+    assert rows[waiting]["status"] == "waiting"
+    assert rows[scanning]["status"] == "scanning" and rows[scanning]["job_id"]
+    assert rows[declined]["status"] == "declined" and rows[declined]["reason"] == "not authorized"
+    for t in rows.values():
+        assert "when" in t and "submitter" not in t and "assignee" not in t
 
 
 def test_protected_endpoint_needs_token():
@@ -314,8 +302,7 @@ def test_cockpit_is_client_only_and_scoped():
     Ha = _token("alice", "client")
     Ht = _token("riyan", "pentester")
     assert client.get("/api/cockpit", headers=Ht).status_code == 403   # team has no cockpit
-    r = client.post("/api/proposals", headers=Ha,
-                    json={"target": "http://t.example", "authorization_attested": True})
+    r = client.post("/api/tasks", headers=Ha, json=_task_body())
     assert r.status_code == 200
     c = client.get("/api/cockpit", headers=Ha).json()
     assert c["me"]["username"] == "alice"

@@ -40,8 +40,9 @@ def _org(username):
 
 
 def _prop(H, **over):
-    body = {"target": CLOUD, "authorization_attested": True, **over}
-    return pub.post("/api/proposals", json=body, headers=H)
+    from conftest import window
+    nb, na = window()
+    return pub.post("/api/tasks", json={"target": CLOUD, "not_before": nb, "not_after": na, **over}, headers=H)
 
 
 def _docx(text="x"):
@@ -52,42 +53,56 @@ def _docx(text="x"):
 
 
 def test_client_cannot_smuggle_advanced_opts():                       # H1
+    from conftest import start_task
     redis_store._client = FakeRedis()
-    Hc, Hl = _h("alice", "client"), _h("riyan", "lead_pentester")
-    r = _prop(Hc, mode="advanced", tools=["sqlmap", "; calc"],
-              opts={"aggressive": True, "os_shell": True, "dump": True})
-    pid = r.json()["proposal_id"]
-    p = pub.get(f"/api/proposals/{pid}", headers=Hl).json()
-    assert p["opts"] == {} and p["tools"] == []                       # stripped at submit
-    # even if a stale/hostile row carries them, approval keys off the submitter's role
-    db.update_proposal(pid, opts_json='{"os_shell": true}', tools_json='["sqlmap"]')
-    jid = pub.post(f"/api/proposals/{pid}/approve", headers=Hl).json()["job_id"]
-    job = redis_store.get_job(jid)
+    Hc = _h("alice", "client")
+    r = _prop(Hc, mode="advanced", tools=["sqlmap", "; calc"], opts={"aggressive": True, "os_shell": True, "dump": True})
+    pid = r.json()["id"]
+    t = db.get_proposal(pid, org_id=None)
+    assert t["opts"] == {} and t["tools"] == []                       # extra body keys are ignored at create
+    job = redis_store.get_job(start_task(pid, "riyan"))
     assert job["opts"] == {} and job["tools"] == browser.FULL_STACK
-    assert _prop(Hc, mode="root").status_code == 422
+    assert _prop(Hc, scan_mode="root").status_code == 422
 
 
-def test_team_advanced_tools_must_be_known():
-    Ht = _h("dimas", "pentester")
-    assert _prop(Ht, mode="advanced", tools=["nmap"]).status_code == 422
+def test_pentester_cannot_set_aggressive_opts_lead_can():
+    import tokens
+    _h("al2", "client")
+    Hp, Hl = _h("dimas", "pentester"), _h("lead9", "lead_pentester")
+    pid = _prop(_h("al3", "client")).json()["id"]
+    tokens.issue_agent_token("al3")
+    priv.post(f"/api/tasks/{pid}/transition", headers=Hp, json={"to": "scan/pending", "version": 0})
+    body = {"to": "scan/in_progress", "version": 1, "opts": {"level": 5}}
+    assert priv.post(f"/api/tasks/{pid}/transition", headers=Hp, json=body).status_code == 422
+    assert priv.post(f"/api/tasks/{pid}/transition", headers=Hl, json=body).status_code == 200
 
 
 def test_generate_report_is_tenant_scoped():                          # H2
+    from conftest import start_task
     redis_store._client = FakeRedis()
     Ha, Hb = _h("acme", "client"), _h("globex", "client")
-    pid = _prop(Ha).json()["proposal_id"]
-    jid = pub.post(f"/api/proposals/{pid}/approve", headers=_h("lead1", "lead_pentester")).json()["job_id"]
+    jid = start_task(_prop(Ha).json()["id"], "pen1")
     assert pub.post(f"/api/scans/{jid}/report", headers=Hb).status_code == 404   # other org: as if missing
     assert pub.post(f"/api/scans/{jid}/report", headers=Ha).status_code == 200
 
 
-def test_concurrent_approvals_create_one_job():                       # H3
+def test_concurrent_claims_have_one_winner_and_one_job():             # H3
+    import tokens
     redis_store._client = FakeRedis()
-    Hc, Hl = _h("bob", "client"), _h("lead2", "lead_pentester")
-    pid = _prop(Hc).json()["proposal_id"]
+    Hc = _h("bob", "client")
+    pens = [_h(f"pen{i}", "pentester") for i in range(8)]
+    pid = _prop(Hc).json()["id"]
+    claim = lambda H: priv.post(f"/api/tasks/{pid}/transition", headers=H, json={"to": "scan/pending", "version": 0}).status_code
     with cf.ThreadPoolExecutor(8) as ex:
-        codes = list(ex.map(lambda _: pub.post(f"/api/proposals/{pid}/approve", headers=Hl).status_code, range(8)))
+        codes = list(ex.map(claim, pens))
     assert codes.count(200) == 1 and codes.count(409) == 7, codes
+    owner = pens[codes.index(200)]
+    tokens.issue_agent_token("bob")
+    start = lambda _: priv.post(f"/api/tasks/{pid}/transition", headers=owner,
+                                json={"to": "scan/in_progress", "version": 1}).status_code
+    with cf.ThreadPoolExecutor(8) as ex:
+        codes = list(ex.map(start, range(8)))
+    assert codes.count(200) == 1, codes
     assert len(redis_store.list_org_jobs(_org("bob"))) == 1
 
 
@@ -97,6 +112,12 @@ def test_concurrent_submits_all_succeed():                            # H4
         codes = list(ex.map(lambda i: _prop(Hc, target=f"http://10.0.0.{i + 1}").status_code, range(30)))
     assert set(codes) == {200}, codes
     assert len(db.list_proposals(org_id=_org("carl"))) == 30
+
+
+def test_port_and_path_are_validated():
+    Hc = _h("finn", "client")
+    assert _prop(Hc, port="80; rm -rf /").status_code == 422
+    assert _prop(Hc, path="../../etc").status_code == 422
 
 
 def test_bad_docx_is_rejected_and_password_not_listed():              # H5, H6
@@ -116,11 +137,7 @@ def test_target_validated_at_submit():                                # M2
     Hc = _h("erin", "client")
     for bad in ("", "file:///etc/passwd", "not a url <b>x</b>", "x" * 3000, "ftp://a.com", "javascript:alert(1)", "host:notaport"):
         assert _prop(Hc, target=bad).status_code == 422, bad
-    assert _prop(Hc, target="example.com").status_code == 200
-
-
-def test_attestation_must_be_a_real_boolean():
-    assert _prop(_h("finn", "client"), authorization_attested="yes").status_code == 422
+    assert _prop(Hc, target="example.com", scan_mode="local").status_code == 200
 
 
 def test_lockout_is_per_source_not_account_wide():                    # M7
@@ -135,19 +152,20 @@ def test_lockout_is_per_source_not_account_wide():                    # M7
                     headers={"X-Forwarded-For": "1.1.1.1"}).status_code == 200   # owner fine
 
 
-def test_install_token_needs_approved_proposal():                     # M4
+def test_install_token_needs_a_claimed_task():                         # M4
+    import workflow
     redis_store._client = FakeRedis()
-    Hc, Hl = _h("hank", "client"), _h("lead3", "lead_pentester")
+    Hc = _h("hank", "client")
+    _h("pen3", "pentester")
     assert pub.post("/api/agent/install-token", headers=Hc).status_code == 403
-    pid = _prop(Hc).json()["proposal_id"]
-    pub.post(f"/api/proposals/{pid}/approve", headers=Hl)
+    workflow.transition(_prop(Hc).json()["id"], "scan/pending", "pen3", org_id=None)
     assert pub.post("/api/agent/install-token", headers=Hc).status_code == 200
 
 
 def test_verdict_on_missing_finding_404_and_body_limit():
     Ht = _h("tim", "pentester")
     assert priv.post("/api/findings/nope/verdict", json={"verdict": "fp"}, headers=Ht).status_code == 404
-    r = pub.post("/api/proposals", content=b"x" * 2_000_000, headers=_h("ivy", "client"))
+    r = pub.post("/api/tasks", content=b"x" * 2_000_000, headers=_h("ivy", "client"))
     assert r.status_code == 413
 
 
@@ -174,12 +192,13 @@ def test_public_plane_refuses_team_tokens_and_private_serves_team_actions():
         assert pub.get("/api/me", headers=Hl).status_code == 403          # refused on the public plane
         assert pub.get("/api/me", headers=Hc).status_code == 200
         assert pub.get("/api/me", headers={"Authorization": "Bearer junk"}).status_code == 401
-        pid = _prop(Hc).json()["proposal_id"]
-        r = priv.post(f"/api/proposals/{pid}/approve", headers=Hl)         # same action, private plane
-        assert r.status_code == 200 and r.json()["status"] == "approved", r.text
-        assert priv.post(f"/api/proposals/{pid}/reject", json={"reason": "x"}, headers=Hl).status_code == 409
+        pid = _prop(Hc).json()["id"]
+        r = priv.post(f"/api/tasks/{pid}/transition", headers=Hl, json={"to": "scan/pending", "version": 0})
+        assert r.status_code == 200 and r.json()["scan_state"] == "pending", r.text
+        assert priv.post(f"/api/tasks/{pid}/transition", headers=Hl, json={"to": "declined", "version": 0,
+                                                                          "comment": "x"}).status_code == 409
         assert priv.get("/api/findings", headers=Hl).status_code == 200
-        assert priv.post("/api/proposals/x/approve", headers=Hc).status_code == 403   # client denied
+        assert priv.post(f"/api/tasks/{pid}/transition", headers=Hc, json={"to": "declined", "version": 1}).status_code == 403
     finally:
         os.environ["VARUNA_PUBLIC_TEAM_LOGIN"] = "1"
 
@@ -239,9 +258,9 @@ def test_finished_scan_starts_review_automatically(tmp_path):
     report_store.REPORTS_DIR = str(tmp_path)
     ollama.OLLAMA_URL = "http://127.0.0.1:1"          # enrichment falls back gracefully
     redis_store._client = FakeRedis()
-    Hc, Hl = _h("zed", "client"), _h("lead7", "lead_pentester")
-    pid = _prop(Hc).json()["proposal_id"]
-    jid = pub.post(f"/api/proposals/{pid}/approve", headers=Hl).json()["job_id"]
+    from conftest import start_task
+    Hc = _h("zed", "client")
+    jid = start_task(_prop(Hc).json()["id"], "pen7")
     nuclei = {"info": {"name": "Exposed metrics", "severity": "medium", "tags": ["exposure"]},
               "host": "8.8.8.8", "matched-at": "http://8.8.8.8/metrics"}
     ingest.process_job(jid, {"nuclei": json.dumps(nuclei)})
@@ -281,7 +300,7 @@ def test_refusals_from_middleware_still_carry_cors_headers():
         Hl = {**_h("riyan99", "lead_pentester"), "Origin": origin}
         r = pub.get("/api/me", headers=Hl)
         assert r.status_code == 403 and r.headers.get("access-control-allow-origin") == origin
-        big = pub.post("/api/proposals", content=b"x" * 2_000_000, headers={**_h("cors1", "client"), "Origin": origin})
+        big = pub.post("/api/tasks", content=b"x" * 2_000_000, headers={**_h("cors1", "client"), "Origin": origin})
         assert big.status_code == 413 and big.headers.get("access-control-allow-origin") == origin
     finally:
         os.environ["VARUNA_PUBLIC_TEAM_LOGIN"] = "1"
@@ -387,9 +406,9 @@ def test_team_gets_live_scan_progress_on_the_private_plane():
     os.environ.pop("VARUNA_PUBLIC_TEAM_LOGIN", None)
     try:
         redis_store._client = FakeRedis()
+        from conftest import start_task
         Hc, Hl = _h("sse1", "client"), _h("lead_sse", "lead_pentester")
-        pid = _prop(Hc).json()["proposal_id"]
-        jid = priv.post(f"/api/proposals/{pid}/approve", headers=Hl).json()["job_id"]
+        jid = start_task(_prop(Hc).json()["id"], "lead_sse")
         job = redis_store.get_job(jid); job["status"] = "done"; redis_store.set_job(job)
         assert pub.get(f"/api/scans/{jid}/events", headers=Hl).status_code == 403          # public: refused
         with priv.stream("GET", f"/api/scans/{jid}/events", headers=Hl) as r:              # private: streams
@@ -416,10 +435,10 @@ def test_installer_cmd_download_is_gated_and_carries_a_working_one_time_token(mo
     import tokens
     monkeypatch.delenv("VARUNA_PUBLIC_URL", raising=False)
     H = _h("inst_client", "client")
-    assert pub.get("/api/agent/installer", headers=H).status_code == 403            # nothing approved yet
-    lead = _h("inst_lead", "lead_pentester")
-    pid = _prop(H).json()["proposal_id"]
-    assert priv.post(f"/api/proposals/{pid}/approve", headers=lead).status_code in (200, 409)
+    assert pub.get("/api/agent/installer", headers=H).status_code == 403            # nothing claimed yet
+    import workflow
+    _h("inst_pen", "pentester")
+    workflow.transition(_prop(H).json()["id"], "scan/pending", "inst_pen", org_id=None)
     r = pub.get("/api/agent/installer", headers={**H, "x-forwarded-proto": "https", "x-forwarded-host": "varuna.example"})
     assert r.status_code == 200 and "attachment" in r.headers["content-disposition"] and "Install-Varuna.cmd" in r.headers["content-disposition"]
     body = r.text

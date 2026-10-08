@@ -39,7 +39,9 @@ def _agent_headers(username):
 
 
 def _propose(H, target, scan_mode):
-    return pub.post("/api/proposals", headers=H, json={"target": target, "scan_mode": scan_mode, "division": "x", "purpose": "periodic", "authorization_attested": True})
+    from conftest import window
+    nb, na = window()
+    return pub.post("/api/tasks", headers=H, json={"target": target, "scan_mode": scan_mode, "not_before": nb, "not_after": na})
 
 
 def test_cloud_proposal_must_be_public_but_local_may_be_anything():
@@ -51,35 +53,40 @@ def test_cloud_proposal_must_be_public_but_local_may_be_anything():
         assert _propose(H, private, "local").status_code == 200, private          # same address is fine for a local scan
     assert _propose(H, PUBLIC_IP, "cloud").status_code == 200
     assert _propose(H, "https://example.com", "cloud").status_code == 200
-    assert pub.post("/api/proposals", headers=H, json={"target": PUBLIC_IP, "scan_mode": "bogus", "authorization_attested": True}).status_code == 422
+    assert _propose(H, PUBLIC_IP, "bogus").status_code == 422
 
 
-def test_approved_cloud_job_goes_to_the_cloud_scanner_not_the_clients_queue():
-    H, lead = _h("cl2"), _h("cl2_lead", "lead_pentester")
-    pid = _propose(H, PUBLIC_IP, "cloud").json()["proposal_id"]
-    r = pub.post(f"/api/proposals/{pid}/approve", headers=lead); assert r.status_code == 200, r.text
-    job = redis_store.get_job(r.json()["job_id"])
+def test_started_cloud_job_goes_to_the_cloud_scanner_not_the_clients_queue():
+    from conftest import start_task
+    H = _h("cl2")
+    job = redis_store.get_job(start_task(_propose(H, PUBLIC_IP, "cloud").json()["id"], "cl2_pen"))
     assert job["scan_mode"] == "cloud" and job["executor"] == models.CLOUD_AGENT and job["submitter"] == "cl2"
     assert redis_store.dequeue_job("cl2") is None                       # the client's own agent never sees it
     assert redis_store.dequeue_job(models.CLOUD_AGENT) == job["id"]
-    # and a local proposal still goes to the client's agent
-    pid2 = _propose(H, PUBLIC_IP, "local").json()["proposal_id"]
-    job2 = redis_store.get_job(pub.post(f"/api/proposals/{pid2}/approve", headers=lead).json()["job_id"])
+    job2 = redis_store.get_job(start_task(_propose(H, PUBLIC_IP, "local").json()["id"], "cl2_pen"))
     assert job2["scan_mode"] == "local" and not job2["executor"] and redis_store.dequeue_job("cl2") == job2["id"]
 
 
-def test_cloud_approval_refuses_a_target_that_resolves_private():
-    H, lead = _h("cl3"), _h("cl3_lead", "lead_pentester")
-    pid = db.create_proposal({"submitter": "cl3", "target": "http://127.0.0.1:3000", "scan_mode": "cloud", "authorization_attested": True,
-                              "org_id": db.get_account("cl3")["org_id"]})   # slipped past submit
-    r = pub.post(f"/api/proposals/{pid}/approve", headers=lead)
-    assert r.status_code == 422 and "public target" in r.json()["detail"]
-    assert db.get_proposal(pid, org_id=None)["status"] == "pending"     # nothing was claimed
+def test_cloud_start_refuses_a_target_that_resolves_private():
+    import pytest
+    import workflow
+    from conftest import window
+    _h("cl3")
+    auth.create_account("cl3_pen", "password1", "pentester")
+    nb, na = window()
+    pid = db.create_proposal({"submitter": "cl3", "target": "http://127.0.0.1:3000", "scan_mode": "cloud",
+                              "org_id": db.get_account("cl3")["org_id"], "stage": "scan", "scan_state": "pending",
+                              "assignee": "cl3_pen", "not_before": nb, "not_after": na})   # slipped past create
+    tokens.issue_agent_token(models.CLOUD_AGENT)
+    with pytest.raises(workflow.Invalid, match="public target"):
+        workflow.transition(pid, "scan/in_progress", "cl3_pen", org_id=None)
+    assert db.get_proposal(pid, org_id=None)["scan_state"] == "pending"     # nothing was claimed
 
 
 def test_only_the_cloud_scanner_may_run_a_cloud_job():
-    H, lead = _h("cl4"), _h("cl4_lead", "lead_pentester")
-    jid = pub.post(f"/api/proposals/{_propose(H, PUBLIC_IP, 'cloud').json()['proposal_id']}/approve", headers=lead).json()["job_id"]
+    from conftest import start_task
+    H = _h("cl4")
+    jid = start_task(_propose(H, PUBLIC_IP, "cloud").json()["id"], "cl4_pen")
     cloud, other = _agent_headers(models.CLOUD_AGENT), _agent_headers("somebody_else")
     polled = agent.get("/agent/poll", headers=cloud).json()["job"]
     assert polled["id"] == jid
@@ -89,15 +96,15 @@ def test_only_the_cloud_scanner_may_run_a_cloud_job():
 
 
 def test_agent_status_tells_a_cloud_only_client_not_to_install_anything():
-    H, lead = _h("cl5"), _h("cl5_lead", "lead_pentester")
+    H = _h("cl5")
     assert pub.get("/api/agent", headers=H).json()["cloud_only"] is False                       # nothing yet
-    pub.post(f"/api/proposals/{_propose(H, PUBLIC_IP, 'cloud').json()['proposal_id']}/approve", headers=lead)
+    _propose(H, PUBLIC_IP, "cloud")
     s = pub.get("/api/agent", headers=H).json()
     assert s["cloud_only"] is True and isinstance(s["cloud_online"], bool)
     _agent_headers(models.CLOUD_AGENT)                                                           # scanner enrols and checks in
     tokens.touch_agent(models.CLOUD_AGENT)
     assert pub.get("/api/agent", headers=H).json()["cloud_online"] is True
-    assert pub.get("/api/proposals", headers=H).json()[0]["scan_mode"] == "cloud"
+    assert pub.get("/api/tasks", headers=H).json()[0]["scan_mode"] == "cloud"
 
 
 def test_scanner_refuses_private_targets_even_if_the_server_is_fooled(monkeypatch):
@@ -116,14 +123,20 @@ def test_scanner_refuses_private_targets_even_if_the_server_is_fooled(monkeypatc
         scan.assert_cloud_safe(cloud("https://not-listed.example"), resolve=lambda h: {"100.70.151.71"})
 
 
-def test_owner_allow_list_lets_a_privately_resolving_own_site_be_approved(monkeypatch):
-    H, lead = _h("cl6"), _h("cl6_lead", "lead_pentester")
-    monkeypatch.setattr(browser.classifier, "classify", lambda t, **k: browser.classifier.CLASS_LOCAL)      # resolves to a tailnet address
-    pid = _propose(H, "https://mine.example.org", "cloud").json()["proposal_id"]
+def test_owner_allow_list_lets_a_privately_resolving_own_site_be_started(monkeypatch):
+    import pytest
+    import workflow
+    H = _h("cl6")
+    auth.create_account("cl6_pen", "password1", "pentester")
+    pid = _propose(H, "https://mine.example.org", "cloud").json()["id"]
+    workflow.transition(pid, "scan/pending", "cl6_pen", org_id=None)
+    tokens.issue_agent_token(models.CLOUD_AGENT)
+    monkeypatch.setattr(workflow.classifier, "classify", lambda t, **k: workflow.classifier.CLASS_LOCAL)   # resolves to a tailnet address
     monkeypatch.delenv("VARUNA_CLOUD_ALLOW_HOSTS", raising=False)
-    assert pub.post(f"/api/proposals/{pid}/approve", headers=lead).status_code == 422                       # not listed: refused
+    with pytest.raises(workflow.Invalid):                                                       # not listed: refused
+        workflow.transition(pid, "scan/in_progress", "cl6_pen", org_id=None)
     monkeypatch.setenv("VARUNA_CLOUD_ALLOW_HOSTS", "mine.example.org")
-    assert pub.post(f"/api/proposals/{pid}/approve", headers=lead).status_code == 200                       # the owner's own site: allowed
+    assert workflow.transition(pid, "scan/in_progress", "cl6_pen", org_id=None)["scan_state"] == "in_progress"
 
 
 def test_agent_survives_connection_errors_instead_of_dying(monkeypatch):

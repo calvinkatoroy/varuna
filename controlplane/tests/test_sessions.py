@@ -46,7 +46,7 @@ def test_must_change_password_blocks_everything_else(api):
     db.set_account("rina", must_change_password=1)
     tok = api.login("rina", "Passw0rd!x")
     assert api.get("/api/me", tok).status_code == 200
-    assert api.get("/api/proposals", tok).status_code == 403
+    assert api.get("/api/tasks", tok).status_code == 403
 
 
 def test_org_change_ends_old_token(api):
@@ -100,7 +100,7 @@ def test_must_change_password_clears_after_password_change(api):
     r = api.post("/api/password", tok, {"current": "Passw0rd!x", "new": "N3wPassw0rd!"})
     assert r.status_code == 200
     assert db.get_account("rina")["must_change_password"] == 0
-    assert api.get("/api/proposals", r.json()["token"]).status_code == 200
+    assert api.get("/api/tasks", r.json()["token"]).status_code == 200
 
 
 def test_new_password_must_differ_from_current(api):

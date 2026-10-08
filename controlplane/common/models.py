@@ -42,27 +42,14 @@ def is_sysadmin(role: str) -> bool:
     return role == ROLE_SYSADMIN
 
 
-def can_approve(role: str) -> bool:
-    return role == ROLE_LEAD
-
-
-def can_review(role: str) -> bool:
-    return role in (ROLE_PENTESTER, ROLE_LEAD, ROLE_GOVERNANCE)
-
 # Target classification (REQ-14).
 CLASS_LOCAL = "local"
 CLASS_CLOUD = "cloud"
 
-# Proposal status (v2): a scan proposal awaits lead-pentester approval before any scan runs.
 # Where a scan runs: on the client's own computer (their agent) or by Varuna (the cloud scanner on the host).
 SCAN_LOCAL, SCAN_CLOUD = "local", "cloud"
 # The cloud scanner is an ordinary agent enrolled under this reserved name (clients cannot register it).
 CLOUD_AGENT = "varuna-cloud"
-
-PROPOSAL_PENDING = "pending"
-PROPOSAL_APPROVED = "approved"
-PROPOSAL_REJECTED = "rejected"
-PROPOSAL_STATUSES = (PROPOSAL_PENDING, PROPOSAL_APPROVED, PROPOSAL_REJECTED)
 
 # Report review pipeline stages (v2): reporter -> lead -> governance -> delivered.
 REPORT_REPORTER = "in_review_reporter"

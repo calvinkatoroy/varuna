@@ -16,7 +16,6 @@ import json
 import os
 import sys
 import threading
-import uuid
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
@@ -28,7 +27,7 @@ load_dotenv()  # repo-root .env, for host-run dev (REDIS_URL, JWT_SECRET, ...)
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, StreamingResponse  # noqa: E402
-from pydantic import BaseModel, Field, StrictBool  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
 
 import audit  # noqa: E402
 import auth  # noqa: E402
@@ -39,7 +38,6 @@ import dispatch  # noqa: E402
 import generator  # noqa: E402
 import jwt_auth  # noqa: E402
 import mailer  # noqa: E402
-import notify  # noqa: E402
 import models  # noqa: E402
 import redis_store  # noqa: E402
 import scanopts  # noqa: E402
@@ -49,7 +47,7 @@ import tokens  # noqa: E402
 import workflow  # noqa: E402
 import deps  # noqa: E402
 import profile_api  # noqa: E402
-from deps import current_user, require_lead, require_pro  # noqa: E402
+from deps import current_user, require_pro  # noqa: E402
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -93,7 +91,7 @@ async def limit_body(request, call_next):
 # must carry CORS headers too, or the browser reports a network error instead of the status.
 app.add_middleware(CORSMiddleware, allow_origins=_CORS, allow_methods=["*"], allow_headers=["*"])
 
-FULL_STACK = ["katana", "nuclei", "sqlmap"]
+FULL_STACK = workflow.FULL_STACK
 SSE_POLL_INTERVAL = 1.5   # seconds between checks for a changed job record
 SSE_MAX_SECONDS = 40 * 60  # generous cap so a stuck agent can't leave a connection open forever
 
@@ -113,23 +111,6 @@ class ScanBody(BaseModel):
 
 class RejectBody(BaseModel):
     reason: str = Field(default="", max_length=2000)
-
-
-class ProposalBody(BaseModel):
-    target: str = Field(max_length=2048)
-    mode: str = Field(default="standard", pattern="^(standard|advanced)$")
-    scan_mode: str = Field(default="local", pattern="^(local|cloud)$")   # local = my computer, cloud = run by Varuna
-    in_scope: str = Field(default="", max_length=4000)
-    out_of_scope: str = Field(default="", max_length=4000)
-    division: str = Field(default="", max_length=200)
-    purpose: str = Field(default="", max_length=200)   # keperluan
-    environment: str = Field(default="", max_length=200)
-    test_window: str = Field(default="", max_length=200)
-    roe: dict = {}
-    authorization_attested: StrictBool = False
-    emergency_contact: str = Field(default="", max_length=200)
-    tools: list[str] = Field(default=[], max_length=10)
-    opts: dict = {}
 
 
 @app.post("/api/login")
@@ -271,119 +252,6 @@ def task_timeline(tid: str, user: dict = Depends(current_user), scope: tenancy.S
     return workflow.client_timeline(tid)
 
 
-# --- scan proposals (v2): client submits, lead pentester approves ---
-@app.post("/api/proposals")
-def submit_proposal(body: ProposalBody, user: dict = Depends(current_user),
-                    scope: tenancy.Scope = Depends(deps.scope)):
-    if not body.authorization_attested:
-        raise HTTPException(status_code=422,
-                            detail="authorization-to-test attestation is required")
-    try:
-        classifier.validate_syntax(body.target)
-    except classifier.ClassifyRejected as e:
-        raise HTTPException(status_code=422, detail=f"invalid target: {e}")
-    if body.scan_mode == models.SCAN_CLOUD:
-        try:
-            classifier.require_public_syntax(body.target)
-        except classifier.ClassifyRejected as e:
-            raise HTTPException(status_code=422, detail=str(e))
-    # org from the server-side account (scope), never the request; "" = staff, no organization
-    p = {**body.model_dump(), "submitter": user["username"], "status": models.PROPOSAL_PENDING,
-         "org_id": scope.org_id or ""}
-    if models.is_client(user["role"]):
-        # Safe-profile lock (NFR-17/18/19): `mode` for a client only labels the scoping form.
-        # Clients never choose tools or scan options; those are advanced-scan (team) inputs.
-        p["tools"], p["opts"] = [], {}
-    elif any(t not in FULL_STACK for t in p["tools"]):
-        raise HTTPException(status_code=422, detail=f"tools must be a subset of {FULL_STACK}")
-    pid = db.create_proposal(p)
-    notify.notify(f"New scan proposal from {user['username']} awaiting lead approval ({pid[:8]})")
-    return {"proposal_id": pid, "status": models.PROPOSAL_PENDING}
-
-
-def _client_proposal_view(p: dict) -> dict:
-    """Reshape a raw proposal row into what ClientProposals.tsx actually expects: status in
-    the client vocabulary (not raw pending/approved/rejected - see cockpit.client_status), and
-    `when`/`reason` field names instead of the DB's updated_at/reject_reason."""
-    return {
-        "id": p["id"], "target": p["target"], "purpose": p["purpose"], "division": p["division"],
-        "status": cockpit.client_status(p), "when": p["updated_at"], "reason": p.get("reject_reason"),
-        "job_id": p.get("job_id"), "scan_mode": p.get("scan_mode", "local"),
-    }
-
-
-@app.get("/api/proposals")
-def list_proposals(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
-    # team sees every organization's proposals (raw shape - the team side reads /api/pipeline/board
-    # instead, this is only kept broad in case something else needs the raw rows); a client
-    # sees only their organization's, reshaped for what the client UI actually renders.
-    rows = db.list_proposals(org_id=scope.org_id)
-    if models.is_team(user["role"]):
-        return rows
-    return [_client_proposal_view(p) for p in rows]
-
-
-@app.get("/api/proposals/{pid}")
-def get_proposal(pid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
-    p = db.get_proposal(pid, org_id=scope.org_id)
-    if not p:   # out of scope answers exactly like missing
-        raise HTTPException(status_code=404, detail="no such proposal")
-    return p
-
-
-@app.post("/api/proposals/{pid}/approve")
-def approve_proposal(pid: str, user: dict = Depends(require_lead), scope: tenancy.Scope = Depends(deps.scope)):
-    p = db.get_proposal(pid, org_id=scope.org_id)
-    if not p:
-        raise HTTPException(status_code=404, detail="no such proposal")
-    if p["status"] != models.PROPOSAL_PENDING:
-        raise HTTPException(status_code=409, detail="proposal is not pending")
-    try:
-        target_class = classifier.classify(p["target"])
-    except classifier.ClassifyRejected as e:
-        raise HTTPException(status_code=422, detail=f"target rejected: {e}")
-    cloud = p.get("scan_mode") == models.SCAN_CLOUD
-    own_sites = {h.strip().lower() for h in os.environ.get("VARUNA_CLOUD_ALLOW_HOSTS", "").split(",") if h.strip()}   # owner's explicit exception
-    if cloud and target_class != classifier.CLASS_CLOUD and classifier._extract_host(p["target"]).lower() not in own_sites:
-        raise HTTPException(status_code=422, detail="cloud scan needs a public target; this one resolves to a private or local address. Ask the client to choose a local scan.")
-    # Safe-profile lock, decided by the submitter's ROLE (never by the client-chosen `mode`):
-    # client proposals always run the fixed full stack with no custom opts.
-    submitter = db.get_account(p["submitter"])
-    standard = not submitter or models.is_client(submitter["role"]) or p["mode"] == "standard"
-    tools = FULL_STACK if standard else (p["tools"] or FULL_STACK)
-    opts = {} if standard else p["opts"]
-    job = models.Job(
-        id=str(uuid.uuid4()), target=p["target"], target_class=target_class,
-        submitter=p["submitter"], role=models.ROLE_CLIENT, tools=tools, opts=opts,
-        status=models.STATUS_QUEUED, per_tool_status={},
-        scan_mode=models.SCAN_CLOUD if cloud else models.SCAN_LOCAL, executor=models.CLOUD_AGENT if cloud else None,
-        org_id=p["org_id"],   # the job belongs to the proposal's organization
-    ).to_dict()
-    # Atomic claim: of N concurrent approvals exactly one flips pending->approved and proceeds.
-    if not db.claim_proposal(pid, models.PROPOSAL_PENDING,
-                             status=models.PROPOSAL_APPROVED, job_id=job["id"]):
-        raise HTTPException(status_code=409, detail="proposal is not pending")
-    redis_store.set_job(job)
-    redis_store.add_org_job(p["org_id"], job["id"])
-    audit.log(audit.APPROVE, approver=user["username"], proposal=pid, job=job["id"])
-    # Proposal is the gate; queue for the client's agent to pick up whenever it polls.
-    dispatch.dispatch_job(job, pre_approved=True)
-    return {"proposal_id": pid, "status": models.PROPOSAL_APPROVED, "job_id": job["id"]}
-
-
-@app.post("/api/proposals/{pid}/reject")
-def reject_proposal(pid: str, body: RejectBody, user: dict = Depends(require_lead),
-                    scope: tenancy.Scope = Depends(deps.scope)):
-    p = db.get_proposal(pid, org_id=scope.org_id)
-    if not p:
-        raise HTTPException(status_code=404, detail="no such proposal")
-    if not db.claim_proposal(pid, models.PROPOSAL_PENDING,
-                             status=models.PROPOSAL_REJECTED, reject_reason=body.reason):
-        raise HTTPException(status_code=409, detail="proposal is not pending")
-    audit.log(audit.REJECT, approver=user["username"], proposal=pid, reason=body.reason)
-    return {"proposal_id": pid, "status": models.PROPOSAL_REJECTED}
-
-
 @app.post("/api/scans")
 def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
     # v2: clients never direct-submit; they file a proposal that the lead pentester approves.
@@ -476,28 +344,31 @@ async def scan_events(job_id: str, user: dict = Depends(current_user),
 
 
 # --- agent enrollment (REQ-71 to REQ-73) ---
-def _own_proposals(user: dict, scope: tenancy.Scope) -> list[dict]:
+_CLOSED = ("declined", "expired")
+
+
+def _own_tasks(user: dict, scope: tenancy.Scope) -> list[dict]:
     """Agents are per user (a job goes to its submitter's agent), so agent questions look at this
-    user's own submissions within their organization."""
-    return [p for p in db.list_proposals(org_id=scope.org_id) if p["submitter"] == user["username"]]
+    user's own tasks within their organization."""
+    return [t for t in db.list_proposals(org_id=scope.org_id) if t["submitter"] == user["username"]]
 
 
 @app.get("/api/agent")
 def agent_status(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
-    mine = [p for p in _own_proposals(user, scope) if p["status"] != models.PROPOSAL_REJECTED]
+    mine = [t for t in _own_tasks(user, scope) if t["stage"] not in _CLOSED]
     return {"registered": bool(redis_store.get_agent(user["username"])),
             "online": tokens.is_online(user["username"]),
             # a client whose scans are all run by Varuna has no agent of their own to show
-            "cloud_only": bool(mine) and all(p.get("scan_mode") == models.SCAN_CLOUD for p in mine),
+            "cloud_only": bool(mine) and all(t.get("scan_mode") == models.SCAN_CLOUD for t in mine),
             "cloud_online": tokens.is_online(models.CLOUD_AGENT)}
 
 
 @app.post("/api/agent/install-token")
 def install_token(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
-    # Agents are installed AFTER approval (v2): a client with nothing approved gets no token.
+    # A client gets an agent once a pentester has taken one of their tasks; nothing claimed, no token.
     if models.is_client(user["role"]) and not any(
-            p["status"] == models.PROPOSAL_APPROVED for p in _own_proposals(user, scope)):
-        raise HTTPException(status_code=403, detail="agent install unlocks once a proposal is approved")
+            t["stage"] not in ("task", *_CLOSED) for t in _own_tasks(user, scope)):
+        raise HTTPException(status_code=403, detail="agent install unlocks once a pentester accepts a task")
     return {"enrollment_token": tokens.generate_enrollment_token(user["username"])}
 
 
@@ -525,7 +396,7 @@ def _installer_cmd(base: str, token: str) -> str:
 @app.get("/api/agent/installer")
 def agent_installer(request: Request, user: dict = Depends(current_user),
                     scope: tenancy.Scope = Depends(deps.scope)):
-    """Same gate as /api/agent/install-token (approved proposals only); returns Install-Varuna.cmd with a fresh token."""
+    """Same gate as /api/agent/install-token (a claimed task); returns Install-Varuna.cmd with a fresh token."""
     tok = install_token(user, scope)["enrollment_token"]
     base = (os.environ.get("VARUNA_PUBLIC_URL") or
             f"{request.headers.get('x-forwarded-proto', request.url.scheme)}://{request.headers.get('x-forwarded-host') or request.headers.get('host')}").rstrip("/")
