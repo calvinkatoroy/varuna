@@ -67,9 +67,9 @@ export function toApiOpts(o: ScanOpts): Record<string, unknown> {
   }
 }
 
-export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boolean; onOpenChange: (v: boolean) => void; onLaunch?: (opts: ScanOpts) => void }) {
+export function AdvancedScanDrawer({ open, onOpenChange, onLaunch, fixedTarget, actionLabel = 'Launch scan' }: { open: boolean; onOpenChange: (v: boolean) => void; onLaunch?: (opts: ScanOpts) => void; fixedTarget?: string; actionLabel?: string }) {
   const [preset, setPreset] = useState<Preset | null>('thorough')
-  const [target, setTarget] = useState('')
+  const [target, setTarget] = useState(fixedTarget ?? '')
   const [cookie, setCookie] = useState('')
   const [depth, setDepth] = useState(3)
   const [duration, setDuration] = useState(300)
@@ -136,7 +136,7 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
 
         <div className="flex-1">
           <Section icon={<Search size={16} />} title="Target & auth">
-            <input className="w-full rounded-input border border-rule bg-panel px-3.5 py-3 text-[13px] text-ink outline-none focus:border-accent" value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Target URL" placeholder="https://api.acme.io" />
+            <input className="w-full rounded-input border border-rule bg-panel px-3.5 py-3 text-[13px] text-ink outline-none focus:border-accent" value={target} readOnly={!!fixedTarget} onChange={(e) => setTarget(e.target.value)} aria-label="Target URL" placeholder="https://api.acme.io" />
             <input className="w-full rounded-input border border-rule bg-panel px-3.5 py-3 text-[13px] text-ink outline-none focus:border-accent" value={cookie} onChange={(e) => setCookie(e.target.value)} aria-label="Session cookie for an authenticated scan" placeholder="Cookie (authenticated scan)" />
             <div className="flex min-h-[44px] items-center justify-between"><span className="text-[13px] text-ink-muted">Log in first (form or JSON)</span><Switch checked={authOn} onCheckedChange={setAuthOn} /></div>
             {authOn && (
@@ -222,7 +222,7 @@ export function AdvancedScanDrawer({ open, onOpenChange, onLaunch }: { open: boo
 
         <div className="sticky bottom-0 flex gap-2.5 border-t border-rule bg-card p-6">
           <DrawerClose asChild><Button variant="outline" size="lg" className="flex-1">Cancel</Button></DrawerClose>
-          <Button size="lg" className="flex-[2]" disabled={!target.trim()} onClick={() => { onLaunch?.(opts); onOpenChange(false) }}><Play size={16} className="fill-current" /> Launch scan</Button>
+          <Button size="lg" className="flex-[2]" disabled={!target.trim()} onClick={() => { onLaunch?.(opts); onOpenChange(false) }}><Play size={16} className="fill-current" /> {actionLabel}</Button>
         </div>
       </DrawerContent>
     </Drawer>

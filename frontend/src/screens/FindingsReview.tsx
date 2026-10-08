@@ -38,7 +38,7 @@ export default function FindingsReview() {
   // board cards, so filtering by client here is real (not a hardcoded single-client special
   // case) - every client with any findings shows them.
   useEffect(() => {
-    api.pget('/api/pipeline/board').then((cols: any[]) => {
+    api.pget('/api/board').then((cols: any[]) => {
       setClients([...new Set(cols.flatMap((c) => c.cards.map((k: any) => k.client)))].sort())
     }).catch(() => {})
   }, [])
