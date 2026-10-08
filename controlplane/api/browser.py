@@ -64,14 +64,16 @@ MAX_BODY = 1_000_000   # bytes; every JSON body here is small forms
 async def clients_only(request, call_next):
     """NFR-24: the internet-facing plane serves clients. A valid team token is refused here (it
     works on the private plane), so stolen/phished team credentials gain nothing public."""
-    if request.url.path.startswith("/api/") and os.environ.get("VARUNA_PUBLIC_TEAM_LOGIN") != "1":
+    if request.url.path.startswith("/api/"):
         token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
         try:
             role = jwt_auth.verify(token)["role"] if token else None
         except Exception:
             role = None   # invalid/expired: the endpoint's own auth returns the 401
-        if role and models.is_team(role):
-            return JSONResponse(status_code=403, content={"detail": "security team accounts use the private plane"})
+        # Every non-client role is refused; the dev opt-in lets TEAM roles (never sysadmin) through.
+        dev_team = os.environ.get("VARUNA_PUBLIC_TEAM_LOGIN") == "1" and role != models.ROLE_SYSADMIN
+        if role and role != models.ROLE_CLIENT and not dev_team:
+            return JSONResponse(status_code=403, content={"detail": "staff accounts use the private plane"})
     return await call_next(request)
 
 

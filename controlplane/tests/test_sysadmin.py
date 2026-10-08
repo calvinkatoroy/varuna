@@ -1,3 +1,4 @@
+import audit
 import auth
 import db
 
@@ -158,3 +159,40 @@ def test_client_for_disabled_org_is_refused(priv):
     assert priv.post(f"/api/sysadmin/orgs/{oid}/disable", tok).status_code == 200
     r = priv.post("/api/sysadmin/accounts", tok, {"username": "offc", "role": "client", "org_id": oid})
     assert r.status_code == 422 and db.get_account("offc") is None
+
+
+def test_sysadmin_token_refused_on_every_public_route_even_with_dev_opt_in(api, priv, monkeypatch):
+    _root()
+    tok = priv.login("root", "Passw0rd!x")
+    for opt_in in (None, "1"):
+        if opt_in:
+            monkeypatch.setenv("VARUNA_PUBLIC_TEAM_LOGIN", opt_in)
+        else:
+            monkeypatch.delenv("VARUNA_PUBLIC_TEAM_LOGIN", raising=False)
+        for method, path in (("GET", "/api/me"), ("POST", "/api/refresh"), ("GET", "/api/profile")):
+            assert api.request(method, path, tok).status_code == 403, (opt_in, path)
+
+
+def test_set_account_email(priv):
+    _root()
+    tok = priv.login("root", "Passw0rd!x")
+    auth.create_account("dimas", "Passw0rd!x", "pentester")
+    url = "/api/sysadmin/accounts/dimas/email"
+    assert priv.put(url, tok, {"email": "dimas@ilcs.co.id"}).status_code == 200
+    assert db.get_account("dimas")["email"] == "dimas@ilcs.co.id"
+    assert priv.put(url, tok, {"email": "nope"}).status_code == 422
+    assert priv.put("/api/sysadmin/accounts/ghost/email", tok, {"email": "a@b.co"}).status_code == 404
+    assert priv.put(url, tok, {"email": ""}).status_code == 200
+    assert db.get_account("dimas")["email"] in (None, "")
+    dtok = priv.login("dimas", "Passw0rd!x")
+    assert priv.put(url, dtok, {"email": "x@y.zz"}).status_code == 403
+
+
+def test_set_account_email_audit_has_no_address(priv, monkeypatch):
+    _root()
+    tok = priv.login("root", "Passw0rd!x")
+    auth.create_account("dimas", "Passw0rd!x", "pentester")
+    logged = []
+    monkeypatch.setattr(audit, "log", lambda t, **f: logged.append((t, f)))
+    priv.put("/api/sysadmin/accounts/dimas/email", tok, {"email": "dimas@ilcs.co.id"})
+    assert logged and "dimas@ilcs.co.id" not in repr(logged)

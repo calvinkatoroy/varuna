@@ -137,3 +137,19 @@ def test_password_change_needs_current_and_keeps_session(api):
     r = api.post("/api/password", tok, {"current": "Passw0rd!x", "new": "N3wPassw0rd!"})
     assert api.get("/api/me", tok).status_code == 401
     assert api.get("/api/me", r.json()["token"]).status_code == 200
+
+
+def test_confirmation_link_base_depends_on_role(api, priv, sent, monkeypatch):
+    _client()
+    auth.create_account("dimas", "Passw0rd!x", "pentester")
+    monkeypatch.setenv("VARUNA_PUBLIC_URL", "https://public.example")
+    monkeypatch.setenv("VARUNA_TEAM_URL", "https://team.example/")
+    ctok = api.login("rina", "Passw0rd!x")
+    api.post("/api/profile/email", ctok, {"email": "rina@x.co"})
+    assert "https://public.example/confirm-email?token=" in sent["body"]
+    stok = priv.login("dimas", "Passw0rd!x")
+    priv.post("/api/profile/email", stok, {"email": "dimas@x.co"})
+    assert "https://team.example/confirm-email?token=" in sent["body"]
+    monkeypatch.delenv("VARUNA_TEAM_URL")
+    priv.post("/api/profile/email", stok, {"email": "dimas@x.co"})
+    assert "https://public.example/confirm-email?token=" in sent["body"]   # falls back to the public URL

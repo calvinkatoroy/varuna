@@ -58,9 +58,13 @@ class _Api:
         return self.request("PUT", path, token, json)
 
 
-def _fresh_app(name):
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "api"))
-    os.environ["VARUNA_PUBLIC_TEAM_LOGIN"] = "1"
+_API_DIR = os.path.join(os.path.dirname(__file__), "..", "api")
+
+
+def _fresh_app(name, monkeypatch):
+    if _API_DIR not in sys.path:
+        sys.path.insert(0, _API_DIR)
+    monkeypatch.setenv("VARUNA_PUBLIC_TEAM_LOGIN", "1")   # restored after the test; tests may override
     import redis_store
     from _fakeredis import FakeRedis
     redis_store._client = FakeRedis()
@@ -68,10 +72,10 @@ def _fresh_app(name):
 
 
 @pytest.fixture
-def api():
-    return _Api(_fresh_app("browser"))
+def api(monkeypatch):
+    return _Api(_fresh_app("browser", monkeypatch))
 
 
 @pytest.fixture
-def priv():
-    return _Api(_fresh_app("private_api"))
+def priv(monkeypatch):
+    return _Api(_fresh_app("private_api", monkeypatch))

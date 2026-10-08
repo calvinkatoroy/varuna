@@ -65,7 +65,8 @@ def request_email_change(body: EmailBody, user: dict = Depends(current_user)):
         raise HTTPException(status_code=422, detail="email required")
     token = secrets.token_urlsafe(32)
     db.add_email_change(hashlib.sha256(token.encode()).hexdigest(), user["username"], email, int(time.time()) + EMAIL_TTL)
-    base = (os.environ.get("VARUNA_PUBLIC_URL") or "http://localhost:5173").rstrip("/")
+    public = os.environ.get("VARUNA_PUBLIC_URL") or "http://localhost:5173"
+    base = ((os.environ.get("VARUNA_TEAM_URL") or public) if user["role"] != "client" else public).rstrip("/")
     text = (f"Open this link within 30 minutes to confirm this address for your Varuna account:\n\n"
             f"{base}/confirm-email?token={token}\n\nIf this wasn't you, ignore this email.\n")
     threading.Thread(target=mailer.send, args=(email, "Confirm your Varuna email", text), daemon=True).start()

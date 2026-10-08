@@ -106,7 +106,7 @@ def finish_reset(token: str, new: str) -> None:
     name = db.claim_reset_token(hashlib.sha256((token or "").encode()).hexdigest(), int(time.time()))
     if not name:
         raise AuthError("this reset link is invalid or has expired")
-    db.set_account(name, password_hash=hash_password(new))
+    db.set_account(name, password_hash=hash_password(new), must_change_password=0)
     redis_store.get_redis().delete(redis_store.login_fail_key(name))   # they may be locked out from guessing
 
 
@@ -211,6 +211,8 @@ def change_password(username: str, current: str, new: str) -> None:
     acct = db.get_account(username)
     if not acct or not check_password(current, acct["password_hash"]):
         raise BadCredentials("current password is incorrect")
+    if check_password(new, acct["password_hash"]):
+        raise AuthError("the new password must differ from the current one")
     _check_new_password(new)
     db.set_account(username, password_hash=hash_password(new), must_change_password=0)
 

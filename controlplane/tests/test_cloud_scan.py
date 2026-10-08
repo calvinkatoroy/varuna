@@ -32,6 +32,8 @@ def _h(name, role="client"):
 
 
 def _agent_headers(username):
+    if username != models.CLOUD_AGENT and not db.get_account(username):
+        auth.create_account(username, "Passw0rd!x", "pentester")
     et = tokens.generate_enrollment_token(username)
     return {"Authorization": f"Bearer {agent.post('/agent/enroll', json={'enrollment_token': et}).json()['token']}"}
 

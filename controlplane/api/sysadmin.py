@@ -144,6 +144,22 @@ def set_disabled(username: str, action: str, user: dict = Depends(require_sysadm
     return {"ok": True}
 
 
+class EmailBody(BaseModel):
+    email: str
+
+
+@router.put("/accounts/{username}/email")
+def set_email(username: str, body: EmailBody, user: dict = Depends(require_sysadmin)):
+    try:
+        email = auth._clean_email(body.email) or None
+    except auth.AuthError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not db.set_account(username, email=email):
+        raise HTTPException(status_code=404, detail="no such account")
+    audit.log("email_set", actor=user["username"], account=username, cleared=email is None)
+    return {"ok": True}
+
+
 @router.put("/accounts/{username}/role")
 def set_role(username: str, body: RoleBody, user: dict = Depends(require_sysadmin)):
     a = db.get_account(username)

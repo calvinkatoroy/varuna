@@ -88,6 +88,7 @@ Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Varuna"
   **private** plane (`POST http://<tailscale-host>:8010/api/login`); the public API refuses team
   logins and team tokens (NFR-24). For local dev with no private plane only, set
   `VARUNA_PUBLIC_TEAM_LOGIN=1`.
+- `seed_account.py <user> <pw> <role>` and `--team-defaults` overwrite an existing account's password, role and org.
 - `seed_account.py --team-defaults` gives each team account a random password (shown once). The
   dev-only `--dev` flag uses `changeme`; `--rotate-defaults` replaces any that remain. The private
   API prints a startup warning while any remain; change them at once (account menu > Change password, or the
@@ -133,6 +134,7 @@ CGNAT and opens no inbound port. You need a domain whose DNS is on Cloudflare (f
    VARUNA_CORS_ORIGINS=https://varuna.<your-domain>
    VARUNA_PUBLIC_URL=https://varuna.<your-domain>
    ```
+   Staff and sysadmin email links use `VARUNA_TEAM_URL` (the team plane address; falls back to `VARUNA_PUBLIC_URL`).
 4. `docker compose --profile tunnel up -d --build`
 
 Trial without a domain: `docker compose --profile quicktunnel up -d`, then

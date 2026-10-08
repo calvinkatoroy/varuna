@@ -105,3 +105,14 @@ def test_bad_email_is_refused_and_email_can_be_added_later(monkeypatch):
     assert db.get_account("rst4")["email"] in (None, "")   # only set once confirmed (see test_profile.py)
     db.set_account("rst4", email="rst4@example.com")
     assert auth.start_reset("rst4@example.com", "ip")
+
+
+def test_reset_clears_must_change_password(monkeypatch):
+    _capture(monkeypatch)
+    _client("rst2", "Rst2@Example.com")
+    db.set_account("rst2", must_change_password=1)
+    pub.post("/api/password-reset/request", json={"email": "rst2@example.com"})
+    _wait_mail()
+    tok = _token(SENT[-1][1])
+    assert pub.post("/api/password-reset/confirm", json={"token": tok, "new": "brandnew22"}).status_code == 200
+    assert db.get_account("rst2")["must_change_password"] == 0
