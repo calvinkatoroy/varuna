@@ -214,26 +214,28 @@ def test_pipeline_create_generates_v1_owned_by_client():
 def test_board_requires_team():
     reset()
     Hc = _hdr("alice", "client")
-    assert client.get("/api/pipeline/board", headers=Hc).status_code == 403
+    assert client.get("/api/board", headers=Hc).status_code == 403
 
 
 def test_board_shape_and_stages():
     reset()
     H = _hdr("riyan", "lead_pentester")
-    pid = _db.create_proposal({"submitter": "alice", "target": "http://t", "mode": "standard",
-                               "org_id": _db.create_org("PT Alice")})
-    r = client.get("/api/pipeline/board", headers=H).json()
-    ids = [c["id"] for c in r]
-    assert ids == ["pending", "scanning", "in_review_reporter", "in_review_lead",
-                   "in_review_governance", "delivered", "rejected"]
-    pending = next(c for c in r if c["id"] == "pending")["cards"]
-    assert pending[0]["id"] == pid and pending[0]["client"] == "PT Alice"   # the org, not the submitter
+    org = _db.create_org("PT Alice")
+    from conftest import window
+    nb, na = window()
+    pid = _db.create_proposal({"submitter": "alice", "target": "http://t", "org_id": org, "not_before": nb, "not_after": na})
+    r = client.get("/api/board", headers=H).json()
+    assert [c["id"] for c in r] == ["task", "scan", "completed", "review_lead_pentester", "review_lead_cyber",
+                                    "review_governance", "review_manager", "delivered", "closed"]
+    card = next(c for c in r if c["id"] == "task")["cards"][0]
+    assert card["id"] == pid and card["client"] == "PT Alice" and card["version"] == 0   # the org, not the submitter
+    assert {a["kind"] for a in card["actions"]} == {"claim", "decline"}
 
-    _db.update_proposal(pid, status="approved", job_id="j-scan")
+    running = _db.create_proposal({"submitter": "alice", "target": "http://t", "org_id": org, "stage": "scan",
+                                   "scan_state": "in_progress", "job_id": "j-scan", "not_before": nb, "not_after": na})
     redis_store.set_job({"id": "j-scan", "submitter": "alice", "status": "running", "per_tool_status": {}})
-    scanning = next(c for c in client.get("/api/pipeline/board", headers=H).json()
-                    if c["id"] == "scanning")["cards"]
-    assert scanning[0]["jobId"] == "j-scan" and scanning[0]["suspended"] is False
+    scan = next(c for c in client.get("/api/board", headers=H).json() if c["id"] == "scan")["cards"]
+    assert next(c for c in scan if c["id"] == running)["jobId"] == "j-scan"
 
 
 def test_detail_for_proposal_and_report():

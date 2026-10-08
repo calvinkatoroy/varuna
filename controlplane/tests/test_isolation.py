@@ -32,8 +32,7 @@ def _seed_org(name, user, host, job_id, reports_dir):
     import store
     org = make_client(user, name, PW)
     pid = db.create_proposal({"submitter": user, "target": f"http://{host}", "org_id": org,
-                              "authorization_attested": True})
-    db.update_proposal(pid, status="approved", job_id=job_id)
+                              "stage": "delivered", "job_id": job_id})
     redis_store.set_job({"id": job_id, "target": f"http://{host}", "submitter": user, "org_id": org,
                          "status": "done", "per_tool_status": {"katana": "done"}})
     redis_store.add_org_job(org, job_id)
@@ -93,7 +92,7 @@ def _sweep(app_api, token, b):
 
 def _org_b_untouched(b):
     p = db.get_proposal(b["pid"], org_id=b["org"])
-    assert p["status"] == "approved" and not p.get("reject_reason")
+    assert p["stage"] == "delivered" and p["version"] == 0 and db.list_task_events(b["pid"]) == []
     f = db.get_finding(b["fid"], org_id=b["org"])
     assert f["status"] == "open" and f["verdict"] == "tp"
     r = db.get_report(b["rid"], org_id=b["org"])
@@ -160,10 +159,10 @@ def test_staff_sees_both_orgs(priv, tmp_path, role):
     tok = priv.login("staff1", PW)
     assert {f["id"] for f in priv.get("/api/findings", tok).json()} == {a["fid"], b["fid"]}
     assert {r["id"] for r in priv.get("/api/pipeline/reports", tok).json()} == {a["rid"], b["rid"]}
-    clients = {c["client"] for col in priv.get("/api/pipeline/board", tok).json() for c in col["cards"]}
+    clients = {c["client"] for col in priv.get("/api/board", tok).json() for c in col["cards"]}
     assert clients == {"PT Alpha", "PT Beta"}
     for x in (a, b):
-        assert priv.get(f"/api/pipeline/detail/{x['pid']}", tok).status_code == 200
+        assert priv.get(f"/api/tasks/{x['pid']}/detail", tok).status_code == 200
         assert priv.get(f"/api/pipeline/reports/{x['rid']}/versions", tok).status_code == 200
 
 
@@ -171,11 +170,12 @@ def test_sysadmin_has_no_tenant_access(api, priv, tmp_path):
     a, b = _seed_two_orgs(tmp_path)
     auth.create_account("root", PW, "sysadmin")
     tok = priv.login("root", PW)   # sysadmins sign in on the private plane only; the token is also tried on the public app
-    for path in ("/api/proposals", "/api/findings", "/api/reports", "/api/scans", f"/api/proposals/{b['pid']}"):
+    for path in ("/api/proposals", "/api/findings", "/api/reports", "/api/scans", f"/api/proposals/{b['pid']}",
+                 f"/api/tasks/{b['pid']}"):
         assert api.get(path, tok).status_code == 403, path
     # the private plane refuses a sysadmin's token on its tenant GET routes too
-    for path in ("/api/findings", "/api/pipeline/board", "/api/pipeline/reports", "/api/reports/all",
-                 f"/api/findings/{b['job_id']}", f"/api/pipeline/detail/{a['pid']}",
+    for path in ("/api/findings", "/api/board", "/api/pipeline/reports", "/api/reports/all",
+                 f"/api/findings/{b['job_id']}", f"/api/tasks/{a['pid']}/detail",
                  f"/api/pipeline/reports/{a['rid']}/versions", f"/api/scans/{b['job_id']}/events"):
         assert priv.get(path, tok).status_code == 403, path
 

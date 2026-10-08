@@ -272,11 +272,14 @@ def resume_scan(job_id: str, user: dict = Depends(require_team), scope: Scope = 
     return {"ok": True}
 
 
-# --- team pipeline board (v2): kanban view composed from proposals + jobs + reports ---
-@app.get("/api/pipeline/board")
-def pipeline_board(user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
-    board.reap_stalled()   # opportunistic: no scheduler needed, the board is polled while anyone watches
-    return board.build_board(scope.org_id)
+# --- team board (step 2): role-scoped kanban columns built from task stages ---
+@app.get("/api/board")
+def get_board(column: str | None = None, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    """Role-scoped columns (step 2). Staff scope only; the scheduler runs the stall reaper, not this read."""
+    try:
+        return board.build_board(user, column)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="this column is not visible to your role")
 
 
 @app.get("/api/pipeline/detail/{id}")

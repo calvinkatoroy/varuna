@@ -43,7 +43,7 @@ def test_cannot_disable_or_demote_last_sysadmin(priv):
 def test_sysadmin_has_no_tenant_access(priv):
     _root()
     tok = priv.login("root", "Passw0rd!x")
-    for path in ("/api/findings", "/api/pipeline/board", "/api/pipeline/reports", "/api/reports/all"):
+    for path in ("/api/findings", "/api/board", "/api/pipeline/reports", "/api/reports/all"):
         assert priv.get(path, tok).status_code == 403
 
 
@@ -104,7 +104,7 @@ def test_sysadmin_enrols_mfa_when_required_and_stays_out_of_tenant_data(priv, mo
     assert r.status_code == 200
     tok2 = r.json()["token"]
     assert priv.get("/api/sysadmin/orgs", tok2).status_code == 200
-    assert priv.get("/api/pipeline/board", tok2).status_code == 403
+    assert priv.get("/api/board", tok2).status_code == 403
 
 
 def test_bad_email_leaves_no_orphan_account(priv):
@@ -123,10 +123,10 @@ def test_role_change_between_staff_roles_kills_old_token(priv):
     auth.create_account("dimas", "Passw0rd!x", "pentester")
     tok = priv.login("root", "Passw0rd!x")
     old = priv.login("dimas", "Passw0rd!x")
-    assert priv.get("/api/pipeline/board", old).status_code == 200
+    assert priv.get("/api/board", old).status_code == 200
     assert priv.put("/api/sysadmin/accounts/dimas/role", tok, {"role": "governance"}).status_code == 200
     assert db.get_account("dimas")["role"] == "governance"
-    assert priv.get("/api/pipeline/board", old).status_code == 401
+    assert priv.get("/api/board", old).status_code == 401
 
 
 def test_temp_password_forces_change_then_clears(priv):
@@ -135,12 +135,12 @@ def test_temp_password_forces_change_then_clears(priv):
     r = priv.post("/api/sysadmin/accounts", tok, {"username": "staffer", "role": "governance"})
     tmp = r.json()["temp_password"]
     t = priv.login("staffer", tmp)
-    r = priv.get("/api/pipeline/board", t)
+    r = priv.get("/api/board", t)
     assert r.status_code == 403 and r.json()["detail"] == "password_change_required"
     r = priv.post("/api/password", t, {"current": tmp, "new": "Br4nd-new-Pass!9"})
     assert r.status_code == 200
     assert db.get_account("staffer")["must_change_password"] == 0
-    assert priv.get("/api/pipeline/board", r.json()["token"]).status_code == 200
+    assert priv.get("/api/board", r.json()["token"]).status_code == 200
 
 
 def test_reset_password_kills_old_token(priv):
@@ -149,7 +149,7 @@ def test_reset_password_kills_old_token(priv):
     tok = priv.login("root", "Passw0rd!x")
     old = priv.login("dimas", "Passw0rd!x")
     assert priv.post("/api/sysadmin/accounts/dimas/reset-password", tok).status_code == 200
-    assert priv.get("/api/pipeline/board", old).status_code == 401
+    assert priv.get("/api/board", old).status_code == 401
 
 
 def test_client_for_disabled_org_is_refused(priv):

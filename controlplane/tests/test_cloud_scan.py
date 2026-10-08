@@ -150,8 +150,11 @@ def test_agent_survives_connection_errors_instead_of_dying(monkeypatch):
 
 def test_cloud_badge_survives_after_the_scan_into_review_and_delivery_cards():
     import board
-    H, lead = _h("cl7"), _h("cl7_lead", "lead_pentester")
-    jid = pub.post(f"/api/proposals/{_propose(H, PUBLIC_IP, 'cloud').json()['proposal_id']}/approve", headers=lead).json()["job_id"]
-    rid = db.create_report(jid, db.get_account("cl7")["org_id"], "cl7", template="Full Technical")
-    card = board._report_card(db.get_report(rid, org_id=None))
+    from conftest import window
+    H = _h("cl7")
+    nb, na = window()
+    tid = db.create_proposal({"submitter": "cl7", "org_id": db.get_account("cl7")["org_id"], "target": PUBLIC_IP,
+                              "scan_mode": "cloud", "stage": "review_governance", "job_id": "jc7",
+                              "not_before": nb, "not_after": na})
+    card = board._card(db.get_proposal(tid, org_id=None), {"username": "x", "role": "pentester"})
     assert card["scanMode"] == "cloud"

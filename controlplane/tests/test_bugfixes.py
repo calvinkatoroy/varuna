@@ -289,14 +289,18 @@ def test_refusals_from_middleware_still_carry_cors_headers():
 
 def test_board_flags_a_scan_whose_agent_died():
     import board
+    from conftest import start_task, window
     redis_store._client = FakeRedis()
-    Hc, Hl = _h("mona", "client"), _h("lead55", "lead_pentester")
-    pid = _prop(Hc).json()["proposal_id"]
-    jid = pub.post(f"/api/proposals/{pid}/approve", headers=Hl).json()["job_id"]
+    _h("mona", "client")
+    nb, na = window()
+    tid = db.create_proposal({"submitter": "mona", "org_id": _org("mona"), "target": CLOUD,
+                              "not_before": nb, "not_after": na})
+    jid = start_task(tid, "pen55")
     job = redis_store.get_job(jid)
     job.update(status="running", per_tool_status={"katana": "done", "nuclei": "running"})
-    redis_store.set_job(job)                                   # no agent heartbeat: offline
-    cards = next(c for c in board.build_board() if c["id"] == "scanning")["cards"]
+    redis_store.set_job(job)
+    agent = redis_store.get_agent("mona"); agent["last_seen"] = "2000-01-01T00:00:00+00:00"; redis_store.set_agent("mona", agent)
+    cards = next(c for c in board.build_board({"username": "pen55", "role": "pentester"}) if c["id"] == "scan")["cards"]
     meta = next(c["meta"] for c in cards if c["jobId"] == jid)
     assert "katana done" in meta and "stalled" in meta
 
