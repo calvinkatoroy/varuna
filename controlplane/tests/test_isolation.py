@@ -20,7 +20,8 @@ import redis_store  # noqa: E402
 from conftest import make_client  # noqa: E402
 
 PW = "Passw0rd!x"
-REFUSED = (400, 401, 403, 404, 405, 409, 422)
+# Another org's id is "no such row" (404). The one other accepted answer is a 403 from a role gate
+# ("... role required"), which fires before any lookup on staff-only routes. Nothing else may refuse.
 # One body that satisfies every action model (status/reject/verdict/template), so a refusal comes from
 # the tenancy check and not from body validation. Nothing in it names org B.
 BODY = {"status": "fixed", "reason": "x", "verdict": "fp", "template": "Full Technical"}
@@ -65,6 +66,7 @@ def _candidates(b):
 def _sweep(app_api, token, b):
     cands = _candidates(b)
     hit = 0
+    wrong = []
     for path, ops in app_api.app.openapi()["paths"].items():
         names = re.findall(r"\{(\w+)\}", path)
         for name in names:
@@ -76,11 +78,13 @@ def _sweep(app_api, token, b):
             for method in ops:
                 r = app_api.request(method.upper(), url, token, json=BODY)
                 hit += 1
-                if names:   # addressed at an org-B row: must be refused
-                    assert r.status_code in REFUSED, (method, url, r.status_code, r.text[:200])
+                if names and not (r.status_code == 404 or
+                                  (r.status_code == 403 and "role required" in r.text)):
+                    wrong.append((method.upper(), path, url, r.status_code, r.text[:80]))
                 body = r.text.replace(url, "")
                 for marker in ("beta", "jobB", "PT Beta", b["pid"], b["rid"], b["fid"], "pw-beta"):
                     assert marker not in body, (method, url, marker, body[:200])
+    assert not wrong, "org-B ids must be refused with 404:\n" + "\n".join(map(str, wrong))
     return hit
 
 
@@ -161,8 +165,39 @@ def test_staff_sees_both_orgs(priv, tmp_path, role):
 
 
 def test_sysadmin_has_no_tenant_access(api, priv, tmp_path):
-    _, b = _seed_two_orgs(tmp_path)
+    a, b = _seed_two_orgs(tmp_path)
     auth.create_account("root", PW, "sysadmin")
     tok = api.login("root", PW)
     for path in ("/api/proposals", "/api/findings", "/api/reports", "/api/scans", f"/api/proposals/{b['pid']}"):
         assert api.get(path, tok).status_code == 403, path
+    # the private plane refuses a sysadmin's token on its tenant GET routes too (sysadmin cannot sign in there)
+    for path in ("/api/findings", "/api/pipeline/board", "/api/pipeline/reports", "/api/reports/all",
+                 f"/api/findings/{b['job_id']}", f"/api/pipeline/detail/{a['pid']}",
+                 f"/api/pipeline/reports/{a['rid']}/versions", f"/api/scans/{b['job_id']}/events"):
+        assert priv.get(path, tok).status_code == 403, path
+
+
+def test_org_a_own_ids_work_so_the_sweep_is_not_vacuous(api, tmp_path):
+    a, _ = _seed_two_orgs(tmp_path)
+    tok = api.login("alpha", PW)
+    assert api.get(f"/api/proposals/{a['pid']}", tok).status_code == 200
+    assert api.get(f"/api/scans/{a['job_id']}", tok).status_code == 200
+    assert api.post(f"/api/findings/{a['fid']}/status", tok, json={"status": "fixed"}).status_code == 200
+    assert api.get(f"/api/reports/{a['rid']}/delivered", tok).status_code == 200
+
+
+def test_sysadmin_cannot_submit_a_scan(api):
+    auth.create_account("root", PW, "sysadmin")
+    tok = api.login("root", PW)
+    r = api.post("/api/scans", tok, json={"target": "http://t.example"})
+    assert r.status_code == 403, r.text
+
+
+def test_staff_scan_list_covers_every_org(api, tmp_path):
+    a, b = _seed_two_orgs(tmp_path)
+    redis_store.set_job({"id": "jobS", "submitter": "staff1", "org_id": None, "status": "done"})
+    redis_store.add_org_job(None, "jobS")
+    auth.create_account("staff1", PW, "pentester")
+    staff = {j["id"] for j in api.get("/api/scans", api.login("staff1", PW)).json()}
+    assert staff == {a["job_id"], b["job_id"], "jobS"}
+    assert [j["id"] for j in api.get("/api/scans", api.login("alpha", PW)).json()] == [a["job_id"]]

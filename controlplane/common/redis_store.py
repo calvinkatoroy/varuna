@@ -112,7 +112,8 @@ def list_pending_approvals() -> list:
 
 
 # --- per-organization recent-jobs index (so a jobs table can list without scanning all keys).
-# Staff direct scans belong to no organization and are indexed under the empty org id. ---
+# Staff direct scans belong to no organization and are indexed under the empty org id
+# (dispatch.list_jobs(None) walks "" plus every org to give staff the all-orgs view). ---
 ORG_JOBS_MAX = 50
 
 

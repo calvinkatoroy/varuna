@@ -146,16 +146,17 @@ def get_job(scope, job_id: str) -> dict | None:
 
 def list_jobs(org_id: str | None, limit: int = 20) -> list[dict]:
     """Recent jobs of this organization, newest first (for a jobs table, REQ-24 context).
-    org_id None lists staff direct scans (they belong to no organization).
+    org_id None is the staff scope (tenancy.Scope(None)): every organization's jobs plus staff direct scans.
 
     Skips job ids whose 24h TTL has already expired (redis_store.get_job returns None).
     """
     out = []
-    for jid in redis_store.list_org_jobs(org_id, limit):
-        job = redis_store.get_job(jid)
-        if job and (job.get("org_id") or None) == (org_id or None):
-            out.append(job)
-    return out
+    for oid in ([""] + [o["id"] for o in db.list_orgs()]) if org_id is None else [org_id]:
+        for jid in redis_store.list_org_jobs(oid, limit):
+            job = redis_store.get_job(jid)
+            if job and (org_id is None or job.get("org_id") == org_id):
+                out.append(job)
+    return out[:limit]
 
 
 def pending_approvals() -> list[dict]:

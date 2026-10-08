@@ -91,6 +91,20 @@ def test_cross_job_ownership_rejected():
     assert client.get("/agent/jobs/ajob/suspended", headers=H).status_code == 403
 
 
+def test_agent_of_another_org_cannot_touch_a_job_even_with_the_same_username():
+    reset()
+    oa, ob = db.create_org("A"), db.create_org("B")
+    import auth
+    auth.create_account("dup", "pw", "client", org_id=oa)   # the account now in org A, same name as B's old one
+    redis_store.set_job({"id": "bjob", "submitter": "dup", "org_id": ob, "status": "queued", "per_tool_status": {}})
+    H = _enroll("dup")
+    assert client.post("/agent/jobs/bjob/status", headers=H, json={"status": "done"}).status_code == 403
+    assert client.post("/agent/jobs/bjob/findings", headers=H, json={"raw": {}}).status_code == 403
+    assert client.get("/agent/jobs/bjob/suspended", headers=H).status_code == 403
+    redis_store.set_job({"id": "ajob2", "submitter": "dup", "org_id": oa, "status": "queued", "per_tool_status": {}})
+    assert client.post("/agent/jobs/ajob2/status", headers=H, json={"status": "running"}).status_code == 200
+
+
 def test_suspended_checkin():
     reset()
     redis_store.set_job({"id": "sjob", "submitter": "dina", "status": "running", "per_tool_status": {}})

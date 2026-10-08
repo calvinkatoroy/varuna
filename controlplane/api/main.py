@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field  # noqa: E402
 
 import redis_store  # noqa: E402
 import tokens  # noqa: E402
+import dispatch  # noqa: E402
 import ingest  # noqa: E402
 
 app = FastAPI(title="Varuna Agent API")
@@ -56,7 +57,7 @@ def current_agent(authorization: str = Header(default="")) -> str:
 
 def _owned_job_or_403(job_id: str, username: str) -> dict:
     job = redis_store.get_job(job_id)
-    if not tokens.owns_job(username, job):
+    if not tokens.owns_job(username, job) or dispatch._org_mismatch({**job, "executor": username}):
         # 404-shaped as 403: don't distinguish "not yours" from "gone" to a caller.
         raise HTTPException(status_code=403, detail="job not owned by this agent")
     return job

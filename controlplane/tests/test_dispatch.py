@@ -19,6 +19,7 @@ redis_store._client = FakeRedis()
 
 import dispatch  # noqa: E402
 import tokens  # noqa: E402
+import db  # noqa: E402
 import classifier  # noqa: E402
 
 LOCAL = "http://10.0.0.5"      # classifies local via ipaddress, no DNS
@@ -153,20 +154,31 @@ def test_pre_approved_enqueues_skipping_gate_and_online():
     assert _queued("alice") == "pa1"
 
 
+def test_staff_scope_lists_every_org_and_client_scope_only_its_own():
+    reset()
+    oa, ob = db.create_org("A"), db.create_org("B")
+    for jid, org in (("ja", oa), ("jb", ob), ("js", None)):
+        redis_store.set_job({"id": jid, "submitter": "u", "org_id": org, "status": "queued"})
+        redis_store.add_org_job(org, jid)
+    assert {j["id"] for j in dispatch.list_jobs(None)} == {"ja", "jb", "js"}
+    assert [j["id"] for j in dispatch.list_jobs(oa)] == ["ja"]
+
+
 def test_jobs_carry_org_and_are_listed_and_read_per_org():
     reset()
     import tenancy
+    oa = db.create_org("A")
     _agent_online("pentester")
-    staff = dispatch.submit_scan("pentester", "pentester", None, CLOUD, ["katana"])
-    redis_store.set_job({"id": "ja", "submitter": "alice", "org_id": "org-a", "status": "queued"})
-    redis_store.add_org_job("org-a", "ja")
-    assert [j["id"] for j in dispatch.list_jobs("org-a")] == ["ja"]
-    assert [j["id"] for j in dispatch.list_jobs(None)] == [staff["job_id"]]
+    staff =dispatch.submit_scan("pentester", "pentester", None, CLOUD, ["katana"])
+    redis_store.set_job({"id": "ja", "submitter": "alice", "org_id": oa, "status": "queued"})
+    redis_store.add_org_job(oa, "ja")
+    assert [j["id"] for j in dispatch.list_jobs(oa)] == ["ja"]
+    assert {j["id"] for j in dispatch.list_jobs(None)} == {"ja", staff["job_id"]}   # staff scope: every org
     assert dispatch.list_jobs("org-b") == []
-    assert dispatch.get_job(tenancy.Scope("org-a"), "ja")["id"] == "ja"
+    assert dispatch.get_job(tenancy.Scope(oa), "ja")["id"] == "ja"
     assert dispatch.get_job(tenancy.Scope("org-b"), "ja") is None          # other org: as if missing
     assert dispatch.get_job(tenancy.Scope(None), "ja")["id"] == "ja"       # staff see every org
-    assert dispatch.get_job(tenancy.Scope("org-a"), staff["job_id"]) is None
+    assert dispatch.get_job(tenancy.Scope(oa), staff["job_id"]) is None
 
 
 def test_dispatch_refuses_a_job_of_another_org_and_fails_it():

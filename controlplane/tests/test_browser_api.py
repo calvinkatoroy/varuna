@@ -133,6 +133,18 @@ def test_client_submits_and_proposals_are_scoped():
     assert client.get(f"/api/proposals/{pid}", headers=Ht).status_code == 200
 
 
+def test_proposal_org_submitter_status_come_from_the_account_not_the_body():
+    reset()
+    Ha = _token("alice", "client")
+    _token("bob", "client")
+    r = client.post("/api/proposals",
+                    json={"target": "http://t.example", "authorization_attested": True,
+                          "org_id": _org("bob"), "submitter": "bob", "status": "approved"}, headers=Ha)
+    assert r.status_code == 200, r.text
+    p = db.get_proposal(r.json()["proposal_id"], org_id=None)
+    assert (p["org_id"], p["submitter"], p["status"]) == (_org("alice"), "alice", "pending")
+
+
 def test_lead_approves_proposal_and_dispatches():
     reset()
     Hc = _token("alice", "client")
