@@ -15,7 +15,7 @@ import { ChangePassword } from './components/ChangePassword'
 import { api } from './api'
 import TeamBoard from './screens/TeamBoard'
 import FindingsReview from './screens/FindingsReview'
-import TeamAccounts from './screens/TeamAccounts'
+import SysAdmin from './screens/SysAdmin'
 import { Splash } from './components/Splash'
 import { Toaster } from './lib/toast'
 
@@ -45,16 +45,23 @@ function ClientRoute({ children }: { children: React.ReactNode }) {
 
 // The private/team plane: gated on role, not just presence of a session, so a client account
 // can't reach it just by navigating to /team. Dev note: seeded team logins in the mock are
-// riyan/dimas/aisah/hani (any password) - see mock/index.ts's teamAccounts.
+// riyan/dimas/aisah/hani/bayu/sysadmin (any password) - see mock/index.ts's teamAccounts.
+//
+// The system administrator has no access to tenant data, so its whole app is the console
+// (`sysadmin` routes); it is sent there from every other team route, and staff are kept out of it.
 //
 // Demo build (VITE_MOCK=1) skips the login gate entirely - there's no real backend session to
-// protect, so it silently logs in as `admin` (mock lead_pentester) instead of making a visitor
-// type credentials into a prototype. Real deployments (VITE_MOCK=0) still require a real login.
-function RoleRoute({ children }: { children: React.ReactNode }) {
+// protect, so it silently logs in as `admin` (mock lead_pentester), or `sysadmin` on the console,
+// instead of making a visitor type credentials into a prototype. Real deployments (VITE_MOCK=0)
+// still require a real login.
+function RoleRoute({ children, sysadmin }: { children: React.ReactNode; sysadmin?: boolean }) {
   const { user, login } = useAuth()
   useEffect(() => {
-    if (isMock() && (!user || user.role === 'client')) login('admin', '').catch(() => {})
-  }, [user, login])
+    if (!isMock()) return
+    if (sysadmin ? user?.role !== 'sysadmin' : !user || user.role === 'client' || user.role === 'sysadmin') {
+      login(sysadmin ? 'sysadmin' : 'admin', '').catch(() => {})
+    }
+  }, [user, login, sysadmin])
   // Policy (VARUNA_REQUIRE_MFA): a team member without two-factor sees only the enrolment dialog.
   const [mustEnrol, setMustEnrol] = useState<boolean | null>(null)
   const team = !isMock() && !!user && user.role !== 'client'
@@ -65,7 +72,9 @@ function RoleRoute({ children }: { children: React.ReactNode }) {
   }, [team, mustChange, user?.username])
   if (isMock()) return <>{children}</>
   if (team && (mustChange || mustEnrol === null)) return null
-  if (team) return mustEnrol ? <TwoFactor forced onClose={() => setMustEnrol(false)} /> : <>{children}</>
+  if (team && mustEnrol) return <TwoFactor forced onClose={() => setMustEnrol(false)} />
+  if (team && !!sysadmin !== (user.role === 'sysadmin')) return <Navigate to={sysadmin ? '/team' : '/team/sysadmin'} replace />
+  if (team) return <>{children}</>
   return <TeamLogin />
 }
 
@@ -103,7 +112,7 @@ export default function App() {
           <Route path="/reports" element={<ClientRoute><ClientReports /></ClientRoute>} />
           <Route path="/team" element={<RoleRoute><TeamBoard /></RoleRoute>} />
           <Route path="/team/findings" element={<RoleRoute><FindingsReview /></RoleRoute>} />
-          <Route path="/team/accounts" element={<RoleRoute><TeamAccounts /></RoleRoute>} />
+          <Route path="/team/sysadmin" element={<RoleRoute sysadmin><SysAdmin /></RoleRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       )}
