@@ -378,6 +378,8 @@ _ALLOWED = [
     ("manager-sendback", "review_manager", None, "review_governance", "hendra", "wording"),
     ("prog-suspend-sched", "scan", "in_progress", "scan/suspended", workflow.SCHEDULER, "window closing"),
     ("prog-suspend-agent", "scan", "in_progress", "scan/suspended", workflow.SYSTEM, "agent lost"),
+    ("deliv-recover-done", "delivering", None, "delivered", workflow.SCHEDULER, None),
+    ("deliv-recover-back", "delivering", None, "review_manager", workflow.SCHEDULER, "delivery did not finish"),
 ]
 
 

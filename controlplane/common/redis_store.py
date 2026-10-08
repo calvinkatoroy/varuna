@@ -14,7 +14,7 @@ import json
 import os
 from typing import Optional
 
-SCAN_TTL_SECONDS = int(os.environ.get("SCAN_TTL_SECONDS", "86400"))
+SCAN_TTL_SECONDS = int(os.environ.get("SCAN_TTL_SECONDS") or "86400")
 
 
 # --- key builders (pure; no connection needed) ---

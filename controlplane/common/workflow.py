@@ -99,6 +99,9 @@ RULES = {
     ("review_governance", "review_lead_cyber"): _rule({models.ROLE_GOVERNANCE}, "send_back", True),
     ("review_manager", "delivered"): _rule({models.ROLE_MANAGER}, "deliver"),
     ("review_manager", "review_governance"): _rule({models.ROLE_MANAGER}, "send_back", True),
+    # recovery of a delivery that crashed mid-way (scheduler.tick): no person can make these moves
+    ("delivering", "delivered"): _rule({SCHEDULER}, "recover_delivered"),
+    ("delivering", "review_manager"): _rule({SCHEDULER}, "recover_returned"),
 }
 _SYSTEM_ONLY = frozenset({SYSTEM, SCHEDULER})
 
@@ -385,6 +388,10 @@ def actions(task: dict, actor: str) -> list[dict]:
         ok = bool(tags & rule["who"])
         out.append({"to": to, "kind": rule["kind"], "comment": rule["comment"], "allowed": ok,
                     "why": None if ok else _why(rule["who"])})
+    if (task["stage"] == "completed" or task["stage"] in STAGE_ROLE) and task.get("job_id")             and not db.get_report_by_job(task["job_id"]):
+        ok = can_edit_report(task, actor)   # transition-free: the report is generated on demand
+        out.append({"to": None, "kind": "generate_report", "comment": False, "allowed": ok,
+                    "why": None if ok else "only the stage owner can do this"})
     return out
 
 

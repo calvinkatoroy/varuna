@@ -190,7 +190,7 @@ The private API runs a scheduler every 30 seconds (one runner at a time, Redis l
 `api-private` replicas are harmless). It starts scheduled scans, waits up to 15 minutes for an offline agent or
 unreachable target and then suspends the task with that reason (and posts to `NOTIFY_WEBHOOK_URL`), expires tasks
 whose client time limit passed, and suspends running scans past the time limit or their maximum duration. It also
-fails scans whose agent has been silent for 15 minutes. Set `VARUNA_SCHEDULER=0` to turn it off (tests do).
+fails scans whose agent has been silent for 15 minutes, and recovers a task stuck in `delivering` for over 10 minutes (finished if its report was already delivered, else back to manager review). Set `VARUNA_SCHEDULER=0` to turn it off (tests do).
 
 ### Step 2 settings and upgrade
 | Env | Default | Meaning |

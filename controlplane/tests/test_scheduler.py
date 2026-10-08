@@ -219,3 +219,42 @@ def test_expiry_is_checked_before_the_scheduled_time():
     tid = _scheduled(at_min=600, start_min=-10, minutes=60)   # scheduled_at after not_after
     assert scheduler.tick(dt.datetime.now(UTC) + dt.timedelta(minutes=70))["expired"] == 1
     assert _get(tid)["stage"] == "expired"
+
+
+# --- a crash during delivery must not strand the task in `delivering` ---
+def _delivering(with_report=None):
+    tid = _scheduled()
+    db.get_conn().execute("UPDATE proposals SET stage='delivering', scan_state=NULL, job_id='jd', assignee='rizky' WHERE id=?", (tid,))
+    db.get_conn().commit()
+    if with_report:
+        rid = db.create_report("jd", db.get_proposal(tid, org_id=None)["org_id"], "alice")
+        db.set_report(rid, stage=with_report)
+    return tid
+
+
+def test_stuck_delivering_with_a_delivered_report_is_finished():
+    tid = _delivering(with_report="delivered")
+    out = scheduler.tick(dt.datetime.now(UTC) + dt.timedelta(minutes=11))
+    assert _get(tid)["stage"] == "delivered" and out["recovered"] == 1
+    assert db.list_task_events(tid)[-1]["actor"] == workflow.SCHEDULER
+
+
+def test_stuck_delivering_without_a_delivered_report_returns_to_the_manager():
+    tid = _delivering(with_report="draft")
+    scheduler.tick(dt.datetime.now(UTC) + dt.timedelta(minutes=11))
+    assert _get(tid)["stage"] == "review_manager"
+    ev = db.list_task_events(tid)[-1]
+    assert ev["actor"] == workflow.SCHEDULER and "delivery did not finish, returned to manager review" in ev["comment"]
+
+
+def test_delivering_under_ten_minutes_is_untouched():
+    tid = _delivering()
+    scheduler.tick(dt.datetime.now(UTC) + dt.timedelta(minutes=5))
+    assert _get(tid)["stage"] == "delivering"
+
+
+def test_recovery_moves_are_scheduler_only():
+    tid = _delivering()
+    for to in ("delivered", "review_manager"):
+        with pytest.raises(workflow.Forbidden):
+            workflow.transition(tid, to, "rizky", org_id=None)

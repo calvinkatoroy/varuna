@@ -9,6 +9,7 @@ import uuid
 
 import board
 import db
+import models
 import notify
 import redis_store
 import workflow
@@ -16,6 +17,7 @@ import workflow
 TICK_SECONDS = 30
 LOCK_KEY = "scheduler:lock"
 LOCK_TTL = 60
+DELIVERY_STUCK = datetime.timedelta(minutes=10)   # `delivering` this long means the delivery crashed
 GRACE = datetime.timedelta(minutes=15)   # a due scan that cannot start for this long is suspended
 
 
@@ -89,13 +91,29 @@ def _check_running(t: dict, now: datetime.datetime, out: dict) -> None:
         _suspend(t, now, "maximum scan duration reached", out)
 
 
+def _recover_delivery(t: dict, now: datetime.datetime, out: dict) -> None:
+    """A task stuck in `delivering` (the delivery crashed): finish it if the client was already served,
+    else hand it back to the manager."""
+    changed = datetime.datetime.strptime(t["updated_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.UTC)
+    if now - changed < DELIVERY_STUCK:
+        return
+    r = db.get_report_by_job(t["job_id"]) if t.get("job_id") else None
+    if r and r["stage"] == models.REPORT_DELIVERED:
+        ok = _move(t, "delivered", now)
+    else:
+        ok = _move(t, "review_manager", now, "delivery did not finish, returned to manager review")
+    if ok:
+        out["recovered"] += 1
+
+
 def tick(now: datetime.datetime) -> dict:
-    out = {"started": 0, "expired": 0, "suspended": 0, "waiting": 0}
+    out = {"started": 0, "expired": 0, "suspended": 0, "waiting": 0, "recovered": 0}
     board.reap_stalled(now)
     waiting = db.list_proposals(stage="task", org_id=None) +         db.list_proposals(stage="scan", scan_state="pending", org_id=None)
     _each(waiting, _expire_waiting, now, out)
     _each(db.list_proposals(stage="scan", scan_state="scheduled", org_id=None), _start_scheduled, now, out)
     _each(db.list_proposals(stage="scan", scan_state="in_progress", org_id=None), _check_running, now, out)
+    _each(db.list_proposals(stage=workflow.DELIVERING, org_id=None), _recover_delivery, now, out)
     return out
 
 

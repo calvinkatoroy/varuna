@@ -315,3 +315,45 @@ def test_reviewer_cannot_ask_for_another_stages_column(priv):
     assert priv.get("/api/board?column=review_lead_cyber", gov).status_code == 403
     cols = priv.get("/api/board?column=review_lead_cyber", priv.login("rizky", PW)).json()
     assert [c["id"] for c in cols] == ["review_lead_cyber"] and len(cols[0]["cards"]) == 1
+
+
+# --- on-demand report ---
+def _done_job(jid="jrep"):
+    redis_store.set_job({"id": jid, "target": "http://8.8.8.8", "target_class": "cloud", "submitter": "alice",
+                         "role": "client", "tools": [], "status": "done", "per_tool_status": {}, "org_id": None})
+
+
+def test_generate_report_route_creates_once_and_is_idempotent(priv, tmp_path):
+    import store
+    store.REPORTS_DIR = str(tmp_path)
+    _staff(("rizky", "pentester"))
+    _done_job()
+    tid = _new_task(stage="completed", assignee="rizky", job_id="jrep")
+    tok = priv.login("rizky", PW)
+    assert any(a["kind"] == "generate_report" for a in workflow.actions(db.get_proposal(tid, org_id=None), "rizky"))
+    r1 = priv.post(f"/api/tasks/{tid}/report", tok)
+    assert r1.status_code == 200, r1.text
+    r2 = priv.post(f"/api/tasks/{tid}/report", tok)
+    assert r2.json()["report_id"] == r1.json()["report_id"]
+    assert len(db.list_reports(org_id=None)) == 1
+    rep = db.get_report(r1.json()["report_id"], org_id=None)
+    assert rep["org_id"] == db.get_proposal(tid, org_id=None)["org_id"]
+    assert not any(a["kind"] == "generate_report" for a in workflow.actions(db.get_proposal(tid, org_id=None), "rizky"))
+
+
+def test_generate_report_refusals(priv, tmp_path):
+    import store
+    store.REPORTS_DIR = str(tmp_path)
+    _staff(("rizky", "pentester"), ("budi", "pentester"), ("sari", "governance"))
+    _done_job()
+    tid = _new_task(stage="completed", assignee="rizky", job_id="jrep")
+    assert priv.post(f"/api/tasks/{tid}/report", priv.login("budi", PW)).status_code == 403   # not the assignee
+    assert priv.post(f"/api/tasks/{tid}/report", priv.login("sari", PW)).status_code == 403
+    assert priv.post("/api/tasks/nope/report", priv.login("rizky", PW)).status_code == 404
+    nojob = _new_task(stage="completed", assignee="rizky")
+    assert priv.post(f"/api/tasks/{nojob}/report", priv.login("rizky", PW)).status_code == 409
+    gone = _new_task(stage="completed", assignee="rizky", job_id="expired-job")
+    assert priv.post(f"/api/tasks/{gone}/report", priv.login("rizky", PW)).status_code == 409
+    assert db.list_reports(org_id=None) == []
+    assert not any(a["kind"] == "generate_report" for a in workflow.actions(db.get_proposal(
+        _new_task(stage="scan", scan_state="pending", assignee="rizky"), org_id=None), "rizky"))

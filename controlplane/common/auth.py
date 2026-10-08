@@ -43,7 +43,7 @@ class LockedOut(AuthError):
 
 def hash_password(password: str) -> str:
     import bcrypt
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(int(os.environ.get("BCRYPT_ROUNDS", "12")))).decode()
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(int(os.environ.get("BCRYPT_ROUNDS") or "12"))).decode()
 
 
 def check_password(password: str, hashed: str) -> bool:

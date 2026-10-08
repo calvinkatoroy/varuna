@@ -16,7 +16,7 @@ import db  # noqa: E402
 import redis_store  # noqa: E402
 
 REPORTS_DIR = os.environ.get("REPORTS_DIR", "report_output")
-RETENTION_DAYS = int(os.environ.get("REPORT_RETENTION_DAYS", "7"))   # NFR-28
+RETENTION_DAYS = int(os.environ.get("REPORT_RETENTION_DAYS") or "7")   # NFR-28
 
 
 GLOBAL_KEY = "reports:_all"   # Pro full archive across all users (REQ-50a)

@@ -19,7 +19,7 @@ import db
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-only-change-me")
 JWT_ALG = "HS256"
-JWT_TTL = int(os.environ.get("JWT_TTL_SECONDS", "3600"))   # 1h session
+JWT_TTL = int(os.environ.get("JWT_TTL_SECONDS") or "3600")   # 1h session
 
 
 def issue(username: str) -> str:

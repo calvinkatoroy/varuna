@@ -442,6 +442,24 @@ def task_transition(tid: str, body: TransitionBody, user: dict = Depends(require
     return {"id": t["id"], "stage": t["stage"], "scan_state": t["scan_state"], "version": t["version"]}
 
 
+@app.post("/api/tasks/{tid}/report")
+def task_generate_report(tid: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    """Generate the report on demand when the automatic one failed or never ran. Idempotent."""
+    t = _staff_task(tid, scope)
+    if not workflow.can_edit_report(t, user["username"]):
+        raise HTTPException(status_code=403, detail="you do not own this review stage")
+    existing = db.get_report_by_job(t["job_id"]) if t.get("job_id") else None
+    if existing:
+        return {"report_id": existing["id"]}
+    job = redis_store.get_job(t["job_id"]) if t.get("job_id") else None
+    if not job or (job.get("status") != models.STATUS_DONE and not db.get_findings(t["job_id"])):
+        raise HTTPException(status_code=409, detail="this task has no completed scan to build a report from")
+    try:
+        return {"report_id": ingest.start_review(job, editor=user["username"])}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"report generation failed: {type(e).__name__}")
+
+
 @app.get("/api/tasks/{tid}/events")
 def task_events(tid: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
     _staff_task(tid, scope)
@@ -457,6 +475,7 @@ def task_detail(tid: str, user: dict = Depends(require_team), scope: Scope = Dep
     t = _staff_task(tid, scope)
     r = db.get_report_by_job(t["job_id"]) if t.get("job_id") else None
     return {"task": {k: t.get(k) for k in _DETAIL_KEYS}, "report_id": r["id"] if r else None,
+            "can_edit_report": workflow.can_edit_report(t, user["username"]),
             "versions": db.list_report_versions(r["id"]) if r else []}
 
 

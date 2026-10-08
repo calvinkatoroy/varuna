@@ -83,7 +83,8 @@ Open a card to act. Buttons you cannot use say why. Moves that cannot be undone 
    agent is offline for 15 minutes is suspended automatically; nothing retries silently after that. A scan
    that fails is suspended with the error. A suspended task whose time limit ended can only be closed (expired).
 3. **Completed.** Edit the report (download, change, **Upload new**, or regenerate in another template; every
-   version is kept), then **Submit for review**.
+   version is kept), then **Submit for review**. If a task has no report (generation failed), use
+   **Generate report** in its panel.
 4. **Reviews.** Each reviewer **Approves** (next review) or **Sends back** (previous step, comment required;
    the first review sends back to Completed). Only that stage's role edits the report there.
    The manager's approval converts the latest version to a password-protected PDF and delivers it.
