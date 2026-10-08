@@ -1,13 +1,11 @@
-"""Demo-data seeder (local/dev only): populates realistic supporting data across the pipeline
-by calling the REAL endpoint functions directly (not HTTP, not hand-replicated logic) - same
-business logic production uses, just orchestrated from a script instead of a browser. Findings
-are injected via db.save_findings() directly rather than run through actual Nuclei/SQLMap, so
-this takes seconds instead of the many minutes a real scan needs; everything else (proposal
-approval, report generation, review-pipeline forwarding, PDF encryption via real LibreOffice)
-is the genuine code path.
+"""Demo-data seeder (local/dev only): three Indonesian client organizations with users, scan
+proposals in different states, findings and review-pipeline reports. Everything goes through the
+real db/auth/private_api functions (not HTTP), so org_id is set exactly as in production.
+Findings are injected with db.save_findings() instead of running Nuclei/SQLMap; delivery uses the
+real LibreOffice PDF conversion. Needs no sysadmin and no staff accounts.
 
-Deliberately leaves any proposal already in "scanning" (job created, no report yet) alone -
-that's reserved for a live demo of the real agent + SSE progress.
+Random client passwords are printed once and written to .demo-credentials.txt (gitignored).
+Refuses to run if any organization already exists.
 
 Usage (inside the api-public container, so imports/env match):
   docker compose exec api-public python /app/controlplane/seed_demo.py
@@ -29,158 +27,139 @@ load_dotenv()
 
 import auth  # noqa: E402
 import db  # noqa: E402
-import generator  # noqa: E402
 import models  # noqa: E402
-import pdf_deliver  # noqa: E402
 import redis_store  # noqa: E402
-import store as report_store  # noqa: E402
-import browser  # noqa: E402
 import private_api  # noqa: E402
+from tenancy import Scope  # noqa: E402
 
-CLIENTS = ["globex", "initech", "umbrella"]
+DEMO_CREDS = os.path.join(os.path.dirname(__file__), "..", ".demo-credentials.txt")
 
+ORGS = {
+    "PT Samudera Logistik Nusantara": ["budi.santoso", "siti.rahayu"],
+    "PT Pelabuhan Bahari Sejahtera": ["agung.wijaya"],
+    "CV Mitra Kargo Jaya": ["dewi.lestari"],
+}
 
-def user(username: str, role: str) -> dict:
-    return {"username": username, "role": role}
+# Staff identities used only to push demo reports through the review stages.
+PENTESTER = {"username": "rizky", "role": "pentester"}
+LEAD = {"username": "dewi", "role": "lead_pentester"}
+GOVERNANCE = {"username": "sari", "role": "governance"}
+ALL = Scope(None)
 
-
-def ensure_account(username: str, role: str) -> None:
-    """Random password per demo client, printed as a CRED line for the wrapper to store (never a shared
-    default: this runs on a deployment that may be publicly reachable)."""
-    if not db.get_account(username):
-        pw = secrets.token_urlsafe(9)
-        auth.create_account(username, pw, role)
-        print(f"CRED {username} {pw}")
-
-
-# Reusable, realistic finding sets (adapted from the same copy already used in the frontend's
-# own mock fixtures this session, so the demo reads consistently either way).
-FINDING_SETS = {
-    "globex": [
-        {"name": "Reflected XSS", "severity": "high", "host": "app.globex.io", "url": "/search?q=",
-         "tool": "nuclei", "cve": "CWE-79",
-         "evidence": "<script>alert(1)</script> reflected unescaped in response body",
-         "impact": "An attacker can execute arbitrary JavaScript in a victim's browser session, enabling session hijacking or credential theft.",
-         "remediation": "Context-encode output, set a strict Content-Security-Policy, and use an auto-escaping template engine."},
-        {"name": "Missing HSTS header", "severity": "medium", "host": "app.globex.io", "url": "",
-         "tool": "nuclei", "cve": "CWE-319",
-         "evidence": "No Strict-Transport-Security header on HTTPS responses",
-         "impact": "Visitors can be downgraded to plain HTTP by a network attacker, exposing traffic.",
-         "remediation": "Add Strict-Transport-Security: max-age=31536000; includeSubDomains."},
+FINDINGS = {
+    "portal.samudera-logistik.co.id": [
+        {"name": "SQL Injection", "severity": "critical", "host": "portal.samudera-logistik.co.id",
+         "url": "/api/v1/pengiriman/cari", "tool": "sqlmap", "cve": "CWE-89",
+         "evidence": "q=1' AND SLEEP(5)-- -  ->  respons 10,1 detik",
+         "impact": "Penyerang dapat membaca dan mengubah seluruh basis data pengiriman, termasuk data pelanggan lain.",
+         "remediation": "Gunakan prepared statement dan validasi semua masukan pengguna."},
+        {"name": "Reflected XSS", "severity": "high", "host": "portal.samudera-logistik.co.id",
+         "url": "/lacak?no_resi=", "tool": "nuclei", "cve": "CWE-79",
+         "evidence": "<script>alert(1)</script> dipantulkan tanpa di-escape pada halaman hasil",
+         "impact": "Penyerang dapat menjalankan JavaScript di browser korban untuk membajak sesi.",
+         "remediation": "Encode keluaran sesuai konteks dan terapkan Content-Security-Policy yang ketat."},
+        {"name": "Header HSTS tidak ada", "severity": "medium", "host": "portal.samudera-logistik.co.id",
+         "url": "", "tool": "nuclei", "cve": "CWE-319",
+         "evidence": "Header Strict-Transport-Security tidak ditemukan pada respons HTTPS",
+         "impact": "Pengguna dapat diturunkan ke HTTP biasa oleh penyerang di jaringan yang sama.",
+         "remediation": "Tambahkan Strict-Transport-Security: max-age=31536000; includeSubDomains."},
     ],
-    "initech": [
-        {"name": "SQL Injection", "severity": "critical", "host": "portal.initech.com", "url": "/api/v1/invoices/search",
-         "tool": "sqlmap", "cve": "CWE-89",
-         "evidence": "q=1' AND SLEEP(5)-- -  ->  10.1s response",
-         "impact": "Full database read/write access, including other tenants' invoice data.",
-         "remediation": "Parameterize the query / use prepared statements. Validate and sanitize all user input."},
-        {"name": "Broken access control", "severity": "high", "host": "portal.initech.com", "url": "/api/v1/admin/users",
-         "tool": "nuclei", "cve": "CWE-284",
-         "evidence": "A standard-role token reaches /admin/users and returns all records",
-         "impact": "Any authenticated user can enumerate the full user directory, including admins.",
-         "remediation": "Enforce server-side authorization on every object reference; deny by default."},
-        {"name": "Missing rate limiting on login", "severity": "medium", "host": "portal.initech.com", "url": "/auth/login",
-         "tool": "nuclei", "cve": "CWE-307",
-         "evidence": "5,000 login attempts accepted from one IP in under a minute",
-         "impact": "Enables credential-stuffing and brute-force attacks against user accounts.",
-         "remediation": "Add exponential backoff / lockout after repeated failures; rate-limit by IP and account."},
-    ],
-    "umbrella": [
-        {"name": "Outdated jQuery 1.12.4", "severity": "medium", "host": "shop.umbrella.co", "url": "/static/js/vendor.js",
-         "tool": "nuclei", "cve": "CVE-2020-11022",
-         "evidence": "jQuery 1.12.4 fingerprinted, known XSS in .html()",
-         "impact": "A known-vulnerable library increases exposure to XSS if user input reaches the affected sink.",
-         "remediation": "Upgrade to a supported jQuery release and re-test dependent widgets."},
-        {"name": "Cookie without Secure flag", "severity": "low", "host": "shop.umbrella.co", "url": "",
-         "tool": "nuclei", "cve": "CWE-614",
-         "evidence": "Session cookie set without Secure over HTTPS",
-         "impact": "Session cookie could be exposed over an accidental plain-HTTP connection.",
-         "remediation": "Set Secure and HttpOnly on all session cookies."},
+    "tracking.baharisejahtera.co.id": [
+        {"name": "Broken access control", "severity": "high", "host": "tracking.baharisejahtera.co.id",
+         "url": "/api/v1/kapal/manifest", "tool": "nuclei", "cve": "CWE-284",
+         "evidence": "Token pengguna biasa dapat membuka manifest kapal milik pengguna lain",
+         "impact": "Setiap pengguna terautentikasi dapat melihat manifest kargo seluruh pelanggan.",
+         "remediation": "Terapkan otorisasi di sisi server pada setiap objek; tolak secara default."},
+        {"name": "Cookie tanpa flag Secure", "severity": "low", "host": "tracking.baharisejahtera.co.id",
+         "url": "", "tool": "nuclei", "cve": "CWE-614",
+         "evidence": "Cookie sesi dikirim tanpa atribut Secure melalui HTTPS",
+         "impact": "Cookie sesi dapat terkirim lewat koneksi HTTP biasa yang tidak disengaja.",
+         "remediation": "Setel Secure dan HttpOnly pada semua cookie sesi."},
     ],
 }
 
 
-def make_job(target: str, submitter: str) -> dict:
+def make_job(target: str, submitter: str, org_id: str) -> dict:
     return {
-        "id": str(uuid.uuid4()), "target": target, "target_class": "cloud",
+        "id": str(uuid.uuid4()), "target": target, "target_class": "cloud", "org_id": org_id,
         "submitter": submitter, "role": "client", "tools": ["katana", "nuclei", "sqlmap"],
-        "opts": {}, "status": models.STATUS_DONE, "per_tool_status": {"katana": "done", "nuclei": "done", "sqlmap": "done"},
+        "opts": {}, "status": models.STATUS_DONE,
+        "per_tool_status": {"katana": "done", "nuclei": "done", "sqlmap": "done"},
     }
 
 
-def seed_proposal_at(client: str, target: str, purpose: str, division: str) -> tuple[str, dict]:
-    ensure_account(client, models.ROLE_CLIENT)
-    pid = db.create_proposal({
-        "submitter": client, "target": target, "mode": "standard", "purpose": purpose,
-        "division": division, "environment": "production", "authorization_attested": True,
-        "scan_mode": "cloud",   # approved demo clients have nothing to install: they unlock straight away
+def propose(org_id: str, client: str, host: str, purpose: str, division: str, **extra) -> str:
+    return db.create_proposal({
+        "org_id": org_id, "submitter": client, "target": f"https://{host}", "mode": "standard",
+        "purpose": purpose, "division": division, "environment": "production",
+        "authorization_attested": True, "scan_mode": "cloud", **extra,
     })
-    job = make_job(target, client)
+
+
+def scanned(org_id: str, client: str, host: str, purpose: str, division: str) -> dict:
+    """An approved proposal whose scan finished: job + findings stored, ready for review."""
+    pid = propose(org_id, client, host, purpose, division)
+    job = make_job(f"https://{host}", client, org_id)
     redis_store.set_job(job)
     db.update_proposal(pid, status="approved", job_id=job["id"])
-    db.save_findings(job["id"], client, FINDING_SETS.get(client, []))
-    return pid, job
+    db.save_findings(job["id"], client, org_id, FINDINGS.get(host, []))
+    return job
 
 
-def main():
-    # Idempotent: a second run would duplicate every seeded report. Wipe first to reseed.
-    if any(db.list_proposals(submitter=c) for c in CLIENTS):
-        print("Demo data already seeded (globex/initech/umbrella have proposals); skipping.")
-        return
-    # Team accounts (riyan/dimas/aisah/hani) are seeded separately via
-    # `seed_account.py --team-defaults` - not repeated here.
-    lead, reporter, gov = user("riyan", "lead_pentester"), user("aisah", "reporter"), user("hani", "governance")
+def review(job: dict, stages: list[dict]) -> str:
+    """Generate v1 of the report, then forward it once per actor in `stages`."""
+    rid = private_api.pipeline_create(
+        private_api.PipelineCreateBody(job_id=job["id"], template="Full Technical"), user=PENTESTER, scope=ALL)["report_id"]
+    for actor in stages:
+        private_api.pipeline_forward(rid, user=actor, scope=ALL)
+    return rid
 
-    # globex: parked mid-review (reporter stage) - aisah has real work waiting.
-    _, job_g = seed_proposal_at("globex", "http://app.globex.io", "compliance", "IT")
-    r = private_api.pipeline_create(private_api.PipelineCreateBody(job_id=job_g["id"], template="Full Technical"), user=reporter)
-    rid_g = r["report_id"]
-    print(f"globex: report {rid_g} at reporter stage")
 
-    # initech: one stage further - lead has real work waiting.
-    _, job_i = seed_proposal_at("initech", "https://portal.initech.com", "pre-release", "Engineering")
-    r = private_api.pipeline_create(private_api.PipelineCreateBody(job_id=job_i["id"], template="Full Technical"), user=reporter)
-    rid_i = r["report_id"]
-    private_api.pipeline_forward(rid_i, user=reporter)   # -> lead
-    print(f"initech: report {rid_i} at lead stage")
+def seed(creds_path: str = DEMO_CREDS) -> dict:
+    """Seed the demo orgs; returns {org name: org_id}. Raises RuntimeError if orgs already exist."""
+    if db.list_orgs():
+        raise RuntimeError("organizations already exist; wipe first (wipe_data.py --all) to reseed")
+    org_ids, creds = {}, []
+    for org, users in ORGS.items():
+        org_ids[org] = db.create_org(org)
+        for u in users:
+            pw = secrets.token_urlsafe(9)
+            auth.create_account(u, pw, models.ROLE_CLIENT, org_id=org_ids[org])
+            creds.append(f"{u} {pw}")
+    sam, bah, mit = (org_ids[o] for o in ORGS)
 
-    # umbrella: one stage further still - governance has real work waiting.
-    _, job_u = seed_proposal_at("umbrella", "https://shop.umbrella.co", "periodic", "E-commerce")
-    r = private_api.pipeline_create(private_api.PipelineCreateBody(job_id=job_u["id"], template="Full Technical"), user=reporter)
-    rid_u = r["report_id"]
-    private_api.pipeline_forward(rid_u, user=reporter)   # -> lead
-    private_api.pipeline_forward(rid_u, user=lead)        # -> governance
-    print(f"umbrella: report {rid_u} at governance stage")
+    # Samudera / budi: fully delivered engagement (real PDF conversion + encryption).
+    job = scanned(sam, "budi.santoso", "portal.samudera-logistik.co.id", "kepatuhan", "TI")
+    rid = review(job, [PENTESTER, LEAD, GOVERNANCE])
+    print(f"budi.santoso: laporan {rid} DELIVERED, password PDF: {db.get_report(rid, org_id=None)['pdf_password']}")
 
-    # acme: a fully DELIVERED engagement (past history), on top of the live "scanning" one -
-    # real LibreOffice conversion + pypdf encryption, so Reports/password-reveal are genuine.
-    pid_a, job_a = seed_proposal_at("acme", "https://mail.acme.io", "compliance", "IT")
-    r = private_api.pipeline_create(private_api.PipelineCreateBody(job_id=job_a["id"], template="Full Technical"), user=reporter)
-    rid_a = r["report_id"]
-    private_api.pipeline_forward(rid_a, user=reporter)   # -> lead
-    private_api.pipeline_forward(rid_a, user=lead)        # -> governance
-    private_api.pipeline_forward(rid_a, user=gov)         # -> delivered (real PDF)
-    print(f"acme: report {rid_a} DELIVERED, password: {db.get_report(rid_a)['pdf_password']}")
+    # Samudera / siti: proposal masuk, belum ada tindakan.
+    propose(sam, "siti.rahayu", "api.samudera-logistik.co.id", "pengujian sebelum rilis", "Pengembangan Aplikasi",
+            in_scope="api.samudera-logistik.co.id", emergency_contact="Siti Rahayu, 0812-5550-0101")
+    print("siti.rahayu: proposal pending")
 
-    # A pending proposal with no action taken yet, for the team to approve/reject live if wanted.
-    ensure_account("stark", models.ROLE_CLIENT)
-    db.create_proposal({
-        "submitter": "stark", "target": "https://api.stark-industries.io", "mode": "standard",
-        "purpose": "incident", "division": "SecOps", "authorization_attested": True,
-    })
-    print("stark: fresh pending proposal, untouched")
+    # Bahari / agung: scan selesai, laporan menunggu tinjauan governance.
+    job = scanned(bah, "agung.wijaya", "tracking.baharisejahtera.co.id", "pengujian berkala", "Operasional Pelabuhan")
+    rid = review(job, [PENTESTER, LEAD])
+    print(f"agung.wijaya: laporan {rid} di tahap governance")
 
-    # A rejected proposal with a plain-language reason: shows what a client sees and how they recover.
-    ensure_account("wayne", models.ROLE_CLIENT)
-    wid = db.create_proposal({
-        "submitter": "wayne", "target": "https://wayne-enterprises.example.org", "mode": "standard",
-        "purpose": "periodic", "division": "Facilities", "authorization_attested": True, "scan_mode": "cloud",
-    })
-    db.update_proposal(wid, status="rejected", reject_reason="We could not verify that Wayne Facilities owns this site. Please reply with proof of ownership (for example a file we can fetch from the site).")
-    print("wayne: rejected proposal with a reason")
+    # Mitra / dewi.lestari: ditolak dengan alasan yang jelas.
+    pid = propose(mit, "dewi.lestari", "app.mitrakargo.co.id", "pengujian berkala", "Keuangan")
+    db.update_proposal(pid, status="rejected", reject_reason=(
+        "Kami belum dapat memverifikasi bahwa CV Mitra Kargo Jaya memiliki situs ini. "
+        "Mohon balas dengan bukti kepemilikan (misalnya berkas yang dapat kami akses dari situs tersebut)."))
+    print("dewi.lestari: proposal ditolak dengan alasan")
 
-    print("\nSeed complete. The acme testphp.vulnweb.com proposal (if present) was left alone for the live demo.")
+    with open(creds_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(creds) + "\n")
+    print("\nKredensial klien (ditampilkan sekali; juga di " + os.path.abspath(creds_path) + "):")
+    print("\n".join(creds))
+    return org_ids
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        seed()
+    except RuntimeError as e:
+        print(f"refused: {e}")
+        sys.exit(1)

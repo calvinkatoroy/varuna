@@ -577,6 +577,18 @@ def wipe_findings() -> int:
     return n
 
 
+def wipe_tenancy() -> dict:
+    """Full reset for `wipe_data.py --all`: accounts, orgs and everything that hangs off them
+    (proposals, reports + versions, reset/email-change tokens). Findings are wiped separately."""
+    conn = get_conn()
+    counts = {}
+    for t in ("accounts", "orgs", "proposals", "reports", "report_versions", "reset_tokens", "email_changes"):
+        counts[t] = conn.execute(f"SELECT COUNT(*) AS c FROM {t}").fetchone()["c"]
+        conn.execute(f"DELETE FROM {t}")
+    conn.commit()
+    return counts
+
+
 if __name__ == "__main__":
     reset_for_test(":memory:")
     upsert_account("calvin", "h", "client")
