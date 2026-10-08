@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Bell, CheckCircle2, FileText, KeyRound, LogOut, Moon, XCircle } from 'lucide-react'
+import { Bell, CheckCircle2, FileText, KeyRound, LogOut, Moon, UserRound, XCircle } from 'lucide-react'
 import { api } from '@/api'
 import { useAuth } from '@/auth'
 import { ThemeToggle } from './ThemeToggle'
@@ -9,6 +9,7 @@ import { BrandMark } from './BrandMark'
 import { ChangePassword } from './ChangePassword'
 import { useScrollThreshold } from '@/lib/useScrollThreshold'
 import { toggleTheme } from '@/lib/theme'
+import { roleLabel } from '@/lib/roles'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu'
 
 // Solid bg-card (no backdrop-filter): stacking many blurred/glassed regions this close
@@ -64,11 +65,9 @@ function Notifications() {
 }
 
 function Account() {
-  const { logout } = useAuth()
-  const [me, setMe] = useState<{ username: string; role: string } | null>(null)
+  const { user: me, logout } = useAuth()
   const [pw, setPw] = useState(false)
   const notes = useNotifications()
-  useEffect(() => { api.get('/api/me').then(setMe).catch(() => {}) }, [])
   const initials = (me?.username ?? 'AC').slice(0, 2).toUpperCase()
   const signOut = () => { logout(); localStorage.removeItem('varuna-activated'); location.assign('/') }
   return (
@@ -80,8 +79,8 @@ function Account() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <div className="px-3 py-2">
-          <div className="text-[14px] font-semibold text-ink">{me?.username ?? 'acme'}</div>
-          <div className="text-[12px] capitalize text-ink-muted">{me?.role ?? 'client'}</div>
+          <div className="text-[14px] font-semibold text-ink">{me?.username ?? ''}</div>
+          <div className="text-[12px] text-ink-muted">{roleLabel(me?.role ?? 'client')}</div>
         </div>
         <DropdownMenuSeparator />
         {/* Phone only: the bell and theme buttons fold into this menu so the header stays quiet. */}
@@ -97,6 +96,7 @@ function Account() {
           <DropdownMenuItem onClick={toggleTheme}><Moon size={15} /> Switch light / dark</DropdownMenuItem>
           <DropdownMenuSeparator />
         </div>
+        <DropdownMenuItem asChild><Link to="/profile"><UserRound size={15} /> Profile</Link></DropdownMenuItem>
         <DropdownMenuItem onClick={() => setPw(true)}><KeyRound size={15} /> Change password</DropdownMenuItem>
         <DropdownMenuItem onClick={signOut} className="text-crit"><LogOut size={15} /> Sign out</DropdownMenuItem>
       </DropdownMenuContent>

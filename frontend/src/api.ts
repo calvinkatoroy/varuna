@@ -10,6 +10,10 @@ import { toast } from './lib/toast'
 // forever). A plain window event, not a callback registry - api.ts has no business importing
 // the auth context, and this is the one thing worth decoupling that way.
 export const UNAUTHORIZED_EVENT = 'varuna:unauthorized'
+// Fired on 403 password_change_required: the account carries a temporary password (set by the
+// system administrator), so the app must open the forced change dialog before anything else works.
+export const PASSWORD_CHANGE_EVENT = 'varuna:password-change-required'
+const SESSION_ENDED = 'Your session ended. Please sign in again.'
 
 const PUBLIC = (import.meta as any).env.VITE_PUBLIC_API || ''
 // 'same' = the team origin serves the private API itself (Caddy :8080), so no cross-origin call.
@@ -25,8 +29,16 @@ export function setToken(t: string | null) {
 }
 // Another tab logged out, or a different person logged in there: this tab must not keep acting as the
 // old user (and must never mix one person's screen with another's token). Reloading re-reads the session.
+// A refreshed or re-issued token for the SAME person (background refresh, password or two-factor change in
+// another tab) is simply adopted: reloading every tab each time one of them refreshed would lose work.
+const tokenUser = (t: string | null) => {
+  if (!t) return null
+  try { return JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).username ?? t } catch { return t }
+}
 window.addEventListener('storage', (e) => {
-  if (e.key === 'varuna_jwt' && e.newValue !== token) location.reload()
+  if (e.key !== 'varuna_jwt' || e.newValue === token) return
+  if (e.newValue && tokenUser(e.newValue) === tokenUser(token)) token = e.newValue
+  else location.reload()
 })
 
 export function getToken() {
@@ -39,11 +51,18 @@ export class ApiError extends Error {
   }
 }
 
-async function req(base: string, path: string, opts: RequestInit = {}): Promise<any> {
+// `quiet`: background calls (token refresh) never toast their own failures; a 401 still ends the session.
+async function req(base: string, path: string, opts: RequestInit = {}, quiet = false): Promise<any> {
   // Mock-first: with VITE_MOCK=1 the whole app runs on fixtures, no backend needed.
   if (isMock()) {
     const body = opts.body ? JSON.parse(opts.body as string) : undefined
-    return mockRequest((opts.method as string) || 'GET', path, body)
+    try {
+      return await mockRequest((opts.method as string) || 'GET', path, body)
+    } catch (e: any) {
+      // Mock validation failures (duplicate username, ...) surface like real ones.
+      if (!quiet) toast(e.message)
+      throw new ApiError(e.status ?? 500, e.message)
+    }
   }
   // Credential endpoints take no token; anything else without one is "not signed in", which is
   // expected before login and must not fire requests or a "session expired" toast.
@@ -55,11 +74,12 @@ async function req(base: string, path: string, opts: RequestInit = {}): Promise<
     if (opts.body) headers['Content-Type'] = 'application/json'
     const res = await fetch(base + path, { ...opts, headers })
     if (res.status === 401 && !isAuthCall) {
-      // A 401 on a call that carried our token = the session is gone. (On login itself a 401
-      // just means wrong credentials, so it falls through and shows the server's message.)
+      // A 401 on a call that carried our token = the session is gone (expired, revoked, account or
+      // organization disabled: the server answers "session ended"). On login itself a 401 just
+      // means wrong credentials, so it falls through and shows the server's message.
       setToken(null)
       window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
-      throw new ApiError(401, 'Session expired - please log in again.')
+      throw new ApiError(401, SESSION_ENDED)
     }
     if (!res.ok) {
       let detail = res.statusText
@@ -68,6 +88,11 @@ async function req(base: string, path: string, opts: RequestInit = {}): Promise<
       } catch {}
       // Not an error to show: the password was right and the login form must now ask for the code.
       if (detail === 'mfa_required') throw new ApiError(res.status, detail, true)
+      // Not an error either: the forced password dialog opens instead (see auth.tsx / App.tsx).
+      if (detail === 'password_change_required') {
+        window.dispatchEvent(new Event(PASSWORD_CHANGE_EVENT))
+        throw new ApiError(res.status, 'Choose a new password to continue.', true)
+      }
       throw new ApiError(res.status, detail)
     }
     const ct = res.headers.get('content-type') || ''
@@ -79,21 +104,75 @@ async function req(base: string, path: string, opts: RequestInit = {}): Promise<
     // can still add their own .catch() for state rollback; they just don't have to for the
     // user to find out something went wrong.
     if (e instanceof ApiError && e.silent) throw e
+    if (quiet && !(e instanceof ApiError && e.status === 401)) throw e
     const msg = e instanceof ApiError ? e.message : 'Network error - check your connection.'
     toast(msg)
     throw e
   }
 }
 
+const send = (method: string, body?: any): RequestInit => ({ method, body: body ? JSON.stringify(body) : undefined })
+
 export const api = {
   get: (p: string) => req(PUBLIC, p),
-  post: (p: string, body?: any) =>
-    req(PUBLIC, p, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
+  post: (p: string, body?: any) => req(PUBLIC, p, send('POST', body)),
+  put: (p: string, body?: any) => req(PUBLIC, p, send('PUT', body)),
   pget: (p: string) => req(PRIVATE, p),
-  ppost: (p: string, body?: any) =>
-    req(PRIVATE, p, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
+  ppost: (p: string, body?: any) => req(PRIVATE, p, send('POST', body)),
+  pput: (p: string, body?: any) => req(PRIVATE, p, send('PUT', body)),
   publicBase: PUBLIC,
   privateBase: PRIVATE,
+}
+
+// Clients live on the public plane; staff and the system administrator on the private one (NFR-24).
+const isTeam = (role?: string | null) => role !== 'client'
+const plane = (role?: string | null) =>
+  isTeam(role) ? { get: api.pget, post: api.ppost, put: api.pput, base: PRIVATE } : { get: api.get, post: api.post, put: api.put, base: PUBLIC }
+
+// Keep the session alive. Stores the new token; failures other than 401 stay silent (the caller ignores them).
+export async function refresh(role?: string | null): Promise<string> {
+  const { token: t } = await req(plane(role).base, '/api/refresh', send('POST'), true)
+  setToken(t)
+  return t
+}
+
+// The old session dies on a password change, so the response's token must replace it.
+export async function changePassword(role: string | null | undefined, current: string, next: string) {
+  const r = await plane(role).post('/api/password', { current, new: next })
+  if (r?.token) setToken(r.token)
+  return r
+}
+
+export type Profile = {
+  username: string; role: string; org_name: string | null
+  display_name: string | null; email: string | null; phone: string | null; totp_enabled: boolean
+}
+export const profile = {
+  get: (role?: string | null): Promise<Profile> => plane(role).get('/api/profile'),
+  update: (role: string | null | undefined, body: { display_name?: string; phone?: string }) => plane(role).put('/api/profile', body),
+  requestEmail: (role: string | null | undefined, email: string): Promise<{ ok: boolean; emailed: boolean }> =>
+    plane(role).post('/api/profile/email', { email }),
+  confirmEmail: (role: string | null | undefined, token: string) => plane(role).post('/api/profile/email/confirm', { token }),
+}
+
+export type Org = { id: string; name: string; status: string; created_at: string }
+export type Account = {
+  username: string; role: string; org_id: string | null; display_name: string | null; email: string | null
+  disabled: number | boolean; totp_enabled: number | boolean; must_change_password: number | boolean; created_at: string
+}
+export type NewAccount = { username: string; role: string; org_id?: string; display_name?: string; email?: string }
+const acct = (u: string) => `/api/sysadmin/accounts/${encodeURIComponent(u)}`
+// System administrator console: private plane only.
+export const sysadmin = {
+  orgs: (): Promise<Org[]> => api.pget('/api/sysadmin/orgs'),
+  createOrg: (name: string): Promise<{ id: string; name: string }> => api.ppost('/api/sysadmin/orgs', { name }),
+  setOrg: (id: string, enabled: boolean) => api.ppost(`/api/sysadmin/orgs/${encodeURIComponent(id)}/${enabled ? 'enable' : 'disable'}`),
+  accounts: (): Promise<Account[]> => api.pget('/api/sysadmin/accounts'),
+  createAccount: (body: NewAccount): Promise<{ username: string; role: string; temp_password: string }> => api.ppost('/api/sysadmin/accounts', body),
+  resetPassword: (u: string): Promise<{ temp_password: string }> => api.ppost(`${acct(u)}/reset-password`),
+  resetMfa: (u: string) => api.ppost(`${acct(u)}/reset-mfa`),
+  setDisabled: (u: string, disabled: boolean) => api.ppost(`${acct(u)}/${disabled ? 'disable' : 'enable'}`),
+  setRole: (u: string, role: string) => api.pput(`${acct(u)}/role`, { role }),
 }
 
 // Fake progression for VITE_MOCK=1 so the live-progress UI stays demoable without a backend -
@@ -160,11 +239,15 @@ export async function upload(base: string, path: string, file: File): Promise<an
     if (res.status === 401) {
       setToken(null)
       window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
-      throw new ApiError(401, 'Session expired - please log in again.')
+      throw new ApiError(401, SESSION_ENDED)
     }
     if (!res.ok) {
       let detail = res.statusText
       try { detail = (await res.json()).detail || detail } catch {}
+      if (detail === 'password_change_required') {
+        window.dispatchEvent(new Event(PASSWORD_CHANGE_EVENT))
+        throw new ApiError(res.status, 'Choose a new password to continue.', true)
+      }
       throw new ApiError(res.status, detail)
     }
     return res.json()
@@ -185,6 +268,11 @@ export async function download(base: string, path: string, filename: string) {
     const headers: any = {}
     if (token) headers['Authorization'] = `Bearer ${token}`
     const res = await fetch(base + path, { headers })
+    if (res.status === 401 && token) {
+      setToken(null)
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
+      throw new ApiError(401, SESSION_ENDED)
+    }
     if (!res.ok) {
       let detail = res.statusText
       try {

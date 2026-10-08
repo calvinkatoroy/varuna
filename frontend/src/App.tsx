@@ -11,6 +11,7 @@ import { AuthGate } from './screens/AuthGate'
 import { TeamLogin } from './screens/TeamLogin'
 import ResetPassword from './screens/ResetPassword'
 import { TwoFactor } from './components/TwoFactor'
+import { ChangePassword } from './components/ChangePassword'
 import { api } from './api'
 import TeamBoard from './screens/TeamBoard'
 import FindingsReview from './screens/FindingsReview'
@@ -57,17 +58,19 @@ function RoleRoute({ children }: { children: React.ReactNode }) {
   // Policy (VARUNA_REQUIRE_MFA): a team member without two-factor sees only the enrolment dialog.
   const [mustEnrol, setMustEnrol] = useState<boolean | null>(null)
   const team = !isMock() && !!user && user.role !== 'client'
+  // A temporary password comes first (App shows the forced change dialog); the two-factor check follows it.
+  const mustChange = !!user?.must_change_password
   useEffect(() => {
-    if (team) api.pget('/api/mfa').then((r) => setMustEnrol(r.required && !r.enabled)).catch(() => setMustEnrol(false))
-  }, [team, user?.username])
+    if (team && !mustChange) api.pget('/api/mfa').then((r) => setMustEnrol(r.required && !r.enabled)).catch(() => setMustEnrol(false))
+  }, [team, mustChange, user?.username])
   if (isMock()) return <>{children}</>
-  if (team && mustEnrol === null) return null
+  if (team && (mustChange || mustEnrol === null)) return null
   if (team) return mustEnrol ? <TwoFactor forced onClose={() => setMustEnrol(false)} /> : <>{children}</>
   return <TeamLogin />
 }
 
 export default function App() {
-  const { ready } = useAuth()
+  const { ready, user, reloadMe } = useAuth()
   const location = useLocation()
   const [displayed, setDisplayed] = useState(location)
 
@@ -104,6 +107,8 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       )}
+      {/* Temporary password (new account or administrator reset): nothing else works until it is changed. */}
+      {ready && user?.must_change_password && <ChangePassword forced onClose={() => { reloadMe().catch(() => {}) }} />}
       <Toaster />
     </>
   )

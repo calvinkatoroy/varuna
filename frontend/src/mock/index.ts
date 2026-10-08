@@ -13,14 +13,87 @@ let proposalsState = structuredClone(fx.proposals)
 
 // Accounts are provisioned by an administrator (no self-registration).
 // Any password is accepted here, same as the client login - this is a mock, not real auth.
-const teamAccounts: Record<string, { username: string; name: string; role: string }> = {
+type MockUser = { username: string; name: string; role: string; org_id?: string | null; must_change_password?: boolean }
+const teamAccounts: Record<string, MockUser> = {
   admin: { username: 'admin', name: 'Admin', role: 'lead_pentester' },
   riyan: { username: 'riyan', name: 'Riyan', role: 'lead_pentester' },
   dimas: { username: 'dimas', name: 'Dimas', role: 'pentester' },
-  aisah: { username: 'aisah', name: 'Aisah', role: 'reporter' },
+  aisah: { username: 'aisah', name: 'Aisah', role: 'lead_cyber' },
   hani: { username: 'hani', name: 'Hani', role: 'governance' },
+  bayu: { username: 'bayu', name: 'Bayu', role: 'manager' },
+  sysadmin: { username: 'sysadmin', name: 'Sysadmin', role: 'sysadmin' },
 }
-let currentUser: { username: string; name: string; role: string } = fx.me
+let currentUser: MockUser = fx.me
+
+// System administrator console state (orgs + every account), Indonesian sample data.
+let orgsState = structuredClone(fx.orgs)
+let accountsState = structuredClone(fx.accounts)
+const profiles: Record<string, { display_name: string | null; email: string | null; phone: string | null }> = {}
+const tempPassword = () => Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 8)
+const fail = (status: number, message: string) => Object.assign(new Error(message), { status })
+const orgName = (id?: string | null) => orgsState.find((o) => o.id === id)?.name ?? null
+
+function sysadminRoute(m: string, path: string, body: any): any {
+  if (m === 'GET' && path === '/api/sysadmin/orgs') return orgsState
+  if (m === 'POST' && path === '/api/sysadmin/orgs') {
+    const name = String(body?.name ?? '').trim()
+    if (name.length < 2) throw fail(422, 'organization name must be 2-120 characters')
+    if (orgsState.some((o) => o.name.toLowerCase() === name.toLowerCase())) throw fail(409, 'an organization with that name already exists')
+    const org = { id: 'org-' + Math.random().toString(36).slice(2, 8), name, status: 'active', created_at: '2026-10-08 09:00:00' }
+    orgsState = [...orgsState, org].sort((a, b) => a.name.localeCompare(b.name))
+    return { id: org.id, name }
+  }
+  const orgAct = path.match(/^\/api\/sysadmin\/orgs\/([^/]+)\/(enable|disable)$/)
+  if (m === 'POST' && orgAct) {
+    orgsState = orgsState.map((o) => (o.id === decodeURIComponent(orgAct[1]) ? { ...o, status: orgAct[2] === 'enable' ? 'active' : 'disabled' } : o))
+    return { ok: true }
+  }
+  if (m === 'GET' && path === '/api/sysadmin/accounts') return accountsState
+  if (m === 'POST' && path === '/api/sysadmin/accounts') {
+    const username = String(body?.username ?? '')
+    if (!/^[A-Za-z0-9._-]{3,32}$/.test(username)) throw fail(422, 'username must be 3-32 letters, digits, dot, dash or underscore')
+    if ((body.role === 'client') !== !!body.org_id) throw fail(422, 'clients need an organization; staff must not have one')
+    if (accountsState.some((a) => a.username.toLowerCase() === username.toLowerCase())) throw fail(409, 'username already taken')
+    accountsState = [...accountsState, {
+      username, role: body.role, org_id: body.org_id ?? null, display_name: body.display_name ?? null, email: body.email ?? null,
+      disabled: 0, totp_enabled: 0, must_change_password: 1, created_at: '2026-10-08 09:00:00',
+    }]
+    return { username, role: body.role, temp_password: tempPassword() }
+  }
+  const a = path.match(/^\/api\/sysadmin\/accounts\/([^/]+)\/([a-z-]+)$/)
+  if (a) {
+    const u = decodeURIComponent(a[1])
+    const patch = (p: Record<string, any>) => { accountsState = accountsState.map((x) => (x.username === u ? { ...x, ...p } : x)) }
+    if (u === currentUser.username && (a[2] === 'disable' || a[2] === 'role')) throw fail(409, a[2] === 'role' ? 'you cannot change your own role' : 'you cannot disable your own account')
+    if (m === 'POST' && a[2] === 'reset-password') { patch({ must_change_password: 1 }); return { temp_password: tempPassword() } }
+    if (m === 'POST' && a[2] === 'reset-mfa') { patch({ totp_enabled: 0 }); return { ok: true } }
+    if (m === 'POST' && (a[2] === 'enable' || a[2] === 'disable')) { patch({ disabled: a[2] === 'disable' ? 1 : 0 }); return { ok: true } }
+    if (m === 'PUT' && a[2] === 'role') { patch({ role: body.role }); return { ok: true } }
+  }
+  return undefined
+}
+
+function profileRoute(m: string, path: string, body: any): any {
+  const p = (profiles[currentUser.username] ??= {
+    display_name: currentUser.name,
+    email: currentUser.role === 'client' ? 'it@samudera.co.id' : `${currentUser.username}@varuna.co.id`,
+    phone: null,
+  })
+  if (m === 'GET' && path === '/api/profile') {
+    return { username: currentUser.username, role: currentUser.role, org_name: orgName(currentUser.org_id), ...p, totp_enabled: false }
+  }
+  if (m === 'PUT' && path === '/api/profile') {
+    if (body?.display_name != null) p.display_name = body.display_name
+    if (body?.phone != null) p.phone = body.phone
+    return { ok: true }
+  }
+  if (m === 'POST' && path === '/api/profile/email') return { ok: true, emailed: true }
+  if (m === 'POST' && path === '/api/profile/email/confirm') {
+    if (!body?.token || body.token === 'expired') throw fail(422, 'this confirmation link is invalid or has expired')
+    return { ok: true }
+  }
+  return undefined
+}
 
 const staticRoutes: Record<string, any> = {
   'GET /api/cockpit': fx.cockpit,
@@ -42,16 +115,27 @@ export async function mockRequest(method: string, path: string, body?: any): Pro
   await delay(160)
   const m = method.toUpperCase()
 
-  if (m === 'GET' && path === '/api/me') return currentUser
+  if (m === 'GET' && path === '/api/me') return { must_change_password: false, org_id: null, ...currentUser }
   if (m === 'POST' && path === '/api/login') {
     const acct = teamAccounts[String(body?.username ?? '').toLowerCase()]
     currentUser = acct ?? fx.me
     return { token: 'mock.jwt.' + currentUser.role }
   }
-  if (m === 'POST' && path === '/api/password') return { ok: true }
+  if (m === 'POST' && path === '/api/password') return { ok: true, token: 'mock.jwt.' + currentUser.role }
+  if (m === 'POST' && path === '/api/refresh') return { token: 'mock.jwt.' + currentUser.role }
+  if (m === 'GET' && path === '/api/mfa') return { enabled: false, required: false }
+  if (m === 'POST' && path === '/api/mfa/setup') return { secret: 'JBSWY3DPEHPK3PXP', uri: `otpauth://totp/Varuna:${currentUser.username}?secret=JBSWY3DPEHPK3PXP&issuer=Varuna` }
+  if (m === 'POST' && (path === '/api/mfa/enable' || path === '/api/mfa/disable')) return { enabled: path.endsWith('enable'), token: 'mock.jwt.' + currentUser.role }
+  if (path.startsWith('/api/sysadmin/')) {
+    const r = sysadminRoute(m, path, body)
+    if (r !== undefined) return r
+  }
+  if (path.startsWith('/api/profile')) {
+    const r = profileRoute(m, path, body)
+    if (r !== undefined) return r
+  }
   if (m === 'POST' && path.startsWith('/api/password-reset/')) return { ok: true }
   if (m === 'GET' && path === '/api/templates') return ['Full Technical', 'Formal Handover', 'Executive Summary', 'Raw Findings']
-  if (m === 'GET' && path === '/api/admin/accounts') return Object.values(teamAccounts).map((a) => ({ username: a.username, role: a.role, disabled: 0, created_at: '2026-01-01 00:00:00' }))
   if (m === 'GET' && path === '/api/proposals') return proposalsState
   if (m === 'GET' && path === '/api/findings') return findingsState
   if (m === 'GET' && path === '/api/pipeline/board') return boardState

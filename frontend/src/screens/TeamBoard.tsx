@@ -34,7 +34,7 @@ const dot: Record<string, string> = {
 }
 const STAGES = ['pending', 'scanning', 'in_review_reporter', 'in_review_lead', 'in_review_governance', 'delivered']
 const stageName: Record<string, string> = {
-  pending: 'Pending', scanning: 'Scanning', in_review_reporter: 'Reporter',
+  pending: 'Pending', scanning: 'Scanning', in_review_reporter: 'First review',
   in_review_lead: 'Lead', in_review_governance: 'Governance', delivered: 'Delivered', rejected: 'Rejected',
 }
 const CARD_LIMIT = 8

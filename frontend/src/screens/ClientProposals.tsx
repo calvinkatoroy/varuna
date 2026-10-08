@@ -17,7 +17,7 @@ import { NewProposalDrawer } from './NewProposalDrawer'
 const stageHint: Record<string, string> = {
   pending: 'Waiting for your lead pentester to verify authorization and approve the scan.',
   scanning: 'The agent is running the scan on your machine. Findings stream in as tools finish.',
-  in_review: 'Scan complete. The report is moving through reporter, lead, and governance review.',
+  in_review: 'Scan complete. The report is moving through first review, lead review and governance review.',
   delivered: 'Signed off and delivered. The protected report is available on the Reports page.',
   rejected: 'This proposal was not approved. See the reason below - you can submit a corrected proposal any time.',
 }

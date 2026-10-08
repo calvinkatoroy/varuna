@@ -7,8 +7,8 @@ import { BrandMark } from '@/components/BrandMark'
 const field = 'w-full rounded-input border border-rule bg-panel px-3.5 py-3 text-[14px] text-ink placeholder:text-ink-faint outline-none transition-colors focus:border-accent'
 const label = 'mb-1.5 block text-[12.5px] font-medium text-ink-muted'
 
-// Team accounts are provisioned by an admin, not self-registered - so this is login-only,
-// unlike the client AuthGate's register -> proposal -> approval -> agent flow. Gates every
+// Staff and system administrator accounts are provisioned by the system administrator, so this is
+// login-only, unlike the client AuthGate's login -> proposal -> approval -> agent flow. Gates every
 // /team route (see App.tsx's RoleRoute): a client account logging in here just gets told it
 // doesn't have team access, rather than the frontend silently rendering the private plane to
 // whoever navigates to the URL.

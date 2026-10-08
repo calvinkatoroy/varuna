@@ -114,9 +114,9 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
   // Already signed in (page reloaded, tab reopened mid-onboarding): pick up where they left off
   // instead of showing the login form to someone who has an account.
   useEffect(() => {
-    if (user?.role === 'client' && step === 'auth' && !isMock()) resumeFlow(user.username).catch(() => {})
+    if (user?.role === 'client' && !user.must_change_password && step === 'auth' && !isMock()) resumeFlow(user.username).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.username])
+  }, [user?.username, user?.must_change_password])
 
   // Waiting on the lead pentester: check for approval instead of trusting a button.
   useEffect(() => {
@@ -148,8 +148,9 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
     setErr('')
     setBusy(true)
     try {
-      await login(u, p)
-      await resumeFlow(u)
+      const me = await login(u, p)
+      // A temporary password: the forced change dialog (App) comes first; onboarding resumes after it.
+      if (!me.must_change_password) await resumeFlow(me.username)
     } catch (e: any) {
       setErr(e.message || 'failed')
     } finally {
@@ -182,10 +183,10 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
                 }}
               >
                 {forgot === 'sent' ? (
-                  <p role="status" className="text-[13px] leading-relaxed text-ink-muted">If that address is registered, a reset link is on its way. It works for 30 minutes. Check your spam folder if it does not arrive.</p>
+                  <p role="status" className="text-[13px] leading-relaxed text-ink-muted">If that address belongs to an account, a reset link is on its way. It works for 30 minutes. Check your spam folder if it does not arrive.</p>
                 ) : (
                   <>
-                    <p className="text-[13px] leading-relaxed text-ink-muted">Enter the email you registered with and we will send a reset link. No email on file? Ask your lead pentester.</p>
+                    <p className="text-[13px] leading-relaxed text-ink-muted">Enter the email on your account and we will send a reset link. No email on file? Ask your administrator.</p>
                     <div>
                       <label htmlFor="auth-4" className={label}>Email</label>
                       <input id="auth-4" className={field} type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
@@ -245,7 +246,7 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
               </div>
             </div>
             <ul className="mb-6 space-y-2.5">
-              <li className="flex items-center gap-2.5 text-[13px] text-ink"><Check size={16} className="text-low" /> Account created</li>
+              <li className="flex items-center gap-2.5 text-[13px] text-ink"><Check size={16} className="text-low" /> Signed in</li>
               <li className="flex items-center gap-2.5 text-[13px] text-ink"><Check size={16} className="text-low" /> Proposal submitted</li>
               <li className="flex items-center gap-2.5 text-[13px] text-ink-muted"><Clock size={16} className="text-accent-ink" /> Pending lead-pentester approval…</li>
             </ul>

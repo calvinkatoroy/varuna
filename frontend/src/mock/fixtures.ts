@@ -3,7 +3,7 @@
 // client-findings aggregation lands (documented follow-up). Deliberately over-stuffed with rows
 // so every page reads like a busy, real workspace rather than a 2-item demo.
 
-export const me = { username: 'acme', name: 'Acme Corp', role: 'client' }
+export const me = { username: 'samudera', name: 'PT Samudera Logistik', role: 'client', org_id: 'org-samudera' }
 
 // Engagements are the core entity of the portfolio cockpit. Each absorbs its target "asset":
 // grade, severity breakdown, open/fixed counts, status. Click one to drill into its findings.
@@ -98,7 +98,7 @@ export const board: { id: string; title: string; accent: string; cards: Card[] }
     ],
   },
   {
-    id: 'in_review_reporter', title: 'Reporter', accent: 'high',
+    id: 'in_review_reporter', title: 'First review', accent: 'high',
     cards: [
       { id: 'r1', client: 'Acme Corp', target: 'acme.io', mode: 'standard', sev: { c: 2, h: 5, m: 11, l: 8 }, meta: 'v2 · editing', owner: 'Aisah' },
       { id: 'r2', client: 'Acme Corp', target: 'api.acme.io', mode: 'advanced', sev: { c: 1, h: 2, m: 1, l: 0 }, meta: 'v1 · drafting', owner: 'Aisah' },
@@ -269,3 +269,27 @@ export const engagementDetail: Record<string, Detail> = {
   d5: { proposal: { purpose: 'Pre-release', division: 'Developer Relations', environment: 'Production', authorized: true } },
   d6: { proposal: { purpose: 'Compliance', division: 'Risk & Compliance', environment: 'Production', authorized: true } },
 }
+
+// System administrator console (VITE_MOCK=1): organizations and every account, Indonesian sample data.
+export const orgs = [
+  { id: 'org-garuda', name: 'CV Garuda Teknologi', status: 'disabled', created_at: '2026-08-02 10:15:00' },
+  { id: 'org-nusantara', name: 'PT Nusantara Pelabuhan', status: 'active', created_at: '2026-07-21 08:30:00' },
+  { id: 'org-samudera', name: 'PT Samudera Logistik', status: 'active', created_at: '2026-07-14 09:00:00' },
+  { id: 'org-sinar', name: 'PT Sinar Cargo Indonesia', status: 'active', created_at: '2026-09-03 13:45:00' },
+]
+
+export const accounts = [
+  { username: 'sysadmin', role: 'sysadmin', org_id: null, display_name: 'Bambang Sutrisno', email: 'bambang@varuna.co.id', disabled: 0, totp_enabled: 1, must_change_password: 0, created_at: '2026-07-01 08:00:00' },
+  { username: 'riyan', role: 'lead_pentester', org_id: null, display_name: 'Riyan Pratama', email: 'riyan@varuna.co.id', disabled: 0, totp_enabled: 1, must_change_password: 0, created_at: '2026-07-01 08:10:00' },
+  { username: 'dimas', role: 'pentester', org_id: null, display_name: 'Dimas Saputra', email: 'dimas@varuna.co.id', disabled: 0, totp_enabled: 1, must_change_password: 0, created_at: '2026-07-02 09:00:00' },
+  { username: 'aisah', role: 'lead_cyber', org_id: null, display_name: 'Aisah Rahmawati', email: 'aisah@varuna.co.id', disabled: 0, totp_enabled: 1, must_change_password: 0, created_at: '2026-07-02 09:20:00' },
+  { username: 'hani', role: 'governance', org_id: null, display_name: 'Hani Lestari', email: 'hani@varuna.co.id', disabled: 0, totp_enabled: 0, must_change_password: 1, created_at: '2026-07-03 10:00:00' },
+  { username: 'bayu', role: 'manager', org_id: null, display_name: 'Bayu Wicaksono', email: 'bayu@varuna.co.id', disabled: 0, totp_enabled: 0, must_change_password: 0, created_at: '2026-07-03 10:30:00' },
+  { username: 'samudera', role: 'client', org_id: 'org-samudera', display_name: 'Siti Nurhaliza', email: 'it@samudera.co.id', disabled: 0, totp_enabled: 0, must_change_password: 0, created_at: '2026-07-14 09:05:00' },
+  { username: 'nusantara.it', role: 'client', org_id: 'org-nusantara', display_name: 'Agus Hidayat', email: 'agus@nusantarapelabuhan.co.id', disabled: 0, totp_enabled: 0, must_change_password: 1, created_at: '2026-07-21 08:40:00' },
+  { username: 'garuda', role: 'client', org_id: 'org-garuda', display_name: 'Dewi Kartika', email: 'dewi@garudatek.co.id', disabled: 1, totp_enabled: 0, must_change_password: 0, created_at: '2026-08-02 10:20:00' },
+  { username: 'sinar.cargo', role: 'client', org_id: 'org-sinar', display_name: 'Rudi Hartono', email: 'rudi@sinarcargo.co.id', disabled: 0, totp_enabled: 0, must_change_password: 0, created_at: '2026-09-03 14:00:00' },
+] as {
+  username: string; role: string; org_id: string | null; display_name: string | null; email: string | null
+  disabled: number; totp_enabled: number; must_change_password: number; created_at: string
+}[]
