@@ -13,9 +13,10 @@ import { useApiData } from '@/lib/useApiData'
 import { toast } from '@/lib/toast'
 
 type F = {
-  id: string; name: string; severity: string; host: string; url: string; tool: string; owner: string
+  id: string; name: string; severity: string; host: string; url: string; tool: string; owner: string; org_name?: string
   cve?: string | null; verdict: 'tp' | 'fp'; status: string; evidence: string; remediation?: string | null
 }
+const clientOf = (f: F) => f.org_name ?? f.owner   // org name from the server (owner is a username)
 const assetOf = (f: F) => f.url || f.host
 const sevPill: Record<string, string> = {
   critical: 'bg-crit-bg text-crit', high: 'bg-high-bg text-high', medium: 'bg-med-bg text-med', low: 'bg-low-bg text-low',
@@ -31,21 +32,14 @@ export default function FindingsReview() {
   const [sel, setSel] = useState<F | null>(null)
   const [open, setOpen] = useState(false)
   const [sevFilter, setSevFilter] = useState<string | null>(null)
-  const [clients, setClients] = useState<string[]>([])
   const [client, setClient] = useState('')
 
-  // The board spans many clients; a finding's `owner` is the same username used as `client` on
-  // board cards, so filtering by client here is real (not a hardcoded single-client special
-  // case) - every client with any findings shows them.
-  useEffect(() => {
-    api.pget('/api/board').then((cols: any[]) => {
-      setClients([...new Set(cols.flatMap((c) => c.cards.map((k: any) => k.client)))].sort())
-    }).catch(() => {})
-  }, [])
+  // Clients come from the findings themselves (their organization), so the filter always matches.
+  const clients = useMemo(() => [...new Set((rows ?? []).map(clientOf))].sort(), [rows])
   useEffect(() => { if (!client && clients.length) setClient(clients[0]) }, [client, clients])
 
   const list = useMemo(
-    () => (rows ?? []).filter((f) => f.owner === client && (!sevFilter || f.severity === sevFilter)),
+    () => (rows ?? []).filter((f) => clientOf(f) === client && (!sevFilter || f.severity === sevFilter)),
     [rows, sevFilter, client],
   )
 

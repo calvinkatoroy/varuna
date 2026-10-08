@@ -439,7 +439,10 @@ def list_findings(user: dict = Depends(current_user), scope: tenancy.Scope = Dep
     rows = db.list_findings(org_id=scope.org_id)
     # Clients only ever see confirmed (tp) findings; the team also triages false positives
     # via FindingsReview, so they see everything.
-    return rows if is_team else [f for f in rows if f["verdict"] == "tp"]
+    if not is_team:
+        return [f for f in rows if f["verdict"] == "tp"]
+    names = {o["id"]: o["name"] for o in db.list_orgs()}
+    return [{**f, "org_name": names.get(f["org_id"], "Internal")} for f in rows]
 
 
 class FindingStatusBody(BaseModel):

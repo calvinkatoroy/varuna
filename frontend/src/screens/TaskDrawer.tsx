@@ -12,7 +12,7 @@ import { toast } from '@/lib/toast'
 export const KIND_LABEL: Record<string, string> = {
   claim: 'Claim', decline: 'Decline', start: 'Start now', schedule: 'Schedule', unschedule: 'Cancel schedule',
   suspend: 'Suspend', resume: 'Resume now', close: 'Close as expired', submit: 'Submit for review',
-  approve: 'Approve', send_back: 'Send back', deliver: 'Approve and deliver',
+  approve: 'Approve', send_back: 'Send back', deliver: 'Approve and deliver', generate_report: 'Generate report',
 }
 export const STAGE_LABEL: Record<string, string> = {
   task: 'Task', 'scan/pending': 'Scan pending', 'scan/scheduled': 'Scheduled', 'scan/in_progress': 'Scanning',
@@ -32,11 +32,12 @@ export function TaskDrawer({ card, open, onOpenChange, onMoved }: { card: BoardC
   const [events, setEvents] = useState<TaskEvent[]>([])
   const [comment, setComment] = useState('')
   const [at, setAt] = useState('')
-  const [minutes, setMinutes] = useState('240')
+  const [minutes, setMinutes] = useState('')
   const [opts, setOpts] = useState<Record<string, unknown> | undefined>()
   const [optsOpen, setOptsOpen] = useState(false)
   const [armed, setArmed] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [gen, setGen] = useState(false)
   const [templates, setTemplates] = useState<string[]>([])
   const [tpl, setTpl] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
@@ -51,7 +52,9 @@ export function TaskDrawer({ card, open, onOpenChange, onMoved }: { card: BoardC
   useEffect(() => { if (!armed) return; const t = setTimeout(() => setArmed(null), 8000); return () => clearTimeout(t) }, [armed])
 
   if (!card) return null
-  const actions = card.actions
+  const all = card.actions
+  const actions = all.filter((a) => a.kind !== 'generate_report')   // transition-free: has its own button
+  const canGenerate = all.some((a) => a.kind === 'generate_report' && a.allowed)
   const needsComment = actions.some((a) => a.comment && a.allowed)
   const needsSchedule = actions.some((a) => a.kind === 'schedule' && a.allowed)
   const canStart = actions.some((a) => (a.kind === 'start' || a.kind === 'resume') && a.allowed)
@@ -61,12 +64,14 @@ export function TaskDrawer({ card, open, onOpenChange, onMoved }: { card: BoardC
     if (!a.allowed) return a.why
     if (a.comment && !comment.trim()) return 'Write a reason first'
     if (a.kind === 'schedule' && !at) return 'Choose a start time'
+    if ((a.kind === 'schedule' || a.kind === 'start' || a.kind === 'resume') && minutes.trim() && !(/^\d+$/.test(minutes.trim()) && +minutes >= 1))
+      return 'Max duration must be a whole number of minutes, 1 or more'
     return null
   }
   const run = async (a: TaskAction) => {
     if (CONSEQUENTIAL.has(a.kind) && armed !== a.to) { setArmed(a.to); return }
     setArmed(null); setBusy(true)
-    const n = minutes ? Number(minutes) : undefined
+    const n = minutes.trim() ? parseInt(minutes, 10) : undefined   // empty = let the server fit the client's window
     try {
       await team.move(card.id, {
         to: a.to, version: card.version,
@@ -94,6 +99,12 @@ export function TaskDrawer({ card, open, onOpenChange, onMoved }: { card: BoardC
     if (!tpl || !detail?.report_id) return
     try { await api.ppost(`/api/pipeline/reports/${detail.report_id}/template`, { template: tpl }); toast(`Regenerated as ${tpl}.`); reload() } catch {}
   }
+  const generate = async () => {
+    setGen(true)
+    try { await api.ppost(`/api/tasks/${card.id}/report`); toast('Report generated.'); reload(); onMoved() }
+    catch (e) { if (!(e instanceof ApiError)) toast('Could not generate the report.') }   // api.ts toasts server reasons
+    finally { setGen(false) }
+  }
   const reissue = async () => {
     if (!detail?.report_id) return
     try { await api.ppost(`/api/pipeline/reports/${detail.report_id}/reissue-password`); toast(`New view-once password issued for ${card.client}.`) } catch {}
@@ -119,20 +130,28 @@ export function TaskDrawer({ card, open, onOpenChange, onMoved }: { card: BoardC
           {card.scanState === 'in_progress' && card.jobId && (
             <section className="rounded-input border border-rule bg-panel p-4"><ScanProgress jobId={card.jobId} base={api.privateBase} /></section>
           )}
+          {canGenerate && (
+            <section className="rounded-input border border-rule bg-panel p-4">
+              <p className="mb-3 text-[13px] text-ink">This task has no report yet (it may have failed to generate).</p>
+              <Button variant="outline" onClick={generate} disabled={gen} className="min-h-[44px]">{gen ? 'Generating…' : 'Generate report'}</Button>
+            </section>
+          )}
           {review && detail?.report_id && (
             <section>
               <div className="mb-2.5 flex items-center justify-between">
                 <h4 className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">Versions</h4>
+                {detail.can_edit_report && <>
                 <input ref={fileRef} type="file" accept=".docx" aria-label="Upload a new report version" className="hidden" onChange={onPickFile} />
                 <button onClick={() => fileRef.current?.click()} className="flex min-h-[44px] items-center gap-1.5 text-[12.5px] font-semibold text-accent-ink"><Upload size={14} /> Upload new</button>
+                </>}
               </div>
-              <div className="mb-3 flex items-center gap-2">
+              {detail.can_edit_report && <div className="mb-3 flex items-center gap-2">
                 <select value={tpl} onChange={(e) => setTpl(e.target.value)} aria-label="Report template" className="min-h-[44px] min-w-0 flex-1 rounded-input border border-rule bg-panel px-3 text-[13px] text-ink">
                   <option value="">Regenerate as template…</option>
                   {templates.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
                 <Button variant="outline" onClick={regenerate} disabled={!tpl} className="min-h-[44px]">Regenerate</Button>
-              </div>
+              </div>}
               <ul className="space-y-2">
                 {detail.versions.map((v) => (
                   <li key={v.version_no} className="flex items-center gap-3 rounded-input border border-rule bg-panel p-3">
@@ -166,14 +185,14 @@ export function TaskDrawer({ card, open, onOpenChange, onMoved }: { card: BoardC
                 <input type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} className={field} />
               </label>
               <label className="text-[12.5px] text-ink-muted">Max duration (minutes)
-                <input type="number" min={1} inputMode="numeric" value={minutes} onChange={(e) => setMinutes(e.target.value)} className={field} />
+                <input type="number" min={1} inputMode="numeric" value={minutes} placeholder="Auto (up to 240, fits the client window)" onChange={(e) => setMinutes(e.target.value)} className={field} />
               </label>
               {detail && <p className="text-[12.5px] text-ink-muted sm:col-span-2">The client allows scanning from {localTime(detail.task.not_before)} to {localTime(detail.task.not_after)}.</p>}
             </section>
           )}
           {canStart && !needsSchedule && (
             <label className="block text-[12.5px] text-ink-muted">Max duration (minutes)
-              <input type="number" min={1} inputMode="numeric" value={minutes} onChange={(e) => setMinutes(e.target.value)} className={field} />
+              <input type="number" min={1} inputMode="numeric" value={minutes} placeholder="Auto (up to 240, fits the client window)" onChange={(e) => setMinutes(e.target.value)} className={field} />
             </label>
           )}
           {(canStart || needsSchedule) && (

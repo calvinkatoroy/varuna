@@ -197,7 +197,8 @@ export const tasks = {
 export type TaskAction = { to: string; kind: string; comment: boolean; allowed: boolean; why: string | null }
 export type BoardCard = {
   id: string; version: number; stage: string; scanState: string | null; client: string; target: string; scanMode: string
-  sev: { c: number; h: number; m: number; l: number }; meta: string; assignee: string | null; jobId: string | null
+  sev: { c: number; h: number; m: number; l: number }; meta: string
+  startsAt?: string | null; submittedAt?: string | null; deliveredAt?: string | null; assignee: string | null; jobId: string | null
   suspended: boolean; reason: string | null; actions: TaskAction[]
 }
 export type BoardColumn = { id: string; title: string; accent: string; more?: number; cards: BoardCard[] }
@@ -206,7 +207,7 @@ export type TaskDetail = {
   task: { id: string; target: string; path: string; port: number | null; notes: string; scan_mode: string; not_before: string; not_after: string
     max_minutes: number | null; scheduled_at: string | null; assignee: string | null; suspend_reason: string | null
     decline_cause: string | null; stage: string; scan_state: string | null; version: number; job_id: string | null }
-  report_id: string | null; versions: { version_no: number; editor: string; note: string; created_at: string }[]
+  report_id: string | null; can_edit_report: boolean; versions: { version_no: number; editor: string; note: string; created_at: string }[]
 }
 export type MoveBody = { to: string; version: number; comment?: string; scheduled_at?: string; max_minutes?: number; opts?: Record<string, unknown> }
 export const team = {

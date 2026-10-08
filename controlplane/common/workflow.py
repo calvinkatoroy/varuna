@@ -390,7 +390,7 @@ def actions(task: dict, actor: str) -> list[dict]:
                     "why": None if ok else _why(rule["who"])})
     if (task["stage"] == "completed" or task["stage"] in STAGE_ROLE) and task.get("job_id")             and not db.get_report_by_job(task["job_id"]):
         ok = can_edit_report(task, actor)   # transition-free: the report is generated on demand
-        out.append({"to": None, "kind": "generate_report", "comment": False, "allowed": ok,
+        out.append({"to": "", "kind": "generate_report", "comment": False, "allowed": ok,
                     "why": None if ok else "only the stage owner can do this"})
     return out
 

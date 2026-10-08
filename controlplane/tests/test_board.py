@@ -85,3 +85,15 @@ def test_delivered_and_closed_columns_are_capped_at_the_newest_50(priv):
     assert len(cols["delivered"]["cards"]) == 50 and cols["delivered"]["more"] == 5
     assert cols["delivered"]["cards"][0]["id"] == "d54" and cols["delivered"]["cards"][-1]["id"] == "d05"
     assert cols["closed"]["more"] == 0 and "more" not in cols["task"]
+
+
+def test_cards_carry_iso_times_for_local_display(priv):
+    import auth, db
+    from conftest import make_client, window
+    auth.create_account("rizky", "Passw0rd!x", "pentester")
+    org = make_client("alice", "PT A")
+    nb, na = window()
+    db.create_proposal({"submitter": "alice", "org_id": org, "target": "http://8.8.8.8", "scan_mode": "cloud",
+                        "not_before": nb, "not_after": na, "stage": "task"})
+    card = priv.get("/api/board?column=task", priv.login("rizky", "Passw0rd!x")).json()[0]["cards"][0]
+    assert card["submittedAt"].endswith("+00:00") and "T" in card["submittedAt"] and card["deliveredAt"] is None

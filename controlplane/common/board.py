@@ -89,8 +89,15 @@ def _meta(t: dict) -> str:
     return f"v{v['version_no']} · {v['editor']}" if v else "No report yet"
 
 
+def _iso(db_time: str | None) -> str | None:
+    """SQLite stores UTC as 'YYYY-MM-DD HH:MM:SS'; the browser needs an offset to show local time."""
+    return db_time.replace(" ", "T") + "+00:00" if db_time and "T" not in db_time else db_time
+
+
 def _card(t: dict, viewer: dict) -> dict:
     return {
+        "startsAt": t.get("scheduled_at"), "submittedAt": _iso(t["created_at"]),
+        "deliveredAt": _iso(t["updated_at"]) if t["stage"] == "delivered" else None,
         "id": t["id"], "version": t["version"], "stage": t["stage"], "scanState": t.get("scan_state"),
         "client": _client(t["org_id"]), "target": workflow.scan_url(t), "scanMode": t.get("scan_mode", "local"),
         "sev": _sev_counts(t.get("job_id")), "meta": _meta(t), "assignee": t.get("assignee"),

@@ -322,6 +322,8 @@ def test_client_findings_are_own_confirmed_only():
 
     rt = client.get("/api/findings", headers=Ht).json()
     assert {f["name"] for f in rt} == {"SQLi", "FalsePos", "XSS"}   # team sees everything
+    assert {f["name"]: f["org_name"] for f in rt}["XSS"] == db.get_org(_org("bob"))["name"]   # the review filter keys on it
+    assert all("org_name" not in f for f in ra)
 
     sqli_id = ra[0]["id"]
     assert client.post(f"/api/findings/{sqli_id}/status", headers=Hb,

@@ -148,7 +148,7 @@ export const taskDetail = (id: string) => ({
   task: { id, target: 'https://portal.samudera.co.id', path: '/app', port: null, notes: 'Akun uji: demo/demo', scan_mode: 'cloud',
     not_before: '2026-10-08T01:00:00Z', not_after: '2026-10-12T10:00:00Z', max_minutes: 240, scheduled_at: null,
     assignee: 'dimas', suspend_reason: null, decline_cause: null, stage: 'review_lead_pentester', scan_state: null, version: 1, job_id: null },
-  report_id: 'rep-' + id, versions: [{ version_no: 1, editor: 'system', note: 'auto-generated v1', created_at: '2026-10-08 09:12:00' }],
+  report_id: 'rep-' + id, can_edit_report: true, versions: [{ version_no: 1, editor: 'system', note: 'auto-generated v1', created_at: '2026-10-08 09:12:00' }],
 })
 
 // System administrator console (VITE_MOCK=1): organizations and every account, Indonesian sample data.

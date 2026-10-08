@@ -16,6 +16,14 @@ import { ErrorRetry } from '@/components/ErrorRetry'
 import { useApiData } from '@/lib/useApiData'
 import { revealTiles } from '@/lib/motion'
 import { toast } from '@/lib/toast'
+import { localTime } from '@/lib/format'
+
+// The server's meta line carries raw UTC times; show the ISO ones in the reader's local time.
+const metaText = (c: BoardCard): string =>
+  c.stage === 'task' && c.submittedAt ? `Submitted ${localTime(c.submittedAt)}`
+    : c.scanState === 'scheduled' && c.startsAt ? `Starts ${localTime(c.startsAt)}`
+    : c.stage === 'delivered' && c.deliveredAt ? `${localTime(c.deliveredAt)} · PDF sent`
+    : c.meta
 
 const dot: Record<string, string> = {
   accent: 'bg-accent', info: 'bg-info', high: 'bg-high', crit: 'bg-crit', med: 'bg-med', low: 'bg-low',
@@ -200,7 +208,7 @@ export default function TeamBoard() {
                     <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-rule pt-2.5">
                       <span className={`flex min-w-0 items-center gap-1.5 text-[12px] ${c.suspended ? 'font-semibold text-med' : 'text-ink-muted'}`}>
                         {c.suspended && <Pause size={12} className="flex-none" />}
-                        <span className="truncate">{c.suspended ? 'Suspended' : c.meta}</span>
+                        <span className="truncate">{c.suspended ? 'Suspended' : metaText(c)}</span>
                       </span>
                       {c.assignee && <span title={c.assignee} aria-label={`Assigned to ${c.assignee}`} className="grid h-6 w-6 flex-none place-items-center rounded-full text-[12px] font-bold text-white" style={{ background: 'linear-gradient(160deg,#4FB3E8,#0B5FA5)' }}>{c.assignee[0]}</span>}
                     </div>

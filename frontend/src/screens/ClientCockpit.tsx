@@ -163,7 +163,6 @@ export default function ClientCockpit() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <b className="truncate text-[14.5px] font-semibold text-ink" title={e.target}>{bare(e.target)}</b>
-                        <span className="flex-none rounded-md bg-panel px-1.5 py-0.5 text-[10px] font-bold uppercase text-ink-muted">{e.mode}</span>
                       </div>
                       <div className="mt-2 flex items-center gap-2.5">
                         <MiniSev sev={e.sev} />

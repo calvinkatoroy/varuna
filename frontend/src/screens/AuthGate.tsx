@@ -68,7 +68,7 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
     if (step !== 'install') return
     api.post('/api/agent/install-token').then((r) => setEnrollToken(r.enrollment_token)).catch((e: any) => {
       // 403 = no pentester has accepted a task yet; say so instead of leaving a blank command.
-      setErr(e?.status === 403 ? 'The installer unlocks once a pentester accepts one of your tasks. We will take you here automatically.' : (e?.message || 'Could not prepare the installer.'))
+      setErr(e?.status === 403 ? 'Your agent can be installed after a pentester claims one of YOUR tasks (a colleague task does not count).' : (e?.message || 'Could not prepare the installer.'))
     })
   }, [step])
 
