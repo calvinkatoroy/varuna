@@ -97,30 +97,6 @@ def dispatch_job(job: dict, pre_approved: bool = False) -> None:
     redis_store.enqueue_job(job["submitter"], job["id"])
 
 
-def approve_request(job_id: str, approver: str) -> None:
-    """Approve a queued Standard cloud request and dispatch it through the choke point."""
-    appr = redis_store.get_approval(job_id)
-    if not appr or appr.get("status") != PENDING:
-        raise ValueError("no pending request for this job")
-    appr["status"] = APPROVED
-    redis_store.set_approval(job_id, appr)
-    redis_store.remove_pending_approval(job_id)
-    audit.log(audit.APPROVE, approver=approver, job=job_id)
-    dispatch_job(redis_store.get_job(job_id))   # may raise OfflineAgent (REQ-18)
-
-
-def reject_request(job_id: str, approver: str, reason: str) -> None:
-    """Reject a queued request: discard, notify, never dispatch (REQ-19)."""
-    appr = redis_store.get_approval(job_id)
-    if not appr or appr.get("status") != PENDING:
-        raise ValueError("no pending request for this job")
-    appr["status"] = REJECTED
-    appr["reason"] = reason
-    redis_store.set_approval(job_id, appr)
-    redis_store.remove_pending_approval(job_id)
-    audit.log(audit.REJECT, approver=approver, job=job_id, reason=reason)
-
-
 def _org_mismatch(job: dict) -> bool:
     """True when the agent that would run this job belongs to another organization. Agents are
     per user: the org is the account's (DB) and, once enrolled, the one recorded at enrolment.
@@ -158,13 +134,3 @@ def list_jobs(org_id: str | None, limit: int = 20) -> list[dict]:
             if job and (org_id is None or job.get("org_id") == org_id):
                 out.append(job)
     return out[:limit]
-
-
-def pending_approvals() -> list[dict]:
-    """The Approval Queue: pending Standard cloud requests for a Pro user to act on (REQ-16)."""
-    out = []
-    for jid in redis_store.list_pending_approvals():
-        appr = redis_store.get_approval(jid)
-        if appr and appr.get("status") == PENDING:
-            out.append({**appr, "job_id": jid})
-    return out

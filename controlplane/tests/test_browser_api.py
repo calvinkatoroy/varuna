@@ -240,12 +240,6 @@ def test_agent_status_and_install_token():
     assert tok["enrollment_token"]
 
 
-def test_approvals_are_pro_only():
-    reset()
-    H_std = _token("staff", "client")
-    assert client.get("/api/approvals", headers=H_std).status_code == 403   # require_pro
-
-
 # (legacy /api/approvals flow removed: tasks are claimed and started through /api/tasks/{id}/transition)
 
 

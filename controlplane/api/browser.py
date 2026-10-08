@@ -109,10 +109,6 @@ class ScanBody(BaseModel):
     opts: dict = {}
 
 
-class RejectBody(BaseModel):
-    reason: str = Field(default="", max_length=2000)
-
-
 @app.post("/api/login")
 def login(body: LoginBody, x_forwarded_for: str = Header(default="api")):
     try:
@@ -288,9 +284,13 @@ def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
         raise HTTPException(status_code=409, detail=str(e))
 
 
+_CLIENT_JOB_KEYS = ("id", "target", "target_class", "status", "per_tool_status", "scan_mode")
+
+
 @app.get("/api/scans")
 def list_scans(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
-    return dispatch.list_jobs(scope.org_id)
+    # whitelist: job records also carry staff opts (auth cookies), errors, executor, role, submitter
+    return [{k: j.get(k) for k in _CLIENT_JOB_KEYS} for j in dispatch.list_jobs(scope.org_id)]
 
 
 @app.get("/api/scans/{job_id}")
@@ -410,32 +410,6 @@ def agent_installer(request: Request, user: dict = Depends(current_user),
     audit.log("agent_installer_downloaded", actor=user["username"])
     return Response(content=_installer_cmd(base, tok), media_type="application/octet-stream",
                     headers={"Content-Disposition": 'attachment; filename="Install-Varuna.cmd"', "Cache-Control": "no-store"})
-
-
-# --- legacy v1 approval queue (team only; RejectBody defined above) ---
-@app.get("/api/approvals")
-def list_approvals(user: dict = Depends(require_pro)):
-    return dispatch.pending_approvals()
-
-
-@app.post("/api/approvals/{job_id}/approve")
-def approve(job_id: str, user: dict = Depends(require_pro)):
-    try:
-        dispatch.approve_request(job_id, user["username"])
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except dispatch.OfflineAgent as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    return {"ok": True}
-
-
-@app.post("/api/approvals/{job_id}/reject")
-def reject(job_id: str, body: RejectBody, user: dict = Depends(require_pro)):
-    try:
-        dispatch.reject_request(job_id, user["username"], body.reason or "no reason given")
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    return {"ok": True}
 
 
 # --- reports (v2): a client's own DELIVERED, signed-off, protected-PDF reports from the

@@ -357,3 +357,27 @@ def test_generate_report_refusals(priv, tmp_path):
     assert db.list_reports(org_id=None) == []
     assert not any(a["kind"] == "generate_report" for a in workflow.actions(db.get_proposal(
         _new_task(stage="scan", scan_state="pending", assignee="rizky"), org_id=None), "rizky"))
+
+
+def test_client_scan_responses_carry_no_staff_fields(api):
+    org = make_client("alice", "PT A")
+    redis_store.set_job({"id": "js1", "target": "http://8.8.8.8", "target_class": "cloud", "submitter": "alice",
+                         "role": "client", "tools": ["katana"], "status": "running", "per_tool_status": {"katana": "done"},
+                         "opts": {"auth": {"cookie": "SESSION=secret"}}, "error": "boom", "executor": "varuna-cloud",
+                         "scan_mode": "cloud", "org_id": org})
+    redis_store.add_org_job(org, "js1")
+    tok = api.login("alice", PW)
+    rows = api.get("/api/scans", tok)
+    one = api.get("/api/scans/js1", tok)
+    assert rows.status_code == 200 and len(rows.json()) == 1 and one.status_code == 200
+    for text in (rows.text, one.text):
+        for leak in ("opts", "SESSION=secret", "error", "executor", "submitter", "role", "boom"):
+            assert leak not in text, leak
+    assert rows.json()[0]["status"] == "running" and rows.json()[0]["per_tool_status"] == {"katana": "done"}
+
+
+def test_legacy_approval_routes_are_gone(api):
+    make_client("alice", "PT A")
+    tok = api.login("alice", PW)
+    for path, method in (("/api/approvals", "GET"), ("/api/approvals/x/approve", "POST"), ("/api/approvals/x/reject", "POST")):
+        assert api.request(method, path, tok, json={}).status_code in (404, 405), path

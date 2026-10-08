@@ -74,27 +74,7 @@ def test_standard_cloud_is_gated_not_queued():
     res = dispatch.submit_scan("staff", "client", None, CLOUD, ["katana"], division="Finance")
     assert res["state"] == "pending_approval"
     assert _queued("staff") is None, "gated request must NOT be enqueued before approval"
-    pend = dispatch.pending_approvals()
-    assert len(pend) == 1 and pend[0]["division"] == "Finance"
-
-
-def test_approve_dispatches_through_choke_point():
-    reset()
-    _agent_online("staff")
-    res = dispatch.submit_scan("staff", "client", None, CLOUD, ["katana"])
-    dispatch.approve_request(res["job_id"], approver="ihsan")
-    assert _queued("staff") == res["job_id"], "approved request should reach the agent queue"
-    assert dispatch.pending_approvals() == [], "approved request should leave the queue"
-
-
-def test_reject_discards_never_dispatched():
-    reset()
-    _agent_online("staff")
-    res = dispatch.submit_scan("staff", "client", None, CLOUD, ["katana"])
-    dispatch.reject_request(res["job_id"], approver="ihsan", reason="unauthorized target")
-    assert _queued("staff") is None, "rejected request must never be enqueued"
-    assert dispatch.pending_approvals() == []
-    assert redis_store.get_approval(res["job_id"])["reason"] == "unauthorized target"
+    assert redis_store.get_approval(res["job_id"])["status"] == "pending"
 
 
 def test_choke_point_blocks_unapproved_cloud_directly():
