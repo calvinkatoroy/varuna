@@ -277,7 +277,7 @@ def _start(task: dict, actor: str, now: datetime.datetime, max_minutes: Optional
         min(task.get("max_minutes") or DEFAULT_MINUTES, room)
     cls = _classify(task)
     if actor == SCHEDULER and task.get("target_class") and cls != task["target_class"]:
-        raise Unavailable("target unreachable")
+        raise Unavailable("target classification changed since it was scheduled")
     cloud = task["scan_mode"] == models.SCAN_CLOUD
     if not tokens.is_online(models.CLOUD_AGENT if cloud else task["submitter"], now):
         raise Unavailable("agent offline")

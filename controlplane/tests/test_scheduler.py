@@ -153,3 +153,69 @@ def test_running_scan_failure_is_suspended_with_the_reason():
     job_id = start_task(tid)
     workflow.transition(tid, "scan/suspended", workflow.SYSTEM, org_id=None, comment="nuclei crashed")
     assert _get(tid)["suspend_reason"] == "nuclei crashed" and redis_store.is_suspended(job_id)
+
+
+def test_malformed_row_does_not_starve_the_others():
+    tokens.issue_agent_token(models.CLOUD_AGENT)
+    bad = _scheduled()
+    db.update_proposal(bad, not_after="garbage")
+    good = _scheduled()
+    assert scheduler.tick(dt.datetime.now(UTC))["started"] == 1
+    assert _get(good)["scan_state"] == "in_progress" and _get(bad)["scan_state"] == "scheduled"
+    org = _get(good)["org_id"]
+    waiting = db.create_proposal({"submitter": "alice", "org_id": org, "target": "http://8.8.8.8",
+                                  "not_before": "x", "not_after": "2020-01-01T00:00:00"})
+    old = db.create_proposal({"submitter": "alice", "org_id": org, "target": "http://8.8.8.8",
+                              "not_before": window(-120, 60)[0], "not_after": window(-120, 60)[1]})
+    assert scheduler.tick(dt.datetime.now(UTC))["expired"] == 1
+    assert _get(old)["stage"] == "expired" and _get(waiting)["stage"] == "task"
+
+
+def test_malformed_running_row_does_not_stop_the_duration_check():
+    tokens.issue_agent_token(models.CLOUD_AGENT)
+    a, b = _scheduled(), _scheduled()
+    now = dt.datetime.now(UTC)
+    scheduler.tick(now)
+    db.update_proposal(a, scheduled_at="garbage")
+    db.update_proposal(b, not_after="garbage")
+    c = _scheduled()
+    scheduler.tick(now)
+    out = scheduler.tick(now + dt.timedelta(minutes=61))
+    assert out["suspended"] == 1 and _get(c)["scan_state"] == "suspended"
+
+
+def test_start_side_effect_failure_is_contained(monkeypatch):
+    tokens.issue_agent_token(models.CLOUD_AGENT)
+    a, b = _scheduled(), _scheduled()
+    real = workflow.dispatch.dispatch_job
+    calls = []
+
+    def boom(job, **k):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("redis down")
+        return real(job, **k)
+    monkeypatch.setattr(workflow.dispatch, "dispatch_job", boom)
+    out = scheduler.tick(dt.datetime.now(UTC))
+    assert out["started"] == 1 and out["suspended"] == 1
+    states = {_get(a)["scan_state"], _get(b)["scan_state"]}
+    assert states == {"in_progress", "suspended"}
+    sus = next(t for t in (_get(a), _get(b)) if t["scan_state"] == "suspended")
+    assert sus["suspend_reason"] == "could not dispatch the scan"
+
+
+def test_reasons_are_accurate():
+    tokens.issue_agent_token(models.CLOUD_AGENT)
+    tid = _scheduled(at_min=-1, start_min=-10)
+    nb = (dt.datetime.now(UTC) + dt.timedelta(minutes=30)).isoformat()
+    db.update_proposal(tid, not_before=nb)
+    now = dt.datetime.now(UTC)
+    scheduler.tick(now)
+    scheduler.tick(now + dt.timedelta(minutes=16))
+    assert "has not started" in _get(tid)["suspend_reason"]
+
+
+def test_expiry_is_checked_before_the_scheduled_time():
+    tid = _scheduled(at_min=600, start_min=-10, minutes=60)   # scheduled_at after not_after
+    assert scheduler.tick(dt.datetime.now(UTC) + dt.timedelta(minutes=70))["expired"] == 1
+    assert _get(tid)["stage"] == "expired"
