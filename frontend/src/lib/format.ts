@@ -22,3 +22,23 @@ export function when(ts: string | undefined | null): string {
   if (mins < 60 * 24 * 7) return `${Math.round(mins / 60 / 24)} d ago`
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 }
+
+/** The reader's timezone, shown next to every date-time input: "Asia/Jakarta (UTC+07:00)". */
+export const TZ_LABEL = (() => {
+  const off = -new Date().getTimezoneOffset()
+  const pad = (n: number) => String(Math.floor(Math.abs(n))).padStart(2, '0')
+  return `${Intl.DateTimeFormat().resolvedOptions().timeZone} (UTC${off >= 0 ? '+' : '-'}${pad(off / 60)}:${pad(off % 60)})`
+})()
+
+/** UTC ISO from the API -> the reader's local date and time. */
+export const localTime = (iso?: string | null): string =>
+  iso ? new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
+
+/** <input type="datetime-local"> value (local, no zone) -> UTC ISO with offset, which the API requires. */
+export const toUtcIso = (local: string): string => new Date(local).toISOString()
+
+/** UTC ISO -> a datetime-local input value in the reader's timezone. */
+export const toLocalInput = (iso: string): string => {
+  const d = new Date(iso)
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+}

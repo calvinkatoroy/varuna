@@ -176,6 +176,23 @@ export const sysadmin = {
   setRole: (u: string, role: string) => api.pput(`${acct(u)}/role`, { role }),
   setEmail: (u: string, email: string) => api.pput(`${acct(u)}/email`, { email }),
 }
+// Tasks (step 2): the client's scan requests, in the client vocabulary (no staff names or comments).
+export type TaskStatus = 'waiting' | 'accepted' | 'scheduled' | 'scanning' | 'paused' | 'in_review' | 'delivered' | 'declined' | 'expired'
+export type ClientTask = {
+  id: string; target: string; path: string; port: number | null; notes: string; scan_mode: 'local' | 'cloud'
+  status: TaskStatus; when: string; reason: string | null; job_id: string | null
+  not_before: string; not_after: string; scheduled_at: string | null
+}
+export type TimelineItem = { status: TaskStatus; at: string; note?: string }
+export type NewTask = { target: string; path: string; port?: number; notes: string; not_before: string; not_after: string; scan_mode: 'local' | 'cloud' }
+const task = (id: string) => `/api/tasks/${encodeURIComponent(id)}`
+export const tasks = {
+  list: (): Promise<ClientTask[]> => api.get('/api/tasks'),
+  get: (id: string): Promise<ClientTask & { timeline: TimelineItem[] }> => api.get(task(id)),
+  create: (t: NewTask): Promise<ClientTask> => api.post('/api/tasks', t),
+  timeline: (id: string): Promise<TimelineItem[]> => api.get(`${task(id)}/events`),
+}
+
 
 // Fake progression for VITE_MOCK=1 so the live-progress UI stays demoable without a backend -
 // mirrors the real phase-boundary cadence (katana -> nuclei -> sqlmap -> done) on a timer.
