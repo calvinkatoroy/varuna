@@ -34,6 +34,9 @@ def reset():
 
 
 def _enroll(username):
+    import auth
+    if not db.get_account(username):
+        auth.create_account(username, "Passw0rd!x", "pentester")
     et = tokens.generate_enrollment_token(username)
     r = client.post("/agent/enroll", json={"enrollment_token": et})
     assert r.status_code == 200, r.text
@@ -77,6 +80,7 @@ def test_revoked_token_rejected():
 
 def test_enrollment_token_is_one_time():
     reset()
+    _client_acct("carol")
     et = tokens.generate_enrollment_token("carol")
     assert client.post("/agent/enroll", json={"enrollment_token": et}).status_code == 200
     assert client.post("/agent/enroll", json={"enrollment_token": et}).status_code == 401
@@ -154,3 +158,68 @@ if __name__ == "__main__":
             fn()
             print(f"{name} OK")
     print("test_agent_api: all green")
+
+
+# --- disabled accounts / organizations lose their agents ---
+def _client_acct(name, org="Org Z"):
+    import auth
+    oid = next((o["id"] for o in db.list_orgs() if o["name"] == org), None) or db.create_org(org)
+    auth.create_account(name, "Passw0rd!x", "client", org_id=oid)
+    return oid
+
+
+def test_disabled_user_cannot_enroll_or_poll_and_can_after_reenable():
+    reset()
+    _client_acct("zed")
+    H = _enroll("zed")
+    assert client.get("/agent/poll", headers=H).status_code == 200
+    db.set_account("zed", disabled=1)
+    assert client.get("/agent/poll", headers=H).status_code == 401
+    et = tokens.generate_enrollment_token("zed")
+    assert client.post("/agent/enroll", json={"enrollment_token": et}).status_code == 401
+    db.set_account("zed", disabled=0)
+    H2 = _enroll("zed")
+    assert client.get("/agent/poll", headers=H2).status_code == 200
+
+
+def test_disabled_org_agent_refused_and_enrol_works_after_reenable():
+    reset()
+    oid = _client_acct("yan")
+    H = _enroll("yan")
+    db.set_org_status(oid, "disabled")
+    assert client.get("/agent/poll", headers=H).status_code == 401
+    et = tokens.generate_enrollment_token("yan")
+    assert client.post("/agent/enroll", json={"enrollment_token": et}).status_code == 401
+    db.set_org_status(oid, "active")
+    assert client.get("/agent/poll", headers=H).status_code == 200
+
+
+def test_cloud_agent_needs_no_account():
+    reset()
+    et = tokens.generate_enrollment_token("varuna-cloud")
+    r = client.post("/agent/enroll", json={"enrollment_token": et})
+    assert r.status_code == 200
+    H = {"Authorization": f"Bearer {r.json()['token']}"}
+    assert client.get("/agent/poll", headers=H).status_code == 200
+
+
+def test_org_disable_and_account_disable_via_sysadmin(priv):
+    reset()
+    import auth
+    auth.create_account("root", "Passw0rd!x", "sysadmin")
+    oid = _client_acct("xia")
+    H = _enroll("xia")
+    redis_store.set_job({"id": "qj", "submitter": "xia", "org_id": oid, "status": "queued", "per_tool_status": {}})
+    redis_store.enqueue_job("xia", "qj")
+    redis_store.add_org_job(oid, "qj")
+    tok = priv.login("root", "Passw0rd!x")
+    assert priv.post(f"/api/sysadmin/orgs/{oid}/disable", tok).status_code == 200
+    assert redis_store.get_job("qj") is None and redis_store.list_org_jobs(oid) == []
+    assert redis_store.dequeue_job("xia") is None
+    assert client.get("/agent/poll", headers=H).status_code == 401
+    priv.post(f"/api/sysadmin/orgs/{oid}/enable", tok)
+    H2 = _enroll("xia")
+    assert client.get("/agent/poll", headers=H2).status_code == 200
+    assert priv.post("/api/sysadmin/accounts/xia/disable", tok).status_code == 200
+    assert redis_store.get_agent("xia") is None   # agent binding revoked outright
+    assert client.get("/agent/poll", headers=H2).status_code == 401

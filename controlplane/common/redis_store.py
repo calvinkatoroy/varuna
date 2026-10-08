@@ -128,6 +128,20 @@ def list_org_jobs(org_id: str | None, limit: int = 20) -> list:
     return get_redis().lrange(org_jobs_key(org_id or ""), 0, limit - 1)
 
 
+def drop_org_jobs(org_id: str) -> int:
+    """Org disabled: pull its still-queued jobs out of the agent queues, the org index and Redis."""
+    r = get_redis()
+    n = 0
+    for jid in list_org_jobs(org_id, ORG_JOBS_MAX):
+        job = get_job(jid)
+        if job and job.get("status") == "queued":
+            r.lrem(agentqueue_key(job.get("executor") or job["submitter"]), 0, jid)
+            r.lrem(org_jobs_key(org_id), 0, jid)
+            r.delete(job_key(jid))
+            n += 1
+    return n
+
+
 # --- persistent data (no TTL) ---
 def set_account(acct: dict) -> None:
     get_redis().set(account_key(acct["username"]), json.dumps(acct))
@@ -177,6 +191,11 @@ def wipe_scan_data() -> dict:
     counts = {p: _scan_delete(f"{p}:*") for p in ("job", "findings", "raw", "approval")}
     get_redis().delete(APPROVAL_PENDING_KEY)
     return counts
+
+
+def wipe_agent_data() -> dict:
+    """Full reset: agent bindings and tokens, agent queues, enrolment tokens, suspended flags, org job indexes."""
+    return {p: _scan_delete(f"{p}:*") for p in ("agent", "agent_token", "agentqueue", "suspended", "enroll", "org_jobs")}
 
 
 def wipe_audit() -> None:

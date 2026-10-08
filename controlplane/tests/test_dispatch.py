@@ -41,6 +41,13 @@ def _agent_offline(user):
     redis_store.set_agent(user, a)
 
 
+def test_agent_record_without_org_is_a_mismatch_but_cloud_is_exempt():
+    reset()
+    redis_store.set_agent("legacy", {"status": "online", "token_hash": "x"})   # never recorded an org
+    assert dispatch._org_mismatch({"submitter": "legacy", "org_id": None}) is True
+    assert dispatch._org_mismatch({"submitter": "varuna-cloud", "org_id": "o1"}) is False
+
+
 def _queued(user):
     return redis_store.dequeue_job(user)   # returns a job_id or None
 

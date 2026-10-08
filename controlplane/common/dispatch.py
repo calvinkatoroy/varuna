@@ -131,7 +131,9 @@ def _org_mismatch(job: dict) -> bool:
         return False
     orgs = {(db.get_account(owner) or {}).get("org_id") or None}
     agent = redis_store.get_agent(owner)
-    if agent and "org_id" in agent:
+    if agent:
+        if "org_id" not in agent:
+            return True   # fail closed: an agent record that never recorded its org
         orgs.add(agent["org_id"] or None)
     return orgs != {job.get("org_id") or None}
 

@@ -15,6 +15,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "common"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "report"))
 import db  # noqa: E402
+import redis_store  # noqa: E402
 import store  # noqa: E402
 
 
@@ -22,6 +23,7 @@ def wipe(everything: bool = False) -> dict:
     counts = store.wipe_all()
     if everything:
         counts.update(db.wipe_tenancy())
+        counts.update(redis_store.wipe_agent_data())
     return counts
 
 

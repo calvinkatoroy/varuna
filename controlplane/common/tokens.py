@@ -18,6 +18,7 @@ import hashlib
 import secrets
 
 import db
+import models
 import redis_store
 
 ENROLL_TTL = 3600   # one-time enrollment token lifetime (seconds)
@@ -84,6 +85,20 @@ def revoke_agent(username: str) -> None:
     if agent and agent.get("token_hash"):
         redis_store.get_redis().delete(redis_store.agent_token_key(agent["token_hash"]))
     redis_store.get_redis().delete(redis_store.agent_key(username))
+
+
+def agent_allowed(username: str) -> bool:
+    """May this account's agent still work? Its account must exist and be enabled, and its org (if
+    any) active. Varuna's own cloud scanner belongs to no account and is always allowed."""
+    if username == models.CLOUD_AGENT:
+        return True
+    acct = db.get_account(username)
+    if not acct or acct["disabled"]:
+        return False
+    if acct["org_id"]:
+        org = db.get_org(acct["org_id"])
+        return bool(org and org["status"] == "active")
+    return True
 
 
 def touch_agent(username: str) -> None:

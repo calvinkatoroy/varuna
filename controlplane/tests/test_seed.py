@@ -124,3 +124,15 @@ def test_wipe_all_clears_accounts_and_orgs(seeded):
     assert db.list_orgs() and db.list_accounts()
     wipe_data.wipe(everything=True)
     assert db.list_orgs() == [] and db.list_accounts() == [] and db.list_proposals(org_id=None) == []
+
+
+def test_wipe_all_clears_agent_redis_keys(seeded):
+    import redis_store
+    import wipe_data
+    r = redis_store.get_redis()
+    for k in ("agent:a", "agent_token:h", "agentqueue:a", "suspended:j", "enroll:t", "org_jobs:o"):
+        r.set(k, "1")
+    wipe_data.wipe(everything=False)
+    assert r.get("agent:a") == "1"            # kept without --all
+    wipe_data.wipe(everything=True)
+    assert all(r.get(k) is None for k in ("agent:a", "agent_token:h", "agentqueue:a", "suspended:j", "enroll:t", "org_jobs:o"))

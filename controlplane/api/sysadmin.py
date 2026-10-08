@@ -12,6 +12,8 @@ import audit
 import auth
 import db
 import models
+import redis_store
+import tokens
 from deps import require_sysadmin
 
 router = APIRouter(prefix="/api/sysadmin")
@@ -72,6 +74,8 @@ def set_org(org_id: str, action: str, user: dict = Depends(require_sysadmin)):
         raise HTTPException(status_code=404)
     if not db.set_org_status(org_id, "active" if action == "enable" else "disabled"):
         raise HTTPException(status_code=404, detail="no such organization")
+    if action == "disable":
+        redis_store.drop_org_jobs(org_id)
     audit.log(f"org_{action}d", actor=user["username"], org=org_id)
     return {"ok": True}
 
@@ -134,6 +138,8 @@ def set_disabled(username: str, action: str, user: dict = Depends(require_sysadm
         _not_last_sysadmin(username)
     if not db.set_account(username, disabled=1 if action == "disable" else 0):
         raise HTTPException(status_code=404, detail="no such account")
+    if action == "disable":
+        tokens.revoke_agent(username)
     audit.log(f"account_{action}d", actor=user["username"], account=username)
     return {"ok": True}
 

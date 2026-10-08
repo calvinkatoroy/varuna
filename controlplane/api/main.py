@@ -52,6 +52,8 @@ def current_agent(authorization: str = Header(default="")) -> str:
     username = tokens.verify_agent_token(token)
     if not username:
         raise HTTPException(status_code=401, detail="invalid or revoked agent token")
+    if not tokens.agent_allowed(username):
+        raise HTTPException(status_code=401, detail="account or organization disabled")
     return username
 
 
@@ -82,6 +84,8 @@ def enroll(body: EnrollBody):
     username = tokens.consume_enrollment_token(body.enrollment_token)
     if not username:
         raise HTTPException(status_code=401, detail="invalid or expired enrollment token")
+    if not tokens.agent_allowed(username):
+        raise HTTPException(status_code=401, detail="account or organization disabled")
     token = tokens.issue_agent_token(username)
     return {"token": token, "username": username}
 
