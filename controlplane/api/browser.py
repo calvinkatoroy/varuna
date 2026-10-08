@@ -47,7 +47,7 @@ import store as report_store  # noqa: E402
 import tenancy  # noqa: E402
 import tokens  # noqa: E402
 import deps  # noqa: E402
-import profile as profile_api  # noqa: E402
+import profile_api  # noqa: E402
 from deps import current_user, require_lead, require_pro  # noqa: E402
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

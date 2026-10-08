@@ -41,7 +41,7 @@ import auth  # noqa: E402
 import jwt_auth  # noqa: E402
 import browser  # noqa: E402  (proposal/scan/finding logic is shared; only the auth plane differs)
 import deps  # noqa: E402
-import profile as profile_api  # noqa: E402
+import profile_api  # noqa: E402
 import dispatch  # noqa: E402
 from sysadmin import router as sysadmin_router  # noqa: E402
 from tenancy import Scope  # noqa: E402
