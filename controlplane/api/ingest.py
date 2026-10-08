@@ -54,15 +54,14 @@ def add_manual_finding(job_id: str, fields: dict) -> list[dict]:
 
 
 def start_review(job: dict, template: str = "Full Technical", editor: str = "system") -> str:
-    """Generate v1 of the report and place it at the reporter stage (SCANNED -> IN_REVIEW_REPORTER).
-    The owner is the client who owns the job (tenancy). Raises ValueError for an unknown template."""
+    """Generate v1 of the task's report (a draft until delivery). The owner is the client who owns the job."""
     data = generator.generate(job, db.get_findings(job["id"]), template)
     rid = db.create_report(job["id"], job_org(job), job["submitter"], template=template)
     fname = f"{rid}_v1.docx"
     report_store.save_report_file(fname, data)
     db.add_report_version(rid, filename=fname, editor=editor, note="auto-generated v1")
     audit.log("report_created", actor=editor, report=rid, job=job["id"])
-    notify.notify(f"New report {rid[:8]} is ready for the reporter")
+    notify.notify(f"Report {rid[:8]} is ready for the assignee")
     return rid
 
 
@@ -76,9 +75,8 @@ def process_job(job_id: str, raw: dict) -> None:
     # Findings are durable (SQLite), unlike the job record they came from - they must outlive
     # the job's 24h Redis TTL to survive the (possibly multi-day) review pipeline.
     db.save_findings(job_id, job["submitter"], job_org(job), findings)
-    # An approved proposal's scan goes straight into review: nobody has to remember to start it.
-    # (Direct team scans have no proposal; the team starts those via POST /api/pipeline/reports.)
-    if db.get_proposal_by_job(job_id) and not [r for r in db.list_reports(org_id=None) if r["job_id"] == job_id]:
+    # A task's scan gets its report automatically (direct team scans have none; use /api/reports/generate).
+    if db.get_proposal_by_job(job_id) and not db.get_report_by_job(job_id):
         try:
             start_review(job)
         except Exception as e:   # a report-generation failure must not lose the findings

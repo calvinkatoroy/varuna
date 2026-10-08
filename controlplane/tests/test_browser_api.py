@@ -100,7 +100,7 @@ def test_reports_list_is_v2_delivered_and_tenant_scoped():
     rb_id = db.create_report("job-b", _org("bob"), "bob")
     db.set_report(rb_id, stage=models.REPORT_DELIVERED, delivered_pdf="b.pdf")
     # a report still in review (not delivered yet) must not show up for anyone via this list
-    db.set_report(db.create_report("job-c", _org("alice"), "alice"), stage=models.REPORT_LEAD)
+    db.set_report(db.create_report("job-c", _org("alice"), "alice"), stage=models.REPORT_DRAFT)
 
     ra = client.get("/api/reports", headers=Ha).json()
     assert {r["id"] for r in ra} == {ra_id}
@@ -293,7 +293,7 @@ def test_client_delivered_pdf_and_view_once_password():
 def test_client_cannot_access_undelivered_report():
     reset()
     Ha = _token("alice", "client")
-    rid = db.create_report("j2", _org("alice"), "alice")   # still at reporter stage
+    rid = db.create_report("j2", _org("alice"), "alice")   # still a draft
     assert client.get(f"/api/reports/{rid}/delivered", headers=Ha).status_code == 409
 
 

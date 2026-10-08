@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS reports (
     job_id          TEXT NOT NULL,
     owner           TEXT NOT NULL,
     org_id          TEXT NOT NULL DEFAULT '',
-    stage           TEXT NOT NULL DEFAULT 'in_review_reporter',
+    stage           TEXT NOT NULL DEFAULT 'draft',
     template        TEXT NOT NULL DEFAULT 'Full Technical',
     delivered_pdf   TEXT,
     pdf_password    TEXT,
@@ -487,7 +487,7 @@ def get_report_by_job(job_id: str) -> Optional[dict]:
 
 # --- reports + versions (v2 review pipeline) ---
 def create_report(job_id: str, org_id: str, owner: str, template: str = "Full Technical",
-                  stage: str = "in_review_reporter") -> str:
+                  stage: str = "draft") -> str:
     import uuid
     rid = str(uuid.uuid4())
     get_conn().execute(

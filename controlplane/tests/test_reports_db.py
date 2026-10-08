@@ -8,11 +8,11 @@ import models  # noqa: E402
 # db reset per-test by the autouse _fresh_db fixture in conftest.py
 
 
-def test_create_report_starts_at_reporter_stage():
+def test_create_report_starts_as_draft():
     rid = db.create_report("j1", "org-a", "alice", template="Full Technical")
     r = db.get_report(rid, org_id="org-a")
     assert r["owner"] == "alice" and r["job_id"] == "j1" and r["org_id"] == "org-a"
-    assert r["stage"] == models.REPORT_REPORTER
+    assert r["stage"] == models.REPORT_DRAFT
     assert r["password_viewed"] is False
 
 
@@ -30,7 +30,7 @@ def test_list_reports_by_org_and_stage():
     a = db.create_report("ja", "org-a", "alice")
     db.create_report("jb", "org-b", "bob")
     assert {r["id"] for r in db.list_reports(org_id="org-a")} == {a}
-    assert len(db.list_reports(stage=models.REPORT_REPORTER, org_id=None)) == 2
+    assert len(db.list_reports(stage=models.REPORT_DRAFT, org_id=None)) == 2
 
 
 def test_set_report_fields():

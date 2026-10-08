@@ -122,7 +122,10 @@ def test_port_and_path_are_validated():
 
 def test_bad_docx_is_rejected_and_password_not_listed():              # H5, H6
     Hrep, Hgov = _h("aisah", "pentester"), _h("hani", "governance")
-    rid = db.create_report("j9", db.create_org("org-dan"), "dan")
+    org = db.create_org("org-dan")
+    rid = db.create_report("j9", org, "dan")
+    db.create_proposal({"submitter": "dan", "target": "http://t", "org_id": org, "stage": "completed",
+                        "job_id": "j9", "assignee": "aisah"})
     up = lambda data: priv.post(f"/api/pipeline/reports/{rid}/version",
                                 files={"file": ("f.docx", data, DOCX)}, headers=Hrep)
     assert up(b"").status_code == 422 and up(b"NOT A DOCX").status_code == 422
@@ -265,7 +268,7 @@ def test_finished_scan_starts_review_automatically(tmp_path):
               "host": "8.8.8.8", "matched-at": "http://8.8.8.8/metrics"}
     ingest.process_job(jid, {"nuclei": json.dumps(nuclei)})
     reports = [r for r in db.list_reports(org_id=None) if r["job_id"] == jid]
-    assert len(reports) == 1 and reports[0]["stage"] == models.REPORT_REPORTER and reports[0]["owner"] == "zed"
+    assert len(reports) == 1 and reports[0]["stage"] == models.REPORT_DRAFT and reports[0]["owner"] == "zed"
     assert reports[0]["org_id"] == _org("zed")                         # copied from the proposal
     assert {f["org_id"] for f in db.get_findings(jid)} == {_org("zed")}
     assert len(db.list_report_versions(reports[0]["id"])) == 1
@@ -280,6 +283,7 @@ def test_reviewer_can_switch_template_and_history_is_kept(tmp_path):
     redis_store._client = FakeRedis()
     org = db.create_org("org-dan")
     rid = db.create_report("jt", org, "dan")
+    db.create_proposal({"submitter": "dan", "target": "http://t", "org_id": org, "stage": "completed", "job_id": "jt", "assignee": "aisah2"})
     db.save_findings("jt", "dan", org, [{"name": "X", "severity": "high", "host": "h"}])
     assert "Formal Handover" in priv.get("/api/templates", headers=Hrep).json()
     assert priv.post(f"/api/pipeline/reports/{rid}/template", json={"template": "Formal Handover"}, headers=Hpen).status_code == 403
@@ -345,7 +349,7 @@ def test_stalled_scans_are_failed_after_the_agent_is_silent_too_long():
     assert board.reap_stalled(now=later) == 0                          # idempotent
 
 
-def test_concurrent_forwards_deliver_exactly_once(tmp_path):
+def test_concurrent_manager_approvals_deliver_exactly_once(tmp_path):
     import store as report_store
     import pdf_deliver
     from reportlab.pdfgen import canvas
@@ -359,33 +363,39 @@ def test_concurrent_forwards_deliver_exactly_once(tmp_path):
     old = pdf_deliver.CONVERT
     pdf_deliver.CONVERT = fake_pdf
     try:
-        Hg = _h("hani9", "governance")
-        rid = db.create_report("jr", db.create_org("org-dan"), "dan", stage=models.REPORT_GOVERNANCE)
+        Hm = _h("bayu9", "manager")
+        org = db.create_org("org-dan")
+        tid = db.create_proposal({"submitter": "dan", "target": "http://t", "org_id": org, "stage": "review_manager", "job_id": "jr"})
+        rid = db.create_report("jr", org, "dan")
         db.add_report_version(rid, filename=f"{rid}_v1.docx", editor="x")
         report_store.save_report_file(f"{rid}_v1.docx", _docx("final"))
+        go = lambda _: priv.post(f"/api/tasks/{tid}/transition", headers=Hm, json={"to": "delivered", "version": 0}).status_code
         with cf.ThreadPoolExecutor(8) as ex:
-            codes = list(ex.map(lambda _: priv.post(f"/api/pipeline/reports/{rid}/forward", headers=Hg).status_code, range(8)))
+            codes = list(ex.map(go, range(8)))
         assert codes.count(200) == 1, codes            # one delivery wins, the rest are refused
         assert set(codes) <= {200, 409}, codes
         assert len(calls) == 1, "the PDF must be produced once, with one password"
         assert db.get_report(rid, org_id=None)["stage"] == models.REPORT_DELIVERED
+        assert db.get_proposal(tid, org_id=None)["stage"] == "delivered"
     finally:
         pdf_deliver.CONVERT = old
 
 
-def test_failed_delivery_puts_the_report_back(tmp_path):
+def test_failed_delivery_puts_the_task_back(tmp_path):
     import store as report_store
     import pdf_deliver
     report_store.REPORTS_DIR = str(tmp_path)
     old = pdf_deliver.CONVERT
     pdf_deliver.CONVERT = lambda _: (_ for _ in ()).throw(RuntimeError("soffice died"))
     try:
-        Hg = _h("hani10", "governance")
-        rid = db.create_report("jr2", db.create_org("org-dan"), "dan", stage=models.REPORT_GOVERNANCE)
+        Hm = _h("bayu10", "manager")
+        org = db.create_org("org-dan")
+        tid = db.create_proposal({"submitter": "dan", "target": "http://t", "org_id": org, "stage": "review_manager", "job_id": "jr2"})
+        rid = db.create_report("jr2", org, "dan")
         db.add_report_version(rid, filename=f"{rid}_v1.docx", editor="x")
         report_store.save_report_file(f"{rid}_v1.docx", _docx("final"))
-        assert priv.post(f"/api/pipeline/reports/{rid}/forward", headers=Hg).status_code == 502
-        assert db.get_report(rid, org_id=None)["stage"] == models.REPORT_GOVERNANCE, "not stuck in a transient stage"
+        assert priv.post(f"/api/tasks/{tid}/transition", headers=Hm, json={"to": "delivered", "version": 0}).status_code == 502
+        assert db.get_proposal(tid, org_id=None)["stage"] == "review_manager", "not stuck in a transient stage"
     finally:
         pdf_deliver.CONVERT = old
 

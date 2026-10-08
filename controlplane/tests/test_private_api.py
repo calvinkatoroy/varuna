@@ -117,38 +117,44 @@ def _hdr(username, role):
     return {"Authorization": f"Bearer {jwt_auth.login(username, 'pw', 'ip')}"}
 
 
-def test_review_pipeline_forward_and_versions():
+def _review_task(stage, job_id, assignee="aisah"):
+    org = _db.create_org("PT " + job_id)
+    tid = _db.create_proposal({"submitter": "alice", "target": "http://t", "org_id": org, "stage": stage,
+                               "job_id": job_id, "assignee": assignee})
+    rid = _db.create_report(job_id, org, "alice", template="Full Technical")
+    return tid, rid
+
+
+def _move(H, tid, to, **body):
+    return client.post(f"/api/tasks/{tid}/transition", headers=H,
+                       json={"to": to, "version": _db.get_proposal(tid, org_id=None)["version"], **body})
+
+
+def test_review_pipeline_versions_follow_the_task_stage():
     reset()
-    Hrep = _hdr("aisah", "pentester")
+    Hpen = _hdr("aisah", "pentester")
     Hlead = _hdr("riyan", "lead_pentester")
-    Hpen = _hdr("dodi", "governance")
-    rid = _db.create_report("j1", _db.create_org("PT Alice"), "alice", template="Full Technical")
-    # reporter uploads a new version
-    r = client.post(f"/api/pipeline/reports/{rid}/version",
-                    files={"file": ("edit.docx", EDITED, DOCX_MIME)}, headers=Hrep)
+    Hgov = _hdr("dodi", "governance")
+    tid, rid = _review_task("completed", "j1")
+    up = lambda H, data: client.post(f"/api/pipeline/reports/{rid}/version", files={"file": ("e.docx", data, DOCX_MIME)}, headers=H)
+    r = up(Hpen, EDITED)                                       # the assignee edits at `completed`
     assert r.status_code == 200 and r.json()["version_no"] == 1, r.text
-    # governance does not own the first review stage -> cannot forward
-    assert client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hpen).status_code == 403
-    # reporter forwards -> lead
-    assert client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hrep).json()["stage"] \
-        == models.REPORT_LEAD
-    # lead uploads a version and forwards -> governance
-    client.post(f"/api/pipeline/reports/{rid}/version",
-                files={"file": ("lead.docx", LEAD_V, DOCX_MIME)}, headers=Hlead)
-    assert client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hlead).json()["stage"] \
-        == models.REPORT_GOVERNANCE
-    # lead sees all versions (history kept)
+    assert up(Hgov, EDITED).status_code == 403                 # governance does not own this stage
+    assert _move(Hpen, tid, "review_lead_pentester").status_code == 200
+    assert up(Hlead, LEAD_V).status_code == 200                # the lead pentester owns the first review
+    assert _move(Hlead, tid, "review_lead_cyber").json()["stage"] == "review_lead_cyber"
     versions = client.get(f"/api/pipeline/reports/{rid}/versions", headers=Hlead).json()
     assert [v["version_no"] for v in versions] == [1, 2]
     assert client.get(f"/api/pipeline/reports/{rid}/versions/1/download", headers=Hlead).content == EDITED
 
 
-def test_review_pipeline_sendback():
+def test_review_pipeline_sendback_needs_a_comment():
     reset()
     Hgov = _hdr("hani", "governance")
-    rid = _db.create_report("j2", _db.create_org("PT Bob"), "bob", stage=models.REPORT_GOVERNANCE)
-    r = client.post(f"/api/pipeline/reports/{rid}/sendback", headers=Hgov)
-    assert r.status_code == 200 and r.json()["stage"] == models.REPORT_LEAD
+    tid, _ = _review_task("review_governance", "j2")
+    assert _move(Hgov, tid, "review_lead_cyber").status_code == 422
+    r = _move(Hgov, tid, "review_lead_cyber", comment="severity of XSS looks too high")
+    assert r.status_code == 200 and r.json()["stage"] == "review_lead_cyber"
 
 
 # --- v2 protected-PDF delivery (fake the docx->pdf converter; keep real pypdf encryption) ---
@@ -166,48 +172,47 @@ def _fake_convert(_docx):
 pdf_deliver.CONVERT = _fake_convert
 
 
-def test_governance_forward_delivers_protected_pdf():
+def test_manager_approval_delivers_protected_pdf():
     reset()
-    Hgov = _hdr("hani", "governance")
-    rid = _db.create_report("j3", _db.create_org("PT Carol"), "carol", stage=models.REPORT_GOVERNANCE)
-    client.post(f"/api/pipeline/reports/{rid}/version",
-                files={"file": ("final.docx", FINAL, DOCX_MIME)}, headers=Hgov)
-    r = client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hgov)
-    assert r.status_code == 200 and r.json()["stage"] == models.REPORT_DELIVERED, r.text
+    Hgov, Hman = _hdr("hani", "governance"), _hdr("bayu", "manager")
+    tid, rid = _review_task("review_manager", "j3")
+    _db.add_report_version(rid, filename=f"{rid}_v1.docx", editor="hani")
+    report_store.save_report_file(f"{rid}_v1.docx", FINAL)
+    assert _move(Hgov, tid, "delivered").status_code == 403
+    r = _move(Hman, tid, "delivered")
+    assert r.status_code == 200 and r.json()["stage"] == "delivered", r.text
     rep = _db.get_report(rid, org_id=None)
-    assert rep["delivered_pdf"] and rep["pdf_password"] and rep["password_viewed"] is False
-    data = report_store.read_report(rep["delivered_pdf"])
-    assert _PdfReader(_io.BytesIO(data)).is_encrypted
+    assert rep["stage"] == models.REPORT_DELIVERED and rep["delivered_pdf"] and rep["pdf_password"]
+    assert rep["password_viewed"] is False
+    assert _PdfReader(_io.BytesIO(report_store.read_report(rep["delivered_pdf"]))).is_encrypted
 
 
 def test_governance_reissue_password():
     reset()
-    Hgov = _hdr("hani", "governance")
-    Hrep = _hdr("aisah", "pentester")
-    rid = _db.create_report("j4", _db.create_org("PT Dan"), "dan", stage=models.REPORT_GOVERNANCE)
-    client.post(f"/api/pipeline/reports/{rid}/version",
-                files={"file": ("f.docx", FINAL, DOCX_MIME)}, headers=Hgov)
-    client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hgov)   # -> delivered
-    _db.set_report(rid, password_viewed=1)                              # client already viewed
+    Hgov, Hman, Hrep = _hdr("hani", "governance"), _hdr("bayu", "manager"), _hdr("aisah", "pentester")
+    tid, rid = _review_task("review_manager", "j4")
+    _db.add_report_version(rid, filename=f"{rid}_v1.docx", editor="hani")
+    report_store.save_report_file(f"{rid}_v1.docx", FINAL)
+    _move(Hman, tid, "delivered")
+    _db.set_report(rid, password_viewed=1)                     # client already viewed
     assert client.post(f"/api/pipeline/reports/{rid}/reissue-password", headers=Hrep).status_code == 403
     r = client.post(f"/api/pipeline/reports/{rid}/reissue-password", headers=Hgov)
     assert r.status_code == 200 and r.json()["password"]
     assert _db.get_report(rid, org_id=None)["password_viewed"] is False
 
 
-def test_pipeline_create_generates_v1_owned_by_client():
+def test_finished_task_scan_generates_v1_owned_by_client():
     reset()
-    H = _hdr("dodi", "pentester")
+    import ingest
     org = _db.create_org("PT Alice")
-    redis_store.set_job({"id": "jc", "target": "http://t", "submitter": "alice",
-                         "status": "done", "per_tool_status": {}, "org_id": org})
+    job = {"id": "jc", "target": "http://t", "submitter": "alice", "status": "done", "per_tool_status": {}, "org_id": org}
+    redis_store.set_job(job)
+    _db.create_proposal({"submitter": "alice", "target": "http://t", "org_id": org, "stage": "completed", "job_id": "jc"})
     _db.save_findings("jc", "alice", org, [{"name": "X", "severity": "high", "host": "h"}])
-    r = client.post("/api/pipeline/reports", json={"job_id": "jc", "template": "Full Technical"}, headers=H)
-    assert r.status_code == 200 and r.json()["stage"] == models.REPORT_REPORTER, r.text
-    rid = r.json()["report_id"]
-    assert len(client.get(f"/api/pipeline/reports/{rid}/versions", headers=H).json()) == 1
-    assert _db.get_report(rid, org_id=None)["owner"] == "alice"
-    assert _db.get_report(rid, org_id=org)["org_id"] == org   # the report belongs to the job's org
+    rid = ingest.start_review(job)
+    rep = _db.get_report(rid, org_id=org)
+    assert rep["owner"] == "alice" and rep["org_id"] == org and rep["stage"] == models.REPORT_DRAFT
+    assert len(_db.list_report_versions(rid)) == 1
 
 
 # --- v2 board/detail/verdict views ---

@@ -89,10 +89,11 @@ def test_demo_orgs_users_and_rows_carry_the_right_org(seeded):
         assert p["target"].split("://")[1].endswith(".co.id")
     for row in reports + findings:
         assert row["org_id"] and row["org_id"] == db.get_account(row["owner"])["org_id"]
-    states = {p["status"] for p in props}
-    assert {"pending", "approved", "rejected"} <= states
+    stages = {p["stage"] for p in props}
+    assert {"task", "delivered", "review_governance", "declined"} <= stages
     assert any(r["stage"] == models.REPORT_DELIVERED for r in reports)
-    assert next(p for p in props if p["status"] == "rejected")["reject_reason"]
+    assert next(p for p in props if p["stage"] == "declined")["decline_cause"]
+    assert len(db.list_task_events(next(p["id"] for p in props if p["stage"] == "delivered"))) == 5
 
 
 def test_demo_refuses_to_run_twice(seeded, tmp_path):

@@ -51,22 +51,9 @@ SCAN_LOCAL, SCAN_CLOUD = "local", "cloud"
 # The cloud scanner is an ordinary agent enrolled under this reserved name (clients cannot register it).
 CLOUD_AGENT = "varuna-cloud"
 
-# Report review pipeline stages (v2): reporter -> lead -> governance -> delivered.
-REPORT_REPORTER = "in_review_reporter"
-REPORT_LEAD = "in_review_lead"
-REPORT_GOVERNANCE = "in_review_governance"
+# Report rows (step 2): the task's stage drives review; a report is a draft until delivery stamps it.
+REPORT_DRAFT = "draft"
 REPORT_DELIVERED = "delivered"
-REPORT_STAGES = (REPORT_REPORTER, REPORT_LEAD, REPORT_GOVERNANCE, REPORT_DELIVERED)
-
-
-def report_stage_owner(stage: str) -> frozenset:
-    """Roles allowed to edit/forward at a stage. Lead can also act at the reporter stage
-    (sees all, may edit). Governance forwarding delivers to the client."""
-    return {
-        REPORT_REPORTER: frozenset({ROLE_PENTESTER, ROLE_LEAD}),
-        REPORT_LEAD: frozenset({ROLE_LEAD}),
-        REPORT_GOVERNANCE: frozenset({ROLE_GOVERNANCE}),
-    }.get(stage, frozenset())
 
 
 # Overall job status (REQ-23).

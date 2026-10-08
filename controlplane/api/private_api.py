@@ -35,7 +35,6 @@ import ingest  # noqa: E402
 import models  # noqa: E402
 import pdf_deliver  # noqa: E402
 import redis_store  # noqa: E402
-import report_pipeline  # noqa: E402
 import scheduler  # noqa: E402
 import scanopts  # noqa: E402
 import workflow  # noqa: E402
@@ -282,28 +281,8 @@ def download_report(fname: str, user: dict = Depends(require_pro)):
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
-# --- report review pipeline (v2): reporter -> lead -> governance -> delivered ---
-class PipelineCreateBody(BaseModel):
-    job_id: str
-    template: str = "Full Technical"
-
-
-@app.post("/api/pipeline/reports")
-def pipeline_create(body: PipelineCreateBody, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
-    """Start the review pipeline: generate v1 of the report and place it at the reporter stage.
-    The report belongs to the job's organization (copied from its proposal, tenancy)."""
-    job = dispatch.get_job(scope, body.job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="no such job")
-    try:
-        rid = ingest.start_review(job, body.template, editor=user["username"])
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    return {"report_id": rid, "stage": models.REPORT_REPORTER}
-
-
+# --- report versions (step 2): edited while the task is at completed or a review stage ---
 MAX_UPLOAD = 25 * 1024 * 1024
-DELIVERING = "delivering"   # transient stage while the protected PDF is being produced
 
 
 def _check_docx(data: bytes) -> None:
@@ -326,6 +305,13 @@ def _require_report(rid: str, scope: Scope) -> dict:
     return r
 
 
+def _may_edit(r: dict, user: dict) -> None:
+    """Versions and templates: the assignee/lead at `completed`, else the role owning the task's review stage."""
+    t = db.get_proposal_by_job(r["job_id"])
+    if not t or not workflow.can_edit_report(t, user["username"]):
+        raise HTTPException(status_code=403, detail="you do not own this review stage")
+
+
 @app.get("/api/pipeline/reports")
 def pipeline_reports(user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
     """Every client's reports in review (team sees all; lead sees all versions)."""
@@ -343,8 +329,7 @@ def pipeline_versions(rid: str, user: dict = Depends(require_team), scope: Scope
 def pipeline_upload_version(rid: str, file: UploadFile = File(...), note: str = "",
                             user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
     r = _require_report(rid, scope)
-    if not report_pipeline.can_act(r["stage"], user["role"]):
-        raise HTTPException(status_code=403, detail="you do not own this review stage")
+    _may_edit(r, user)
     data = file.file.read(MAX_UPLOAD + 1)
     _check_docx(data)
     next_no = ((db.latest_version(rid) or {}).get("version_no") or 0) + 1
@@ -370,8 +355,7 @@ def pipeline_change_template(rid: str, body: TemplateBody, user: dict = Depends(
     """Regenerate the report from the current findings in another template, as a NEW version
     (history is kept; earlier edits stay downloadable). Only the role that owns the stage."""
     r = _require_report(rid, scope)
-    if not report_pipeline.can_act(r["stage"], user["role"]):
-        raise HTTPException(status_code=403, detail="you do not own this review stage")
+    _may_edit(r, user)
     job = redis_store.get_job(r["job_id"]) or {"id": r["job_id"], "target": "", "submitter": r["owner"]}
     try:
         data = generator.generate(job, db.get_findings(r["job_id"]), body.template)
@@ -399,33 +383,6 @@ def pipeline_download_version(rid: str, n: int, user: dict = Depends(require_tea
         raise HTTPException(status_code=404, detail="version file missing")
     return Response(content=data, media_type=DOCX_MIME,
                     headers={"Content-Disposition": f'attachment; filename="{v["filename"]}"'})
-
-
-@app.post("/api/pipeline/reports/{rid}/forward")
-def pipeline_forward(rid: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
-    r = _require_report(rid, scope)
-    try:
-        new_stage = report_pipeline.advance(r["stage"], user["role"])
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    moved = HTTPException(status_code=409, detail="this report was just moved by someone else; refresh")
-    if new_stage == models.REPORT_DELIVERED:
-        # Claim the transition first ("delivering" is a transient state), so concurrent governance
-        # clicks cannot each generate a PDF + password; put it back if delivery fails.
-        if not db.claim_report_stage(rid, r["stage"], DELIVERING):
-            raise moved
-        try:
-            _deliver_report(rid)   # governance sign-off: produce the protected PDF + password
-        except Exception:
-            db.set_report(rid, stage=r["stage"])
-            raise
-    elif not db.claim_report_stage(rid, r["stage"], new_stage):
-        raise moved
-    audit.log("report_forward", actor=user["username"], report=rid, stage=new_stage)
-    notify.notify(f"Report {rid[:8]} is now at {new_stage}")
-    return {"report_id": rid, "stage": new_stage}
 
 
 def _deliver_report(rid: str) -> None:
@@ -514,19 +471,3 @@ def pipeline_reissue_password(rid: str, user: dict = Depends(require_team), scop
     db.set_report(rid, password_viewed=0)   # let the client view it once more
     audit.log("password_reissue", actor=user["username"], report=rid)
     return {"report_id": rid, "password": r["pdf_password"]}
-
-
-@app.post("/api/pipeline/reports/{rid}/sendback")
-def pipeline_sendback(rid: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
-    r = _require_report(rid, scope)
-    try:
-        new_stage = report_pipeline.send_back(r["stage"], user["role"])
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    if not db.claim_report_stage(rid, r["stage"], new_stage):
-        raise HTTPException(status_code=409, detail="this report was just moved by someone else; refresh")
-    audit.log("report_sendback", actor=user["username"], report=rid, stage=new_stage)
-    notify.notify(f"Report {rid[:8]} was sent back to {new_stage}")
-    return {"report_id": rid, "stage": new_stage}

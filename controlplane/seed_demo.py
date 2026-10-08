@@ -1,8 +1,8 @@
 """Demo-data seeder (local/dev only): three Indonesian client organizations with users, scan
-proposals in different states, findings and review-pipeline reports. Everything goes through the
+tasks in different stages, findings and reports. Everything goes through the
 real db/auth/private_api functions (not HTTP), so org_id is set exactly as in production.
 Findings are injected with db.save_findings() instead of running Nuclei/SQLMap; delivery uses the
-real LibreOffice PDF conversion. Needs no sysadmin and no staff accounts.
+real LibreOffice PDF conversion. Needs no sysadmin; creates the five demo staff (seed_account.team_defaults) if `rizky` does not exist.
 
 Random client passwords are printed once and written to .demo-credentials.txt (gitignored).
 Refuses to run if any organization already exists.
@@ -30,7 +30,6 @@ import db  # noqa: E402
 import models  # noqa: E402
 import redis_store  # noqa: E402
 import private_api  # noqa: E402
-from tenancy import Scope  # noqa: E402
 
 DEMO_CREDS = os.path.join(os.path.dirname(__file__), "..", ".demo-credentials.txt")
 
@@ -39,12 +38,6 @@ ORGS = {
     "PT Pelabuhan Bahari Sejahtera": ["agung.wijaya"],
     "CV Mitra Kargo Jaya": ["dewi.lestari"],
 }
-
-# Staff identities used only to push demo reports through the review stages.
-PENTESTER = {"username": "rizky", "role": "pentester"}
-LEAD = {"username": "dewi", "role": "lead_pentester"}
-GOVERNANCE = {"username": "sari", "role": "governance"}
-ALL = Scope(None)
 
 FINDINGS = {
     "portal.samudera-logistik.co.id": [
@@ -88,31 +81,35 @@ def make_job(target: str, submitter: str, org_id: str) -> dict:
     }
 
 
-def propose(org_id: str, client: str, host: str, purpose: str, division: str, **extra) -> str:
-    return db.create_proposal({
-        "org_id": org_id, "submitter": client, "target": f"https://{host}", "mode": "standard",
-        "purpose": purpose, "division": division, "environment": "production",
-        "authorization_attested": True, "scan_mode": "cloud", **extra,
-    })
+import datetime  # noqa: E402
+import ingest  # noqa: E402
+import seed_account  # noqa: E402
+import workflow  # noqa: E402
+
+def _window() -> tuple[str, str]:
+    now = datetime.datetime.now(datetime.UTC).replace(microsecond=0)
+    return (now - datetime.timedelta(hours=1)).isoformat(), (now + datetime.timedelta(days=7)).isoformat()
 
 
-def scanned(org_id: str, client: str, host: str, purpose: str, division: str) -> dict:
-    """An approved proposal whose scan finished: job + findings stored, ready for review."""
-    pid = propose(org_id, client, host, purpose, division)
+def task(org_id: str, client: str, host: str, notes: str, **extra) -> str:
+    nb, na = _window()
+    return db.create_proposal({"org_id": org_id, "submitter": client, "target": f"https://{host}", "notes": notes,
+                               "scan_mode": "cloud", "not_before": nb, "not_after": na, **extra})
+
+
+def scanned(org_id: str, client: str, host: str, notes: str) -> str:
+    """A task whose scan finished (findings injected, report v1 generated), assigned to rizky."""
     job = make_job(f"https://{host}", client, org_id)
     redis_store.set_job(job)
-    db.update_proposal(pid, status="approved", job_id=job["id"])
+    tid = task(org_id, client, host, notes, stage="completed", assignee="rizky", job_id=job["id"])
     db.save_findings(job["id"], client, org_id, FINDINGS.get(host, []))
-    return job
+    ingest.start_review(job, editor="rizky")
+    return tid
 
 
-def review(job: dict, stages: list[dict]) -> str:
-    """Generate v1 of the report, then forward it once per actor in `stages`."""
-    rid = private_api.pipeline_create(
-        private_api.PipelineCreateBody(job_id=job["id"], template="Full Technical"), user=PENTESTER, scope=ALL)["report_id"]
-    for actor in stages:
-        private_api.pipeline_forward(rid, user=actor, scope=ALL)
-    return rid
+def review(tid: str, steps: list[tuple[str, str]]) -> None:
+    for actor, to in steps:
+        workflow.transition(tid, to, actor, org_id=None, on_deliver=private_api._deliver_task)
 
 
 def seed(creds_path: str = DEMO_CREDS) -> dict:
@@ -128,27 +125,33 @@ def seed(creds_path: str = DEMO_CREDS) -> dict:
             creds.append(f"{u} {pw}")
     sam, bah, mit = (org_ids[o] for o in ORGS)
 
+    if not db.get_account("rizky"):   # the demo walks tasks through the real workflow: it needs the five staff
+        for username, role, pw in seed_account.team_defaults():
+            print(f"created {role} account: {username} / {pw}")
+
     # Samudera / budi: fully delivered engagement (real PDF conversion + encryption).
-    job = scanned(sam, "budi.santoso", "portal.samudera-logistik.co.id", "kepatuhan", "TI")
-    rid = review(job, [PENTESTER, LEAD, GOVERNANCE])
+    tid = scanned(sam, "budi.santoso", "portal.samudera-logistik.co.id", "Pengujian kepatuhan portal pelanggan")
+    review(tid, [("rizky", "review_lead_pentester"), ("dewi", "review_lead_cyber"), ("agus", "review_governance"),
+                 ("sari", "review_manager"), ("hendra", "delivered")])
+    rid = db.get_report_by_job(db.get_proposal(tid, org_id=None)["job_id"])["id"]
     print(f"budi.santoso: laporan {rid} DELIVERED, password PDF: {db.get_report(rid, org_id=None)['pdf_password']}")
 
-    # Samudera / siti: proposal masuk, belum ada tindakan.
-    propose(sam, "siti.rahayu", "api.samudera-logistik.co.id", "pengujian sebelum rilis", "Pengembangan Aplikasi",
-            in_scope="api.samudera-logistik.co.id", emergency_contact="Siti Rahayu, 0812-5550-0101")
-    print("siti.rahayu: proposal pending")
+    # Samudera / siti: tugas masuk, belum diambil pentester.
+    task(sam, "siti.rahayu", "api.samudera-logistik.co.id", "Pengujian sebelum rilis. Kontak: Siti Rahayu, 0812-5550-0101",
+         path="/v2", port=443)
+    print("siti.rahayu: tugas menunggu pentester")
 
     # Bahari / agung: scan selesai, laporan menunggu tinjauan governance.
-    job = scanned(bah, "agung.wijaya", "tracking.baharisejahtera.co.id", "pengujian berkala", "Operasional Pelabuhan")
-    rid = review(job, [PENTESTER, LEAD])
-    print(f"agung.wijaya: laporan {rid} di tahap governance")
+    tid = scanned(bah, "agung.wijaya", "tracking.baharisejahtera.co.id", "Pengujian berkala")
+    review(tid, [("rizky", "review_lead_pentester"), ("dewi", "review_lead_cyber"), ("agus", "review_governance")])
+    print("agung.wijaya: laporan di tahap governance")
 
     # Mitra / dewi.lestari: ditolak dengan alasan yang jelas.
-    pid = propose(mit, "dewi.lestari", "app.mitrakargo.co.id", "pengujian berkala", "Keuangan")
-    db.update_proposal(pid, status="rejected", reject_reason=(
+    tid = task(mit, "dewi.lestari", "app.mitrakargo.co.id", "Pengujian berkala")
+    workflow.transition(tid, "declined", "rizky", org_id=None, comment=(
         "Kami belum dapat memverifikasi bahwa CV Mitra Kargo Jaya memiliki situs ini. "
         "Mohon balas dengan bukti kepemilikan (misalnya berkas yang dapat kami akses dari situs tersebut)."))
-    print("dewi.lestari: proposal ditolak dengan alasan")
+    print("dewi.lestari: tugas ditolak dengan alasan")
 
     with open(creds_path, "w", encoding="utf-8") as f:
         f.write("\n".join(creds) + "\n")

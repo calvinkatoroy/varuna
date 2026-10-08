@@ -221,3 +221,12 @@ def test_install_token_unlocks_once_a_task_is_claimed(api):
     assert api.post("/api/agent/install-token", tok).status_code == 403
     workflow.transition(tid, "scan/pending", "rizky", org_id=None)
     assert api.post("/api/agent/install-token", tok).status_code == 200
+
+
+def test_legacy_report_pipeline_routes_are_gone(priv):
+    auth.create_account("sari", PW, "governance")
+    tok = priv.login("sari", PW)
+    for path in ("/api/pipeline/reports/x/forward", "/api/pipeline/reports/x/sendback"):
+        assert priv.post(path, tok).status_code in (404, 405), path
+    assert priv.post("/api/pipeline/reports", tok, {"job_id": "j", "template": "Full Technical"}).status_code == 405
+    assert db.get_report(db.create_report("j", "o", "alice"), org_id=None)["stage"] == "draft"

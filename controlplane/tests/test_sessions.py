@@ -113,14 +113,15 @@ def test_new_password_must_differ_from_current(api):
 
 
 def test_demoted_reviewer_cannot_claim_a_stage(priv):
-    import models
     auth.create_account("root", "Passw0rd!x", "sysadmin")
     auth.create_account("riyan", "Passw0rd!x", "lead_pentester")
-    rid = db.create_report("j1", db.create_org("PT Q"), "alice", stage=models.REPORT_LEAD)
+    tid = db.create_proposal({"submitter": "alice", "target": "http://t", "org_id": db.create_org("PT Q"),
+                              "stage": "review_lead_pentester"})
     old = priv.login("riyan", "Passw0rd!x")
     root = priv.login("root", "Passw0rd!x")
     assert priv.put("/api/sysadmin/accounts/riyan/role", root, {"role": "pentester"}).status_code == 200
-    assert priv.post(f"/api/pipeline/reports/{rid}/forward", old).status_code == 401
+    move = {"to": "review_lead_cyber", "version": 0}
+    assert priv.post(f"/api/tasks/{tid}/transition", old, move).status_code == 401
     fresh = priv.login("riyan", "Passw0rd!x")
-    assert priv.post(f"/api/pipeline/reports/{rid}/forward", fresh).status_code == 403
-    assert db.get_report(rid, org_id=None)["stage"] == models.REPORT_LEAD
+    assert priv.post(f"/api/tasks/{tid}/transition", fresh, move).status_code == 403
+    assert db.get_proposal(tid, org_id=None)["stage"] == "review_lead_pentester"
