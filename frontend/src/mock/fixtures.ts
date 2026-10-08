@@ -217,7 +217,7 @@ export const engagementDetail: Record<string, Detail> = {
   s2: { proposal: { purpose: 'Periodic', division: 'Platform', environment: 'Staging', authorized: true } },
   s3: { proposal: { purpose: 'Periodic', division: 'Platform', environment: 'Production', authorized: true } },
   s4: { proposal: { purpose: 'Pre-release', division: 'Patient Portal', environment: 'Staging', authorized: true } },
-  // Reporter
+  // First review (in_review_reporter stage)
   r1: {
     proposal: { purpose: 'Pre-release', division: 'Engineering', environment: 'Production', authorized: true },
     versions: [

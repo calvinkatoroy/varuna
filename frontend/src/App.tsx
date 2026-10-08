@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from './auth'
 import { isMock } from './mock'
 import ClientCockpit from './screens/ClientCockpit'
@@ -16,6 +16,7 @@ import { api } from './api'
 import TeamBoard from './screens/TeamBoard'
 import FindingsReview from './screens/FindingsReview'
 import SysAdmin from './screens/SysAdmin'
+import Profile, { ConfirmEmail, SignedInRoute, RETURN_KEY } from './screens/Profile'
 import { Splash } from './components/Splash'
 import { Toaster } from './lib/toast'
 
@@ -81,6 +82,16 @@ function RoleRoute({ children, sysadmin }: { children: React.ReactNode; sysadmin
 export default function App() {
   const { ready, user, reloadMe } = useAuth()
   const location = useLocation()
+  const navigate = useNavigate()
+
+  // Back to the page that asked for a sign-in (SignInFirst), e.g. an email confirmation link.
+  useEffect(() => {
+    if (!user) return
+    let to: string | null = null
+    try { to = sessionStorage.getItem(RETURN_KEY); sessionStorage.removeItem(RETURN_KEY) } catch {}
+    if (to && to.startsWith('/')) navigate(to, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.username])
   const [displayed, setDisplayed] = useState(location)
 
   // Page transition: drive the View Transitions API manually so it fires on every route change
@@ -113,6 +124,8 @@ export default function App() {
           <Route path="/team" element={<RoleRoute><TeamBoard /></RoleRoute>} />
           <Route path="/team/findings" element={<RoleRoute><FindingsReview /></RoleRoute>} />
           <Route path="/team/sysadmin" element={<RoleRoute sysadmin><SysAdmin /></RoleRoute>} />
+          <Route path="/profile" element={<SignedInRoute why="Your profile is part of your account."><Profile /></SignedInRoute>} />
+          <Route path="/confirm-email" element={<SignedInRoute why="Confirming a new email address needs you signed in as yourself."><ConfirmEmail /></SignedInRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       )}
