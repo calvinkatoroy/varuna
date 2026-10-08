@@ -17,16 +17,17 @@ See [USER_GUIDE.md](USER_GUIDE.md) for how clients, the security team and admini
 
 Two planes, mapped to two audiences:
 
-- **Public plane** (Caddy, login-gated) — for **clients**: register, submit scan proposals,
+- **Public plane** (Caddy, login-gated) — for **clients**: sign in, submit scan tasks,
   install their own agent, download their own protected reports. Clients never touch Tailscale.
 - **Private plane** (Tailscale-gated, no public listener, NFR-24) — the **security team**
   workspace: the review pipeline board, all-client visibility, raw findings, sign-offs, the
   advanced-scan GUI.
 
-Six roles: `client` (submit proposals, view/download own delivered reports, install own agent),
-`pentester` (advanced scans, sees all clients), `lead_pentester` (approve/reject proposals,
-edit+version reports), `reporter` (first report pass), `governance` (final review, forwards to
-client), `soc` (reserved, general team access).
+Roles: `client` (belongs to one organization; creates tasks, views/downloads own delivered reports,
+installs own agent), `sysadmin` (provisions organizations, clients and staff; no scanning or review),
+`pentester` (claims tasks, runs and schedules scans, advanced scans), `lead_pentester` (a pentester on
+every task, first review, aggressive scan options), `lead_cyber` (second review), `governance`
+(third review, re-issues passwords), `manager` (final review, delivers to the client).
 
 **Persistence is split by durability need**, not by convenience:
 
@@ -37,20 +38,21 @@ client), `soc` (reserved, general team access).
 - **Redis** (`controlplane/common/redis_store.py`) — ephemeral coordination only: the per-user
   agent job queue, login-throttle counters, agent-online liveness, scan suspend flags.
 
-**Proposal → delivery state machine:**
+**Task → delivery state machine** (only `common/workflow.py` changes it):
 
 ```text
-PENDING → (lead approves) APPROVED → RUNNING → SCANNED →
-IN_REVIEW_REPORTER → IN_REVIEW_LEAD → IN_REVIEW_GOVERNANCE → DELIVERED
+task → scan (pending → scheduled → in_progress ⇄ suspended) → completed →
+review_lead_pentester → review_lead_cyber → review_governance → review_manager → delivered
+(side states: declined, expired)
 ```
 
-Registering an account only grants app access — it unlocks nothing until a proposal is
-separately approved by a lead pentester (so self-register spam is inert). Any reviewer can send
-a report back a stage. The client only sees the report once it hits `DELIVERED`, as a
+There is no self-registration and no approval gate: the system administrator creates accounts and a
+pentester claims a task. A client sets a time limit; the scan only runs inside it. Any reviewer can send
+a task back a stage. The client only sees the report once it is `delivered`, as a
 password-protected PDF (password shown once in-app, re-issuable by governance).
 
 **Client onboarding flow** (`AuthGate.tsx`, one stepper, not separate pages): Account →
-Proposal → Approval → **Agent** — the last step shows a one-line PowerShell installer
+Task → Accepted → **Agent** — the last step shows a one-line PowerShell installer
 (`irm <host>/dist/install.ps1 | iex`) with a real one-time enrollment token. The agent still
 runs locally on the client's own machine either way; only the routing changed from a standalone
 "Install Agent" page (v1/`main`) to an inline onboarding step (v2).
@@ -59,11 +61,11 @@ runs locally on the client's own machine either way; only the routing changed fr
 
 ```text
 frontend/src/
-  screens/           route-level pages: ClientCockpit, ClientProposals, ClientFindings,
+  screens/           route-level pages: ClientCockpit, ClientTasks, ClientFindings,
                       ClientReports, AuthGate, TeamLogin, TeamBoard, FindingsReview,
-                      AdvancedScanDrawer, NewProposalDrawer
+                      AdvancedScanDrawer, NewTaskDrawer, TaskDrawer
   components/         shared chrome: ClientTopbar/Nav/Shell, BrandMark, ScanProgress,
-                      AgentStatus, ProposalForm, ErrorRetry, Splash, TeamAccount, ThemeToggle
+                      AgentStatus, TaskForm, ErrorRetry, Splash, TeamAccount, ThemeToggle
   components/ui/      shadcn-style primitives (button, drawer, dropdown-menu, slider, switch)
   components/viz/     Gauge, SegBar, PostureBubbles, TrendChart
   mock/               fixtures.ts + index.ts - the whole app runs on these when VITE_MOCK=1,
@@ -72,14 +74,14 @@ frontend/src/
 controlplane/
   common/            db (SQLite), redis_store, auth, jwt_auth, models, tenancy, dispatch,
                      board.py (team kanban composition), cockpit.py (client dashboard
-                     aggregate), report_pipeline.py (stage transitions), pdf_deliver, audit
+                     aggregate), workflow.py (the task state machine), scheduler.py, pdf_deliver, audit
   api/               browser.py (public API), private_api.py (Tailscale API),
                      main.py (agent API), ingest.py, deps.py
   pipeline/          parse, correlate, ollama enrichment
   report/            generator (templates), sanitize, store
   tests/             offline test suite (TestClient + FakeRedis + db.reset_for_test)
   seed_account.py    bootstrap one account, or --team-defaults for the 4 demo team logins
-  seed_demo.py       seeds a realistic pipeline (proposals at every review stage) via the
+  seed_demo.py       seeds a realistic pipeline (tasks at several stages) via the
                      real endpoint functions, not hand-replicated logic - local/dev only
 agent/               per-user scan agent (tools/, scan.py, agent.py)
 docker-compose.yml   redis, api-public, api-agent, api-private, caddy
@@ -101,8 +103,7 @@ docker compose --env-file .env.v2local -f docker-compose.yml -f docker-compose.v
 Seed accounts and a realistic pipeline (inside the `api-public` container, so imports/env match):
 
 ```bash
-docker compose exec api-public python /app/controlplane/seed_account.py --team-defaults --dev   # dev: password 'changeme'; omit --dev for random ones
-docker compose exec api-public python /app/controlplane/seed_account.py acme demo1234 client
+docker compose exec api-public python /app/controlplane/seed_account.py --team-defaults --dev   # dev: password 'changeme'; omit --dev for random ones. Needs a sysadmin first: seed_account.py --bootstrap
 docker compose exec api-public python /app/controlplane/seed_demo.py
 ```
 
@@ -115,8 +116,8 @@ echo "VITE_MOCK=0" > .env.local
 npm run dev                      # :5173, proxies /api and /agent per vite.config.ts
 ```
 
-Team logins (private plane, `/team`): `riyan` / lead_pentester, `dimas` / pentester,
-`aisah` / reporter, `hani` / governance — password `changeme` with `--dev`, otherwise the random
+Team logins (private plane, `/team`): `rizky` / pentester, `dewi` / lead_pentester,
+`agus` / lead_cyber, `sari` / governance, `hendra` / manager — password `changeme` with `--dev`, otherwise the random
 ones printed at seed time. On any real deployment run `seed_account.py --rotate-defaults`.
 
 ### Frontend, mock mode (no backend)

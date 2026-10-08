@@ -1,9 +1,9 @@
 """Best-effort event notifications (optional).
 
 Set NOTIFY_WEBHOOK_URL to a Slack/Teams/Discord-compatible incoming webhook and the team gets a
-message when work is waiting on them (new proposal, a report reaching their stage, delivery).
+message when work is waiting on them (new task, a suspended scan, a task reaching a review stage).
 Unset = silent no-op. Never raises and never blocks a request for long: a dead webhook must not
-break approvals or reviews. No finding detail is sent, only event names and ids.
+break transitions or reviews. No finding detail is sent, only event names and ids.
 """
 from __future__ import annotations
 

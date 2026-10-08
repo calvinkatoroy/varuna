@@ -74,10 +74,9 @@ def submit_scan(submitter: str, role: str, org_id: str | None, target: str, tool
 def dispatch_job(job: dict, pre_approved: bool = False) -> None:
     """THE choke point. Re-check the gate + agent liveness, then enqueue. REQ-19a, REQ-76.
 
-    pre_approved (v2): a lead-pentester-approved proposal already gated this job. Skip the
+    pre_approved (v2): a claimed task already gated this job (a pentester started it). Skip the
     legacy standard+cloud redis-approval check AND the online refusal, and queue it for the
-    client's agent to pick up whenever it next polls (the client installs the agent AFTER
-    approval, so it is normally offline at approve-time).
+    client's agent to pick up whenever it next polls.
     A job whose organization differs from the receiving agent's is never enqueued: it is failed.
     """
     if _org_mismatch(job):

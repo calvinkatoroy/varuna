@@ -246,7 +246,7 @@ def test_approvals_are_pro_only():
     assert client.get("/api/approvals", headers=H_std).status_code == 403   # require_pro
 
 
-# (legacy /api/approvals flow removed: v2 replaces it with proposal approve/reject, tested above)
+# (legacy /api/approvals flow removed: tasks are claimed and started through /api/tasks/{id}/transition)
 
 
 def test_report_generate_and_download():

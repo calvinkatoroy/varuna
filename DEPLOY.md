@@ -92,23 +92,28 @@ Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Varuna"
 - `seed_account.py --team-defaults` gives each team account a random password (shown once). The
   dev-only `--dev` flag uses `changeme`; `--rotate-defaults` replaces any that remain. The private
   API prints a startup warning while any remain; change them at once (account menu > Change password, or the
-  lead pentester's admin API below).
+  system administrator's API below).
 
-### Team account administration (lead pentester, private plane)
+### Organizations and accounts (system administrator, private plane)
+The only provisioning path is the system administrator (there is no self-registration). Create the first one with
+`seed_account.py --bootstrap` (random password, written to `.admin-credentials.txt`). The console is at
+`/team/sysadmin`; the API is `/api/sysadmin/*`:
 ```
-GET  /api/admin/accounts
-POST /api/admin/accounts                       {username, password, role}
-POST /api/admin/accounts/{user}/reset-password {password}
-POST /api/admin/accounts/{user}/disable | enable
+GET  /api/sysadmin/orgs            POST /api/sysadmin/orgs {name}            POST /api/sysadmin/orgs/{id}/disable | enable
+GET  /api/sysadmin/accounts        POST /api/sysadmin/accounts {username, role, org_id?, display_name?, email?}
+POST /api/sysadmin/accounts/{user}/reset-password | reset-mfa | disable | enable
+PUT  /api/sysadmin/accounts/{user}/email | role
 ```
-A disabled account cannot log in and its live tokens stop working immediately.
+Clients need an `org_id`, staff must not have one. Create and reset return a temporary password once; the account
+must change it at first sign in. A disabled account or organization cannot log in, its live tokens and agents stop
+working at once. The last active administrator cannot be disabled or demoted.
 
 ### Demo data and two-factor for the team
-- Demo clients (globex, initech, umbrella, acme, stark, wayne) sit at every stage: reporter, lead, governance, delivered,
-  pending and rejected. Seed with `docker compose exec api-public python /app/controlplane/seed_demo.py`; it prints
+- Demo data: three client organizations (PT Samudera Logistik Nusantara, PT Pelabuhan Bahari Sejahtera, CV Mitra Kargo
+  Jaya) with tasks at several stages, plus the five demo staff if missing. Seed with `docker compose exec api-public python /app/controlplane/seed_demo.py`; it prints
   `CRED user password` lines, so redirect those into the gitignored `.demo-credentials.txt`. Passwords are random per
   account, never a shared default. It skips itself if the demo clients already exist.
-- All four team accounts have two-factor. Secrets are in `.team-credentials.txt` (gitignored): add each to an
+- Demo staff accounts can have two-factor. Secrets are in `.team-credentials.txt` (gitignored): add each to an
   authenticator app with "Enter a setup key" (time based), or on this laptop run `python team-code.py <user>` for the
   current code during a demo.
 
@@ -156,8 +161,8 @@ Team members turn it on from the account menu (Two-factor authentication): paste
 any authenticator app (Google/Microsoft Authenticator, Authy, 1Password) and confirm with a code.
 From then on a password alone cannot sign in: the login asks for the 6-digit code. Codes are
 standard RFC 6238 (30 s, 6 digits), tolerate one step of clock drift, cannot be replayed, and wrong
-codes count toward the same lockout as wrong passwords. A lost phone is recovered by the lead
-pentester (`POST /api/admin/accounts/{user}/reset-mfa`, or "Reset 2FA" on `/team/accounts`). The
+codes count toward the same lockout as wrong passwords. A lost phone is recovered by the system
+administrator (`POST /api/sysadmin/accounts/{user}/reset-mfa`, or "Reset 2FA" in the console). The
 private API prints which team accounts still lack two-factor at startup. Clients do not use it.
 
 ### Backups
@@ -170,15 +175,38 @@ Schedule the first command daily (Windows Task Scheduler / cron) and copy the fi
 
 ### Notifications (optional)
 Set `NOTIFY_WEBHOOK_URL` (a Slack/Teams/Discord incoming webhook) in `.env` and the team is
-messaged when a proposal arrives or a report reaches a stage. Only event names and short ids are
-sent, never finding detail. Unset = off.
+messaged when a task arrives, a scheduled scan is suspended, or a task reaches a review stage. Only event names and
+short ids are sent, never finding detail. Unset = off. Compose passes it to `api-agent` and `api-private`.
 
 ### After a scan finishes
-Findings are enriched and the report is created automatically at the reporter stage for every
-approved proposal. Scans started directly by the team (advanced scan) have no proposal; start
-their review with `POST /api/pipeline/reports {job_id, template}`.
+A task's scan reports back through the agent: `done` moves the task to Completed and the report v1 is
+generated automatically; `failed` suspends the task with the agent's error. Scans started directly by the team
+(advanced scan) have no task; generate their documents with `POST /api/reports/generate {job_id, template}`.
 Templates: Full Technical, Formal Handover, Executive Summary, Raw Findings (plus the older
 OWASP Web App and ILCS Internal layouts).
+
+### Scheduler
+The private API runs a scheduler every 30 seconds (one runner at a time, Redis lock `scheduler:lock`, so extra
+`api-private` replicas are harmless). It starts scheduled scans, waits up to 15 minutes for an offline agent or
+unreachable target and then suspends the task with that reason (and posts to `NOTIFY_WEBHOOK_URL`), expires tasks
+whose client time limit passed, and suspends running scans past the time limit or their maximum duration. It also
+fails scans whose agent has been silent for 15 minutes. Set `VARUNA_SCHEDULER=0` to turn it off (tests do).
+
+### Step 2 settings and upgrade
+| Env | Default | Meaning |
+|---|---|---|
+| `VARUNA_SCHEDULER` | `1` | `0` disables the scheduler thread in the private API |
+| `VARUNA_TEAM_URL` | `VARUNA_PUBLIC_URL` | team plane address in staff and sysadmin email links |
+| `BCRYPT_ROUNDS` | `12` | password hash cost; tests set 4 |
+
+The step 2 schema adds task columns and a `task_events` table on first start. Old proposals and review stages do
+not map onto the new states, so wipe and reseed instead of migrating:
+`docker compose exec api-public python /app/controlplane/wipe_data.py --all --confirm`, then
+`seed_account.py --bootstrap` and optionally `seed_demo.py`.
+
+Known limits: the agent has no cancel, so a scan that is paused and then closed (expired) stays paused on the agent
+until the agent restarts. Cloud scans need DNS and an online cloud scanner at the moment of start; a hostname that
+does not resolve refuses the start.
 
 ### Advanced scan options (team only; clients can never set these)
 The advanced-scan drawer sends a flat options object that the server validates and clamps
@@ -186,7 +214,7 @@ The advanced-scan drawer sends a flat options object that the server validates a
 risk above 1, `--dump` and `--os-shell` are refused unless the caller is the lead pentester and
 has opted in to aggressive mode (safe-profile lock). Reviewers can also upload an edited .docx
 as the next report version and regenerate a report in another template from the review drawer;
-the lead manages team accounts at `/team/accounts`.
+the system administrator manages accounts at `/team/sysadmin`.
 `opts.deep` adds CVE/vuln Nuclei templates (slow); `opts.rate` overrides the Nuclei rate;
 `opts.auth` logs in first for an authenticated scan:
 `{login_url, username, password, username_field, password_field, json, token_path}`. The login URL

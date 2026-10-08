@@ -261,10 +261,10 @@ def task_timeline(tid: str, user: dict = Depends(current_user), scope: tenancy.S
 
 @app.post("/api/scans")
 def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
-    # v2: clients never direct-submit; they file a proposal that the lead pentester approves.
+    # Clients never direct-submit; they create a task that a pentester claims.
     # Direct submit is the security team's advanced path only.
     if models.is_client(user["role"]):
-        raise HTTPException(status_code=403, detail="clients submit a scan proposal for approval")
+        raise HTTPException(status_code=403, detail="clients create a task; a pentester starts the scan")
     if not models.is_team(user["role"]):   # sysadmin and any other non-team role: no scanning at all
         raise HTTPException(status_code=403, detail="your role cannot start scans")
     # Standard is locked to the full safe-profile stack; Pro chooses (defaults to full).
@@ -278,7 +278,7 @@ def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
     if not redis_store.get_agent(user["username"]):   # after validation: bad input gets its own error first
         raise HTTPException(status_code=409, detail="no agent registered; install your agent first")
     try:
-        # Direct scans are staff-only and have no proposal: the job belongs to no organization
+        # Direct scans are staff-only and have no task: the job belongs to no organization
         # (staff-only visibility), never to whatever a request names.
         return dispatch.submit_scan(user["username"], user["role"], None, body.target,
                                     tools, opts=opts, division=body.division)

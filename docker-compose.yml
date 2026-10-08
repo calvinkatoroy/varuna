@@ -82,6 +82,16 @@ services:
       - SCAN_TTL_SECONDS=${SCAN_TTL_SECONDS:-86400}
       - REPORTS_DIR=/data/reports
       - VARUNA_DB=/dbdata/varuna.db
+      # The scheduler and workflow notices run here; staff email links (confirm email) need the team URL + SMTP.
+      - NOTIFY_WEBHOOK_URL=${NOTIFY_WEBHOOK_URL:-}
+      - VARUNA_PUBLIC_URL=${VARUNA_PUBLIC_URL:-}
+      - VARUNA_TEAM_URL=${VARUNA_TEAM_URL:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+      - SMTP_SECURITY=${SMTP_SECURITY:-starttls}
     volumes: [report_output:/data/reports, varuna_db:/dbdata]
 
   # Serves the React SPA and reverse-proxies /api -> api-public, /agent -> api-agent.

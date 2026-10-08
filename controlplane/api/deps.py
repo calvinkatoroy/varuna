@@ -76,7 +76,7 @@ def require_staff_setup(user: dict = Depends(current_user)) -> dict:
 
 
 def require_team(user: dict = Depends(require_team_setup)) -> dict:
-    """Any security-team role (v2: pentester/lead/reporter/governance/soc). Clients are denied.
+    """Any security-team role (pentester, lead pentester, lead cyber, governance, manager). Clients are denied.
     With VARUNA_REQUIRE_MFA on, a member who has not enrolled two-factor can do nothing else."""
     if mfa_required() and not (db.get_account(user["username"]) or {}).get("totp_enabled"):
         raise HTTPException(status_code=403, detail="mfa_enrolment_required")

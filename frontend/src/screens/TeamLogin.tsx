@@ -8,7 +8,7 @@ const field = 'w-full rounded-input border border-rule bg-panel px-3.5 py-3 text
 const label = 'mb-1.5 block text-[12.5px] font-medium text-ink-muted'
 
 // Staff and system administrator accounts are provisioned by the system administrator, so this is
-// login-only, unlike the client AuthGate's login -> proposal -> approval -> agent flow. Gates every
+// login-only, unlike the client AuthGate's login -> task -> accepted -> agent flow. Gates every
 // /team route (see App.tsx's RoleRoute): a client account logging in here just gets told it
 // doesn't have team access, rather than the frontend silently rendering the private plane to
 // whoever navigates to the URL.

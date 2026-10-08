@@ -30,7 +30,7 @@ import store as report_store  # noqa: E402
 
 
 def job_org(job: dict) -> str:
-    """Organization that owns a job's rows: the originating proposal's (authoritative), else the
+    """Organization that owns a job's rows: the originating task's (authoritative), else the
     job's own; "" for staff direct scans, which belong to no organization (staff-only)."""
     p = db.get_proposal_by_job(job["id"])
     return (p or {}).get("org_id") or job.get("org_id") or ""
