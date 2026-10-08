@@ -68,6 +68,13 @@ def require_team_setup(user: dict = Depends(current_user)) -> dict:
     return user
 
 
+def require_staff_setup(user: dict = Depends(current_user)) -> dict:
+    """Team role or sysadmin, WITHOUT the two-factor gate: password and 2FA enrolment endpoints only."""
+    if not (models.is_team(user["role"]) or models.is_sysadmin(user["role"])):
+        raise HTTPException(status_code=403, detail="staff role required")
+    return user
+
+
 def require_team(user: dict = Depends(require_team_setup)) -> dict:
     """Any security-team role (v2: pentester/lead/reporter/governance/soc). Clients are denied.
     With VARUNA_REQUIRE_MFA on, a member who has not enrolled two-factor can do nothing else."""

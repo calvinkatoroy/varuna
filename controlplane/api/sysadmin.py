@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import secrets
+import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -27,7 +28,7 @@ def _active_sysadmins() -> list[dict]:
 
 def _not_last_sysadmin(username: str) -> None:
     a = db.get_account(username)
-    if a and a["role"] == models.ROLE_SYSADMIN and len(_active_sysadmins()) <= 1:
+    if a and a["role"] == models.ROLE_SYSADMIN and not a["disabled"] and len(_active_sysadmins()) <= 1:
         raise HTTPException(status_code=409, detail="at least one active system administrator is required")
 
 
@@ -59,7 +60,7 @@ def create_org(body: OrgBody, user: dict = Depends(require_sysadmin)):
         raise HTTPException(status_code=422, detail="organization name must be 2-120 characters")
     try:
         oid = db.create_org(name)
-    except Exception:
+    except sqlite3.IntegrityError:
         raise HTTPException(status_code=409, detail="an organization with that name already exists")
     audit.log("org_created", actor=user["username"], org=oid)
     return {"id": oid, "name": name}
@@ -92,10 +93,13 @@ def create_account(body: AccountBody, user: dict = Depends(require_sysadmin)):
         raise HTTPException(status_code=422, detail="organization does not exist or is disabled")
     if db.get_account_ci(body.username):
         raise HTTPException(status_code=409, detail="username already taken")
+    try:
+        email = auth._clean_email(body.email or "") or None
+    except auth.AuthError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     pw = _temp_password()
     auth.create_account(body.username, pw, body.role, org_id=body.org_id)
-    db.set_account(body.username, must_change_password=1, display_name=body.display_name,
-                   email=auth._clean_email(body.email or "") or None)
+    db.set_account(body.username, must_change_password=1, display_name=body.display_name, email=email)
     audit.log("account_created", actor=user["username"], account=body.username, role=body.role, org=body.org_id)
     return {"username": body.username, "role": body.role, "temp_password": pw}
 
@@ -141,6 +145,8 @@ def set_role(username: str, body: RoleBody, user: dict = Depends(require_sysadmi
         raise HTTPException(status_code=404, detail="no such account")
     if models.ROLE_CLIENT in (a["role"], body.role) or body.role not in models.ROLES:
         raise HTTPException(status_code=422, detail="only staff roles can be changed here")
+    if username == user["username"]:
+        raise HTTPException(status_code=409, detail="you cannot change your own role")
     _not_last_sysadmin(username)
     db.set_account(username, role=body.role)
     audit.log("role_changed", actor=user["username"], account=username, role=body.role)
