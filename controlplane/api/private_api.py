@@ -36,6 +36,7 @@ import models  # noqa: E402
 import pdf_deliver  # noqa: E402
 import redis_store  # noqa: E402
 import report_pipeline  # noqa: E402
+import scheduler  # noqa: E402
 import scanopts  # noqa: E402
 import workflow  # noqa: E402
 import store as report_store  # noqa: E402
@@ -74,6 +75,13 @@ def _warn_default_passwords() -> None:
     if weak:
         print(f"WARNING: team accounts still use the default password 'changeme': {', '.join(weak)}. "
               "Change them (POST /api/password or the admin reset) before any non-local use.", flush=True)
+
+
+@app.on_event("startup")
+def _start_scheduler() -> None:
+    """One scheduler loop per private-API process; the Redis lock lets only one of them work at a time."""
+    if os.environ.get("VARUNA_SCHEDULER", "1") != "0":
+        scheduler.start()
 
 
 class LoginBody(BaseModel):

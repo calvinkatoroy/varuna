@@ -30,6 +30,9 @@ import redis_store  # noqa: E402
 import tokens  # noqa: E402
 import dispatch  # noqa: E402
 import ingest  # noqa: E402
+import db  # noqa: E402
+import models  # noqa: E402
+import workflow  # noqa: E402
 
 app = FastAPI(title="Varuna Agent API")
 
@@ -110,7 +113,23 @@ def update_status(job_id: str, body: StatusBody, username: str = Depends(current
     if body.error is not None:
         job["error"] = body.error
     redis_store.set_job(job)
+    if body.status in (models.STATUS_DONE, models.STATUS_FAILED):
+        _job_finished(job)
     return {"ok": True}
+
+
+def _job_finished(job: dict) -> None:
+    """A task's scan ended: done -> completed, failed -> suspended with the agent's error. Staff direct
+    scans have no task. A task already moved (suspended by hand, repeat report) is left as it is."""
+    t = db.get_proposal_by_job(job["id"])
+    if not t:
+        return
+    done = job["status"] == models.STATUS_DONE
+    try:
+        workflow.transition(t["id"], "completed" if done else "scan/suspended", workflow.SYSTEM, org_id=None,
+                            comment=None if done else (job.get("error") or "scan failed"))
+    except workflow.WorkflowError as e:
+        print(f"NOTE: task {t['id']} not moved after job {job['id']} ended: {e}", flush=True)
 
 
 @app.post("/agent/jobs/{job_id}/findings")

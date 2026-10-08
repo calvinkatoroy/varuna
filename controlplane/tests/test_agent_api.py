@@ -223,3 +223,22 @@ def test_org_disable_and_account_disable_via_sysadmin(priv):
     assert priv.post("/api/sysadmin/accounts/xia/disable", tok).status_code == 200
     assert redis_store.get_agent("xia") is None   # agent binding revoked outright
     assert client.get("/agent/poll", headers=H2).status_code == 401
+
+
+def test_job_done_completes_the_task_and_failed_suspends_it():
+    import workflow
+    from conftest import make_client, start_task, window
+    reset()
+    org = make_client("alice", "PT A")
+    nb, na = window()
+    tids = [db.create_proposal({"submitter": "alice", "org_id": org, "target": "http://8.8.8.8",
+                                "scan_mode": "cloud", "not_before": nb, "not_after": na}) for _ in range(2)]
+    jobs = [start_task(t) for t in tids]
+    H = _enroll("varuna-cloud")
+    assert client.post(f"/agent/jobs/{jobs[0]}/status", headers=H, json={"status": "done"}).status_code == 200
+    assert db.get_proposal(tids[0], org_id=None)["stage"] == "completed"
+    assert client.post(f"/agent/jobs/{jobs[0]}/status", headers=H, json={"status": "done"}).status_code == 200  # repeat: ignored
+    client.post(f"/agent/jobs/{jobs[1]}/status", headers=H, json={"status": "failed", "error": "target refused connection"})
+    t = db.get_proposal(tids[1], org_id=None)
+    assert (t["scan_state"], t["suspend_reason"]) == ("suspended", "target refused connection")
+    assert db.list_task_events(tids[1])[-1]["actor"] == workflow.SYSTEM

@@ -12,6 +12,7 @@ import db
 import models
 import redis_store
 import tokens
+import workflow
 
 COLUMNS = [
     ("pending", "Pending approval", "accent"),
@@ -112,18 +113,23 @@ STALL_SECONDS = 15 * 60   # a running scan whose agent has been silent this long
 
 
 def reap_stalled(now=None) -> int:
-    """Fail scans stuck at "running" because the client's agent died or lost its connection, so
-    they surface as failed (the team can chase or re-request) instead of sitting in Scanning
-    forever. Returns how many were failed."""
+    """A running scan whose agent has been silent 15+ min: fail the job and suspend the task with the reason,
+    so it never sits in 'in progress' forever. Returns how many were reaped."""
     n = 0
-    for p in db.list_proposals(status="approved", org_id=None):   # background reaper: every org
-        job = redis_store.get_job(p["job_id"]) if p.get("job_id") else None
+    for t in db.list_proposals(stage="scan", scan_state="in_progress", org_id=None):   # background: every org
+        job = redis_store.get_job(t["job_id"]) if t.get("job_id") else None
         if not job or job.get("status") != "running":
             continue
-        gap = tokens.offline_seconds(p["submitter"], now)
+        agent = models.CLOUD_AGENT if t.get("scan_mode") == models.SCAN_CLOUD else t["submitter"]
+        gap = tokens.offline_seconds(agent, now)
         if gap is not None and gap > STALL_SECONDS:
-            job.update(status="failed", error=f"agent offline for {int(gap // 60)} min during the scan")
+            reason = f"agent offline for {int(gap // 60)} min during the scan"
+            job.update(status="failed", error=reason)
             redis_store.set_job(job)
+            try:
+                workflow.transition(t["id"], "scan/suspended", workflow.SYSTEM, org_id=None, comment=reason, now=now)
+            except workflow.WorkflowError:
+                pass
             n += 1
     return n
 
