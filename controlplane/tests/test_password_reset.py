@@ -100,6 +100,8 @@ def test_bad_email_is_refused_and_email_can_be_added_later(monkeypatch):
     _client("rst4")
     tok = pub.post("/api/login", json={"username": "rst4", "password": "oldpass11"}).json()["token"]
     H = {"Authorization": f"Bearer {tok}"}
-    assert pub.put("/api/email", json={"email": "bad"}, headers=H).status_code == 422
-    assert pub.put("/api/email", json={"email": "rst4@example.com"}, headers=H).status_code == 200
+    assert pub.post("/api/profile/email", json={"email": "bad"}, headers=H).status_code == 422
+    assert pub.post("/api/profile/email", json={"email": "rst4@example.com"}, headers=H).status_code == 200
+    assert db.get_account("rst4")["email"] in (None, "")   # only set once confirmed (see test_profile.py)
+    db.set_account("rst4", email="rst4@example.com")
     assert auth.start_reset("rst4@example.com", "ip")

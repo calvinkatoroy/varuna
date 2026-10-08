@@ -47,11 +47,13 @@ import store as report_store  # noqa: E402
 import tenancy  # noqa: E402
 import tokens  # noqa: E402
 import deps  # noqa: E402
+import profile as profile_api  # noqa: E402
 from deps import current_user, require_lead, require_pro  # noqa: E402
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 app = FastAPI(title="Varuna Browser API (public plane)")
+app.include_router(profile_api.router)
 
 # Explicit CORS: only the configured frontend origin(s) may call the API (C-6 security posture).
 _CORS = os.environ.get("VARUNA_CORS_ORIGINS", "http://localhost:5173").split(",")
@@ -155,22 +157,6 @@ def refresh(user: dict = Depends(current_user)):
 @app.get("/api/me")
 def me(user: dict = Depends(current_user)):
     return user
-
-
-class EmailBody(BaseModel):
-    email: str
-
-
-@app.put("/api/email")
-def set_email(body: EmailBody, user: dict = Depends(current_user)):
-    """A client adds or changes the address their password-reset link goes to (blank removes it)."""
-    if user["role"] != models.ROLE_CLIENT:
-        raise HTTPException(status_code=403, detail="clients only; the lead pentester resets team passwords")
-    try:
-        auth.set_email(user["username"], body.email)
-    except auth.AuthError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    return {"ok": True}
 
 
 class ResetRequestBody(BaseModel):

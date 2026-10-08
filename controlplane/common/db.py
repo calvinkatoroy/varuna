@@ -601,3 +601,20 @@ if __name__ == "__main__":
     assert wipe_findings() == 1 and get_findings("j1") == []
 
     print("db.py self-check OK")
+
+
+def add_email_change(token_hash: str, username: str, email: str, expires_at: int) -> None:
+    get_conn().execute("INSERT INTO email_changes (token_hash, username, email, expires_at) VALUES (?,?,?,?)",
+                       (token_hash, username, email, expires_at))
+    get_conn().commit()
+
+
+def claim_email_change(token_hash: str, now: int) -> Optional[tuple[str, str]]:
+    conn = get_conn()
+    cur = conn.execute("UPDATE email_changes SET used=1 WHERE token_hash=? AND used=0 AND expires_at>?",
+                       (token_hash, now))
+    conn.commit()
+    if cur.rowcount != 1:
+        return None
+    r = conn.execute("SELECT username, email FROM email_changes WHERE token_hash=?", (token_hash,)).fetchone()
+    return (r["username"], r["email"])

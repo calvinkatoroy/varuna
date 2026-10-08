@@ -71,10 +71,6 @@ def _clean_email(email: str) -> str:
     return email
 
 
-def set_email(username: str, email: str) -> None:
-    db.set_account(username, email=_clean_email(email) or None)
-
-
 RESET_TTL = 1800        # a reset link works for 30 minutes
 RESET_LIMIT = 5         # requests per source IP and per address per hour
 
