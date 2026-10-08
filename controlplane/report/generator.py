@@ -27,16 +27,24 @@ TEMPLATES = ("Full Technical", "Formal Handover", "Executive Summary", "Raw Find
              "OWASP Web App", "ILCS Internal")
 
 
+def _when(iso) -> str:
+    try:
+        return datetime.datetime.fromisoformat(iso).astimezone(datetime.UTC).strftime("%Y-%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return ""
+
+
 def _ctx(job: dict) -> dict:
-    """Engagement details from the originating proposal (scope, environment, RoE...)."""
+    """Engagement details from the originating task: the client's window, path, port and notes."""
     try:
         p = db.get_proposal_by_job(job.get("id") or "") or {}
     except Exception:   # no DB (offline unit use): a report must still generate
         p = {}
-    return _clean_value({"client": job.get("submitter") or p.get("submitter"), "purpose": p.get("purpose"),
-            "division": p.get("division"), "environment": p.get("environment"),
-            "test_window": p.get("test_window"), "in_scope": p.get("in_scope"),
-            "out_of_scope": p.get("out_of_scope"), "roe": p.get("roe")})
+    window = f"{_when(p.get('not_before'))} to {_when(p.get('not_after'))} UTC" if p.get("not_after") else ""
+    return _clean_value({"client": job.get("submitter") or p.get("submitter"), "test_window": window,
+            "path": p.get("path"), "port": str(p["port"]) if p.get("port") else "", "notes": p.get("notes"),
+            "scan_mode": {"local": "Local (agent on the client's network)", "cloud": "Cloud (public target)"}.get(
+                p.get("scan_mode") or job.get("scan_mode"), "")})
 
 # Coverage disclaimer: every report MUST carry it so no reader mistakes "no findings" for
 # "fully secure" (SRS §1.4 Coverage and Limitations). Automated scanning covers only part

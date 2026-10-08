@@ -52,11 +52,43 @@ def test_absurdly_long_fields_are_truncated_not_dumped_into_the_report():
     assert len(text) < 60000, "a 200 KB evidence blob must not balloon the document"
 
 
-def test_client_form_fields_are_cleaned_too(tmp_path):
+def _task_for(tmp_path, job_id, **extra):
     import db
     db.reset_for_test(str(tmp_path / "t.db"))
-    pid = db.create_proposal({"submitter": "acme", "target": "http://t.example", "division": "IT\x00\x0bDiv",
-                              "purpose": "pre\x1b[1mrelease", "authorization_attested": True, "org_id": "org-acme"})
-    db.update_proposal(pid, status="approved", job_id="j-hostile")
+    pid = db.create_proposal({"submitter": "acme", "target": "http://t.example", "org_id": "org-acme",
+                              "not_before": "2026-10-09T08:00:00+00:00", "not_after": "2026-10-09T16:30:00+00:00",
+                              "scan_mode": "local", **extra})
+    db.update_proposal(pid, job_id=job_id)
+
+
+def test_client_form_fields_are_cleaned_too(tmp_path):
+    _task_for(tmp_path, "j-hostile", notes="pre\x1b[1mrelease\x00 <b>x</b>", path="/a\x0bb")
     text = _text(generator.generate({**JOB, "submitter": "acme"}, DIRTY[:1], "Formal Handover"))
-    assert "ITDiv" in text and "prerelease" in text
+    assert "prerelease <b>x</b>" in text and "/ab" in text
+    assert "\x00" not in text and "\x1b" not in text
+
+
+def test_long_notes_are_truncated(tmp_path):
+    _task_for(tmp_path, "j-hostile", notes="N" * 50000)
+    text = _text(generator.generate({**JOB, "submitter": "acme"}, DIRTY[:1], "Full Technical"))
+    assert "[truncated]" in text and "N" * 2500 not in text
+
+
+def test_report_comes_from_the_task_row_and_claims_no_approval(tmp_path):
+    _task_for(tmp_path, "j-task", path="/shop", port=8443, notes="staging copy, avoid 02:00 batch")
+    for template in ("Full Technical", "Formal Handover", "Executive Summary"):
+        text = _text(generator.generate({**JOB, "submitter": "acme", "id": "j-task"}, DIRTY[:1], template))
+        if template == "Executive Summary":
+            continue   # no scope section in the business summary
+        assert "2026-10-09 08:00 to 2026-10-09 16:30 UTC" in text
+        assert "/shop" in text and "8443" in text and "staging copy, avoid 02:00 batch" in text
+        assert "Target, path and port as requested by the client" in text
+        assert "attested" not in text and "lead pentester" not in text
+        for gone in ("Engagement purpose", "Division", "Rules of engagement", "Environment", "Out of scope"):
+            assert gone not in text
+
+
+def test_empty_task_fields_print_no_dash_rows(tmp_path):
+    _task_for(tmp_path, "j-bare")
+    text = _text(generator.generate({**JOB, "submitter": "acme", "id": "j-bare"}, DIRTY[:1], "Formal Handover"))
+    assert "Client notes" not in text and "Path" not in text and "Port" not in text
