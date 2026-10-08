@@ -69,6 +69,7 @@ function sysadminRoute(m: string, path: string, body: any): any {
     if (m === 'POST' && a[2] === 'reset-mfa') { patch({ totp_enabled: 0 }); return { ok: true } }
     if (m === 'POST' && (a[2] === 'enable' || a[2] === 'disable')) { patch({ disabled: a[2] === 'disable' ? 1 : 0 }); return { ok: true } }
     if (m === 'PUT' && a[2] === 'role') { patch({ role: body.role }); return { ok: true } }
+    if (m === 'PUT' && a[2] === 'email') { patch({ email: body.email || null }); return { ok: true } }
   }
   return undefined
 }

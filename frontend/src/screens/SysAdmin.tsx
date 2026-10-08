@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Building2, Check, Copy, KeyRound, Power, ShieldCheck, ShieldOff, UserPlus, Users } from 'lucide-react'
+import { Building2, Check, Copy, KeyRound, Mail, Power, ShieldCheck, ShieldOff, UserPlus, Users } from 'lucide-react'
 import { sysadmin, type Account, type Org } from '@/api'
 import { useAuth } from '@/auth'
 import { toast } from '@/lib/toast'
@@ -172,6 +172,10 @@ function Accounts({ orgs, accounts, reload, onTemp }: {
   const resetPw = (a: Account) => sysadmin.resetPassword(a.username).then((r) => { onTemp({ username: a.username, password: r.temp_password, created: false }); reload() }).catch(() => {})
   const resetMfa = (a: Account) => run(sysadmin.resetMfa(a.username), `Two-factor reset for ${a.username}. They set it up again at next sign-in.`)
   const toggle = (a: Account) => run(sysadmin.setDisabled(a.username, !yes(a.disabled)), `${a.username} ${a.disabled ? 'enabled' : 'disabled'}.`)
+  const setEmail = (a: Account) => {
+    const v = window.prompt(`Email for ${a.username} (leave empty to clear)`, a.email ?? '')
+    if (v !== null) run(sysadmin.setEmail(a.username, v.trim()), v.trim() ? `Email set for ${a.username}.` : `Email cleared for ${a.username}.`)
+  }
   const setRole = (a: Account, role: string) => run(sysadmin.setRole(a.username, role), `${a.username} is now ${roleLabel(role)}.`)
 
   const status = (a: Account) => (
@@ -190,6 +194,9 @@ function Accounts({ orgs, accounts, reload, onTemp }: {
       <>
         <button onClick={() => twoStep(k('pw'), () => resetPw(a))} className={`${act} text-accent-ink`}>
           <KeyRound size={14} /> {armed === k('pw') ? 'Tap again to reset' : 'Reset password'}
+        </button>
+        <button onClick={() => setEmail(a)} className={`${act} text-accent-ink`}>
+          <Mail size={14} /> Set email
         </button>
         {yes(a.totp_enabled) && (
           <button onClick={() => twoStep(k('mfa'), () => resetMfa(a))} className={`${act} text-accent-ink`}>

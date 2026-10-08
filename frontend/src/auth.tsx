@@ -87,7 +87,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const tick = () => {
       if (!getToken()) return
       lastRefresh.current = Date.now()
-      refresh(role).catch(() => {})
+      const before = getToken()
+      // Keep the result only if the session is still the one that asked: a logout or a newer token
+      // (password change, another tab) that landed while the request was in flight must win.
+      refresh(role).then((t) => { if (getToken() === before) setToken(t) }).catch(() => {})
     }
     const timer = setInterval(tick, REFRESH_MS)
     const onVisible = () => {

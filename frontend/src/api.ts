@@ -31,9 +31,10 @@ export function setToken(t: string | null) {
 // old user (and must never mix one person's screen with another's token). Reloading re-reads the session.
 // A refreshed or re-issued token for the SAME person (background refresh, password or two-factor change in
 // another tab) is simply adopted: reloading every tab each time one of them refreshed would lose work.
+// The JWT names the person in its `sub` claim.
 const tokenUser = (t: string | null) => {
   if (!t) return null
-  try { return JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).username ?? t } catch { return t }
+  try { return JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub ?? t } catch { return t }
 }
 window.addEventListener('storage', (e) => {
   if (e.key !== 'varuna_jwt' || e.newValue === token) return
@@ -130,9 +131,9 @@ const plane = (role?: string | null) =>
   isTeam(role) ? { get: api.pget, post: api.ppost, put: api.pput, base: PRIVATE } : { get: api.get, post: api.post, put: api.put, base: PUBLIC }
 
 // Keep the session alive. Stores the new token; failures other than 401 stay silent (the caller ignores them).
+// Returns the fresh token WITHOUT storing it: the caller decides whether it is still wanted.
 export async function refresh(role?: string | null): Promise<string> {
   const { token: t } = await req(plane(role).base, '/api/refresh', send('POST'), true)
-  setToken(t)
   return t
 }
 
@@ -173,6 +174,7 @@ export const sysadmin = {
   resetMfa: (u: string) => api.ppost(`${acct(u)}/reset-mfa`),
   setDisabled: (u: string, disabled: boolean) => api.ppost(`${acct(u)}/${disabled ? 'disable' : 'enable'}`),
   setRole: (u: string, role: string) => api.pput(`${acct(u)}/role`, { role }),
+  setEmail: (u: string, email: string) => api.pput(`${acct(u)}/email`, { email }),
 }
 
 // Fake progression for VITE_MOCK=1 so the live-progress UI stays demoable without a backend -
