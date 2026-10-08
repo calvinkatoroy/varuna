@@ -23,7 +23,7 @@ def sent(monkeypatch):
 
         def start(self):
             self.t(*self.a)
-    monkeypatch.setattr(sys.modules["profile"], "threading", types.SimpleNamespace(Thread=Inline))
+    monkeypatch.setattr(sys.modules["profile_api"], "threading", types.SimpleNamespace(Thread=Inline))
     return box
 
 
