@@ -114,32 +114,6 @@ def finish_reset(token: str, new: str) -> None:
     redis_store.get_redis().delete(redis_store.login_fail_key(name))   # they may be locked out from guessing
 
 
-def register_client(username: str, password: str, email: str = "") -> Account:
-    """Self-service registration. Always client-role and low-privilege: an account grants
-    nothing until a proposal is approved (v2). Team roles are seeded, never self-registered."""
-    import re
-    from models import ROLE_CLIENT
-    username = (username or "").strip()
-    if not username or not password:
-        raise AuthError("username and password required")
-    if not re.fullmatch(r"[A-Za-z0-9._-]{3,32}", username):
-        raise AuthError("username must be 3-32 letters, digits, dot, dash or underscore")
-    if len(password) < 8:
-        raise AuthError("password must be at least 8 characters")
-    if len(password.encode()) > 72:   # bcrypt hard limit; refuse rather than truncate/crash
-        raise AuthError("password must be at most 72 bytes")
-    email = _clean_email(email)
-    if username.lower() == "varuna-cloud" or username.lower().startswith("varuna-"):   # reserved for system agents
-        raise UsernameTaken("username already taken")
-    if db.get_account_ci(username):
-        raise UsernameTaken("username already taken")
-    acct = Account(username=username, password_hash=hash_password(password), role=ROLE_CLIENT)
-    db.upsert_account(acct.username, acct.password_hash, acct.role)
-    if email:
-        db.set_account(username, email=email)
-    return acct
-
-
 def _record_fail(username: str, ip: str) -> None:
     r = redis_store.get_redis()
     for key in (redis_store.login_fail_key(username), redis_store.login_fail_key(f"{username}|{ip}"),

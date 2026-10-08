@@ -11,7 +11,7 @@ let boardState = structuredClone(fx.board)
 let findingsState = structuredClone(fx.findings)
 let proposalsState = structuredClone(fx.proposals)
 
-// Team accounts are provisioned, not self-registered (only clients register via AuthGate).
+// Accounts are provisioned by an administrator (no self-registration).
 // Any password is accepted here, same as the client login - this is a mock, not real auth.
 const teamAccounts: Record<string, { username: string; name: string; role: string }> = {
   admin: { username: 'admin', name: 'Admin', role: 'lead_pentester' },
@@ -52,10 +52,6 @@ export async function mockRequest(method: string, path: string, body?: any): Pro
   if (m === 'POST' && path.startsWith('/api/password-reset/')) return { ok: true }
   if (m === 'GET' && path === '/api/templates') return ['Full Technical', 'Formal Handover', 'Executive Summary', 'Raw Findings']
   if (m === 'GET' && path === '/api/admin/accounts') return Object.values(teamAccounts).map((a) => ({ username: a.username, role: a.role, disabled: 0, created_at: '2026-01-01 00:00:00' }))
-  if (m === 'POST' && path === '/api/register') {
-    currentUser = fx.me
-    return { token: 'mock.jwt.client' }
-  }
   if (m === 'GET' && path === '/api/proposals') return proposalsState
   if (m === 'GET' && path === '/api/findings') return findingsState
   if (m === 'GET' && path === '/api/pipeline/board') return boardState

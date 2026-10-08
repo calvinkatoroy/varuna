@@ -45,9 +45,8 @@ function Stepper({ step }: { step: Step }) {
 }
 
 export function AuthGate({ onActivate }: { onActivate: (username: string) => void }) {
-  const { login, register, user } = useAuth()
+  const { login, user } = useAuth()
   const [step, setStep] = useState<Step>('auth')
-  const [mode, setMode] = useState<'login' | 'register'>('register')
   const [u, setU] = useState('')
   const [email, setEmail] = useState('')
   const [forgot, setForgot] = useState<'' | 'form' | 'sent'>('')
@@ -113,7 +112,7 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
   }
 
   // Already signed in (page reloaded, tab reopened mid-onboarding): pick up where they left off
-  // instead of showing the Register form to someone who has an account.
+  // instead of showing the login form to someone who has an account.
   useEffect(() => {
     if (user?.role === 'client' && step === 'auth' && !isMock()) resumeFlow(user.username).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -149,13 +148,8 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
     setErr('')
     setBusy(true)
     try {
-      if (mode === 'login') {
-        await login(u, p)
-        await resumeFlow(u)
-      } else {
-        await register(u, p, email.trim())
-        setStep('proposal')
-      }
+      await login(u, p)
+      await resumeFlow(u)
     } catch (e: any) {
       setErr(e.message || 'failed')
     } finally {
@@ -178,19 +172,6 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
 
         {step === 'auth' && (
           <>
-            <div className="mb-5 flex gap-1 rounded-pill bg-panel p-1">
-              {(['register', 'login'] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  className={`min-h-[44px] flex-1 rounded-pill py-2 text-[13.5px] font-semibold capitalize transition-colors ${
-                    mode === m ? 'bg-card text-ink shadow-sm' : 'text-ink-muted'
-                  }`}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
             {forgot ? (
               <form
                 className="space-y-4"
@@ -224,24 +205,12 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
                 <label htmlFor="auth-2" className={label}>Password</label>
                 <input id="auth-2" className={field} type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="••••••••" required />
               </div>
-              {mode === 'register' && (
-                <div>
-                  <label htmlFor="auth-3" className={label}>Email <span className="font-normal">(optional, only to reset a forgotten password)</span></label>
-                  <input id="auth-3" className={field} type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" />
-                </div>
-              )}
               {err && <div className="text-[12.5px] text-crit">{err}</div>}
               <Button type="submit" size="lg" className="w-full" disabled={busy}>
-                {mode === 'register' ? 'Create account' : 'Log in'} <ArrowRight size={16} />
+                Log in <ArrowRight size={16} />
               </Button>
-              {mode === 'login' && (
-                <button type="button" onClick={() => setForgot('form')} className="block min-h-[44px] w-full text-center text-[13px] font-semibold text-accent-ink">Forgot your password?</button>
-              )}
-              <p className="text-center text-[12px] leading-relaxed text-ink-muted">
-                {mode === 'register'
-                  ? 'Registering grants access only. The dashboard unlocks once a proposal is approved.'
-                  : 'Welcome back.'}
-              </p>
+              <button type="button" onClick={() => setForgot('form')} className="block min-h-[44px] w-full text-center text-[13px] font-semibold text-accent-ink">Forgot your password?</button>
+              <p className="text-center text-[12px] leading-relaxed text-ink-muted">Accounts are created by your administrator.</p>
             </form>
             )}
           </>

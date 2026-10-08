@@ -57,13 +57,11 @@ def test_login_bad_credentials_rejected():
     assert client.post("/api/login", json={"username": "bob", "password": "wrong"}).status_code == 401
 
 
-def test_register_then_login():
+def test_provisioned_client_can_login():
     reset()
-    r = client.post("/api/register", json={"username": "carol", "password": "pw123456"})
+    auth.create_account("carol", "pw123456", "client", org_id=db.create_org("org-carol"))
+    r = client.post("/api/login", json={"username": "carol", "password": "pw123456"})
     assert r.status_code == 200 and "token" in r.json(), r.text
-    # duplicate username is rejected
-    r2 = client.post("/api/register", json={"username": "carol", "password": "pw123456"})
-    assert r2.status_code == 409
 
 
 def test_legacy_report_download_tenancy():

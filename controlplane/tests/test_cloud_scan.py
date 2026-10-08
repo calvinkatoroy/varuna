@@ -86,12 +86,6 @@ def test_only_the_cloud_scanner_may_run_a_cloud_job():
     assert agent.post(f"/agent/jobs/{jid}/findings", headers=other, json={"raw": {}}).status_code == 403
 
 
-def test_nobody_can_register_the_cloud_scanners_name():
-    for name in ("varuna-cloud", "Varuna-Cloud", "varuna-anything"):
-        r = pub.post("/api/register", json={"username": name, "password": "password1"})
-        assert r.status_code == 409, (name, r.text)
-
-
 def test_agent_status_tells_a_cloud_only_client_not_to_install_anything():
     H, lead = _h("cl5"), _h("cl5_lead", "lead_pentester")
     assert pub.get("/api/agent", headers=H).json()["cloud_only"] is False                       # nothing yet

@@ -55,3 +55,15 @@ def test_public_plane_refuses_non_clients(api, monkeypatch):
     monkeypatch.setenv("VARUNA_PUBLIC_TEAM_LOGIN", "1")      # dev opt-in is for team roles only
     assert api.raw_login("dimas", "Passw0rd!x").status_code == 200
     assert api.raw_login("root", "Passw0rd!x").status_code == 403
+
+
+def test_username_rules_case_collision_and_reserved_names(priv):
+    _root()
+    tok = priv.login("root", "Passw0rd!x")
+    oid = priv.post("/api/sysadmin/orgs", tok, {"name": "PT Z"}).json()["id"]
+    for u in ("ab", "a b c", "<script>", "u" * 40, "varuna-cloud", "Varuna-Cloud", "varuna-anything"):
+        r = priv.post("/api/sysadmin/accounts", tok, {"username": u, "role": "client", "org_id": oid})
+        assert r.status_code == 422, (u, r.text)
+    assert priv.post("/api/sysadmin/accounts", tok, {"username": "gina", "role": "client", "org_id": oid}).status_code == 200
+    assert priv.post("/api/sysadmin/accounts", tok, {"username": "GINA", "role": "client", "org_id": oid}).status_code == 409
+

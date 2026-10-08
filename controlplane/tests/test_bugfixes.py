@@ -123,14 +123,6 @@ def test_attestation_must_be_a_real_boolean():
     assert _prop(_h("finn", "client"), authorization_attested="yes").status_code == 422
 
 
-def test_register_rules_and_case_collision():                         # M3
-    for u, p in (("ab", "password1"), ("a b c", "password1"), ("<script>", "password1"),
-                 ("gina", "short"), ("gina", "p" * 100)):
-        assert pub.post("/api/register", json={"username": u, "password": p}).status_code == 422, (u, p)
-    assert pub.post("/api/register", json={"username": "gina", "password": "password1"}).status_code == 200
-    assert pub.post("/api/register", json={"username": "GINA", "password": "password1"}).status_code == 409
-
-
 def test_lockout_is_per_source_not_account_wide():                    # M7
     redis_store._client = FakeRedis()
     auth.create_account("victim", "password1", "client", org_id=db.create_org("org-victim"))
@@ -404,7 +396,7 @@ def test_team_gets_live_scan_progress_on_the_private_plane():
 
 def test_login_ignores_username_case_and_throttle_counts_all_spellings():
     import pytest
-    auth.register_client("MixedCase", "password1")
+    auth.create_account("MixedCase", "password1", "client", org_id=db.create_org("org-mixed"))
     assert auth.authenticate("mixedcase", "password1", "ip1").username == "MixedCase"
     assert auth.authenticate("MIXEDCASE", "password1", "ip1").username == "MixedCase"
     for spelling in ("mixedcase", "MIXEDCASE", "MixedCase", "mIxEdCaSe", "MiXeDcAsE"):      # 5 wrong tries, 5 spellings

@@ -20,7 +20,7 @@ import { Toaster } from './lib/toast'
 
 const ACTIVATED = 'varuna-activated'
 
-// The client area is gated as a whole: until the account is activated (register -> proposal ->
+// The client area is gated as a whole: until the account is activated (login -> proposal ->
 // lead approval -> agent -> unlock) AND the logged-in account is actually a client, every client
 // route shows the blurred cockpit + AuthGate. The role check matters on top of the localStorage
 // flag: without it, a team account that happens to share a browser with a previously-activated

@@ -99,12 +99,6 @@ class LoginBody(BaseModel):
     password: str
 
 
-class RegisterBody(BaseModel):
-    username: str
-    password: str
-    email: str = ""          # optional, only used to send a password-reset link
-
-
 class ScanBody(BaseModel):
     target: str
     tools: list[str] | None = None       # ignored for Standard (locked to full stack, REQ-5)
@@ -151,19 +145,6 @@ def login(body: LoginBody, x_forwarded_for: str = Header(default="api")):
         raise HTTPException(status_code=403,
                             detail="security team accounts sign in on the private plane")
     return {"token": token}
-
-
-@app.post("/api/register")
-def register(body: RegisterBody):
-    """Self-service client registration (v2). Client-role only; grants nothing until a proposal
-    is approved, so this being public is inert. Team accounts are seeded, never self-registered."""
-    try:
-        auth.register_client(body.username, body.password, body.email)
-    except auth.UsernameTaken as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except auth.AuthError as e:   # bad username/password shape: a validation error, not a conflict
-        raise HTTPException(status_code=422, detail=str(e))
-    return {"token": jwt_auth.login(body.username, body.password, "api")}
 
 
 @app.post("/api/refresh")
