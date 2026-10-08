@@ -60,6 +60,21 @@ CREATE TABLE IF NOT EXISTS proposals (
     opts_json              TEXT DEFAULT '{}',
     job_id                 TEXT,
     reject_reason          TEXT,
+    stage                  TEXT NOT NULL DEFAULT 'task',
+    scan_state             TEXT,
+    path                   TEXT,
+    port                   INTEGER,
+    notes                  TEXT,
+    not_before             TEXT,
+    not_after              TEXT,
+    max_minutes            INTEGER,
+    scheduled_at           TEXT,
+    assignee               TEXT,
+    suspend_reason         TEXT,
+    decline_cause          TEXT,
+    version                INTEGER NOT NULL DEFAULT 0,
+    due_since              TEXT,
+    target_class           TEXT,
     created_at             TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at             TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -140,6 +155,20 @@ CREATE TABLE IF NOT EXISTS email_changes (
     expires_at INTEGER NOT NULL,
     used       INTEGER NOT NULL DEFAULT 0
 );
+-- Append-only task history: every workflow transition writes exactly one row in the same transaction.
+CREATE TABLE IF NOT EXISTS task_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id         TEXT NOT NULL,
+    org_id          TEXT NOT NULL DEFAULT '',
+    from_stage      TEXT,
+    from_scan_state TEXT,
+    to_stage        TEXT NOT NULL,
+    to_scan_state   TEXT,
+    actor           TEXT NOT NULL,
+    comment         TEXT,
+    at              TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id);
 """
 
 
@@ -156,6 +185,14 @@ def init_db(conn: sqlite3.Connection) -> None:
     pcols = {r[1] for r in conn.execute("PRAGMA table_info(proposals)")}
     if "scan_mode" not in pcols:
         conn.execute("ALTER TABLE proposals ADD COLUMN scan_mode TEXT NOT NULL DEFAULT 'local'")
+    for col, ddl in (("stage", "TEXT NOT NULL DEFAULT 'task'"), ("scan_state", "TEXT"), ("path", "TEXT"),
+                     ("port", "INTEGER"), ("notes", "TEXT"), ("not_before", "TEXT"), ("not_after", "TEXT"),
+                     ("max_minutes", "INTEGER"), ("scheduled_at", "TEXT"), ("assignee", "TEXT"),
+                     ("suspend_reason", "TEXT"), ("decline_cause", "TEXT"),
+                     ("version", "INTEGER NOT NULL DEFAULT 0"), ("due_since", "TEXT"), ("target_class", "TEXT")):
+        if col not in pcols:
+            conn.execute(f"ALTER TABLE proposals ADD COLUMN {col} {ddl}")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_proposals_stage ON proposals(stage, scan_state)")
     for col, ddl in (("org_id", "TEXT"), ("display_name", "TEXT"), ("phone", "TEXT"),
                      ("token_version", "INTEGER NOT NULL DEFAULT 0"),
                      ("must_change_password", "INTEGER NOT NULL DEFAULT 0")):
@@ -333,22 +370,38 @@ def _org_where(org_id, where: list, args: list) -> None:
         where.append("org_id=?"); args.append(org_id)
 
 
-def create_proposal(p: dict) -> str:
+def _insert_event(conn: sqlite3.Connection, task_id: str, org_id: str, e: dict) -> None:
+    conn.execute(
+        "INSERT INTO task_events (task_id, org_id, from_stage, from_scan_state, to_stage, to_scan_state, actor, comment, at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (task_id, org_id, e.get("from_stage"), e.get("from_scan_state"), e["to_stage"], e.get("to_scan_state"),
+         e["actor"], e.get("comment"), e["at"]))
+
+
+def create_proposal(p: dict, event: Optional[dict] = None) -> str:
+    """Create a task row (the table keeps its old name). `event` = the creation row of task_events,
+    written in the same transaction."""
     import uuid
     pid = p.get("id") or str(uuid.uuid4())
-    get_conn().execute(
-        "INSERT INTO proposals (id, org_id, submitter, status, mode, target, in_scope, out_of_scope, "
-        "division, purpose, environment, test_window, roe_json, authorization_attested, "
-        "emergency_contact, tools_json, opts_json, scan_mode) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (pid, p["org_id"], p["submitter"], p.get("status", "pending"), p.get("mode", "standard"),
-         p["target"], p.get("in_scope", ""), p.get("out_of_scope", ""), p.get("division", ""),
-         p.get("purpose", ""), p.get("environment", ""), p.get("test_window", ""),
-         json.dumps(p.get("roe", {})), 1 if p.get("authorization_attested") else 0,
-         p.get("emergency_contact", ""), json.dumps(p.get("tools", [])),
-         json.dumps(p.get("opts", {})), p.get("scan_mode", "local")),
-    )
-    get_conn().commit()
+    conn = get_conn()
+    with conn:
+        conn.execute(
+            "INSERT INTO proposals (id, org_id, submitter, status, mode, target, in_scope, out_of_scope, "
+            "division, purpose, environment, test_window, roe_json, authorization_attested, "
+            "emergency_contact, tools_json, opts_json, scan_mode, stage, scan_state, path, port, notes, "
+            "not_before, not_after, max_minutes, scheduled_at, assignee, job_id) "
+            "VALUES (" + ",".join("?" * 29) + ")",
+            (pid, p["org_id"], p["submitter"], p.get("status", "pending"), p.get("mode", "standard"),
+             p["target"], p.get("in_scope", ""), p.get("out_of_scope", ""), p.get("division", ""),
+             p.get("purpose", ""), p.get("environment", ""), p.get("test_window", ""),
+             json.dumps(p.get("roe", {})), 1 if p.get("authorization_attested") else 0,
+             p.get("emergency_contact", ""), json.dumps(p.get("tools", [])),
+             json.dumps(p.get("opts", {})), p.get("scan_mode", "local"), p.get("stage", "task"),
+             p.get("scan_state"), p.get("path", ""), p.get("port"), p.get("notes", ""), p.get("not_before"),
+             p.get("not_after"), p.get("max_minutes"), p.get("scheduled_at"), p.get("assignee"), p.get("job_id")),
+        )
+        if event:
+            _insert_event(conn, pid, p["org_id"], event)
     return pid
 
 
@@ -360,11 +413,13 @@ def get_proposal(pid: str, *, org_id: Optional[str]) -> Optional[dict]:
     return _proposal_row_to_dict(row) if row else None
 
 
-def list_proposals(status: Optional[str] = None, *, org_id: Optional[str]) -> list[dict]:
+def list_proposals(status: Optional[str] = None, *, org_id: Optional[str], stage: Optional[str] = None,
+                   scan_state: Optional[str] = None) -> list[dict]:
     q, args = "SELECT * FROM proposals", []
     where = []
-    if status:
-        where.append("status=?"); args.append(status)
+    for col, val in (("status", status), ("stage", stage), ("scan_state", scan_state)):
+        if val:
+            where.append(f"{col}=?"); args.append(val)
     _org_where(org_id, where, args)
     if where:
         q += " WHERE " + " AND ".join(where)
@@ -378,18 +433,50 @@ def get_proposal_by_job(job_id: str) -> Optional[dict]:
 
 
 def update_proposal(pid: str, **fields) -> None:
+    if "stage" in fields or "scan_state" in fields:
+        raise ValueError("stage and scan_state change only through workflow.transition")
     if not fields:
         return
-    fields["updated_at"] = "now"  # sentinel replaced below
-    sets, args = [], []
+    sets, args = ["updated_at=datetime('now')"], []
     for k, v in fields.items():
-        if k == "updated_at":
-            sets.append("updated_at=datetime('now')")
-        else:
-            sets.append(f"{k}=?"); args.append(v)
+        sets.append(f"{k}=?"); args.append(v)
     args.append(pid)
     get_conn().execute(f"UPDATE proposals SET {', '.join(sets)} WHERE id=?", args)
     get_conn().commit()
+
+
+def cas_task(pid: str, version: int, fields: dict, event: Optional[dict] = None) -> bool:
+    """Compare-and-set on a task's version: True only for the caller whose `version` is still current.
+    The event row (if any) is written in the same transaction, so history and state never disagree.
+    Column names come from workflow.py, never from a request."""
+    sets = [f"{k}=?" for k in fields] + ["version=version+1", "updated_at=datetime('now')"]
+    conn = get_conn()
+    with conn:
+        cur = conn.execute(f"UPDATE proposals SET {', '.join(sets)} WHERE id=? AND version=?",
+                           [*fields.values(), pid, version])
+        if cur.rowcount != 1:
+            return False
+        if event:
+            org = conn.execute("SELECT org_id FROM proposals WHERE id=?", (pid,)).fetchone()[0]
+            _insert_event(conn, pid, org, event)
+    return True
+
+
+def list_task_events(task_id: str) -> list[dict]:
+    """Unscoped: callers load the task through get_proposal(..., org_id=...) first."""
+    return [dict(r) for r in get_conn().execute(
+        "SELECT * FROM task_events WHERE task_id=? ORDER BY id", (task_id,)).fetchall()]
+
+
+def get_report_by_job(job_id: str) -> Optional[dict]:
+    """Internal (unscoped) lookup of the report a task's job produced."""
+    row = get_conn().execute(
+        "SELECT * FROM reports WHERE job_id=? ORDER BY created_at DESC LIMIT 1", (job_id,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["password_viewed"] = bool(d["password_viewed"])
+    return d
 
 
 def claim_proposal(pid: str, from_status: str, **fields) -> bool:
@@ -582,7 +669,7 @@ def wipe_tenancy() -> dict:
     (proposals, reports + versions, reset/email-change tokens). Findings are wiped separately."""
     conn = get_conn()
     counts = {}
-    for t in ("accounts", "orgs", "proposals", "reports", "report_versions", "reset_tokens", "email_changes"):
+    for t in ("accounts", "orgs", "proposals", "task_events", "reports", "report_versions", "reset_tokens", "email_changes"):
         counts[t] = conn.execute(f"SELECT COUNT(*) AS c FROM {t}").fetchone()["c"]
         conn.execute(f"DELETE FROM {t}")
     conn.commit()

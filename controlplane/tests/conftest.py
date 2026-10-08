@@ -7,6 +7,7 @@ import pytest
 # pin the ones that change behaviour (set-but-empty wins over .env, dotenv never overrides).
 os.environ["VARUNA_REQUIRE_MFA"] = ""
 os.environ.setdefault("NOTIFY_WEBHOOK_URL", "")
+os.environ["VARUNA_SCHEDULER"] = "0"   # no background scheduler thread in tests; tests call scheduler.tick()
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
 import db  # noqa: E402
@@ -26,6 +27,27 @@ def make_client(name="alice", org="PT A", password="Passw0rd!x"):
     oid = next((o["id"] for o in db.list_orgs() if o["name"] == org), None) or db.create_org(org)
     auth.create_account(name, password, "client", org_id=oid)
     return oid
+
+
+def window(start_min=-5, minutes=480):
+    """A client time limit as UTC ISO strings: starts `start_min` minutes from now, lasts `minutes`."""
+    import datetime
+    start = datetime.datetime.now(datetime.UTC).replace(microsecond=0) + datetime.timedelta(minutes=start_min)
+    return start.isoformat(), (start + datetime.timedelta(minutes=minutes)).isoformat()
+
+
+def start_task(tid, pentester="rizky"):
+    """Claim and start a task through the workflow, with its scanner online; returns the job id."""
+    import auth
+    import models
+    import tokens
+    import workflow
+    t = db.get_proposal(tid, org_id=None)
+    tokens.issue_agent_token(models.CLOUD_AGENT if t["scan_mode"] == models.SCAN_CLOUD else t["submitter"])
+    if not db.get_account(pentester):
+        auth.create_account(pentester, "Passw0rd!x", "pentester")
+    workflow.transition(tid, "scan/pending", pentester, org_id=None)
+    return workflow.transition(tid, "scan/in_progress", pentester, org_id=None)["job_id"]
 
 
 class _Api:
