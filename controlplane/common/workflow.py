@@ -124,11 +124,11 @@ def parse_utc(value, name: str = "time") -> datetime.datetime:
     """Offset-aware ISO 8601 -> aware UTC datetime. A time without an offset is refused."""
     try:
         t = datetime.datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
-    except ValueError:
+        if t.tzinfo is None:
+            raise Invalid(f"{name} must include a timezone offset (for example +07:00)")
+        return t.astimezone(UTC)
+    except (ValueError, OverflowError):
         raise Invalid(f"{name} must be an ISO 8601 date and time")
-    if t.tzinfo is None:
-        raise Invalid(f"{name} must include a timezone offset (for example +07:00)")
-    return t.astimezone(UTC)
 
 
 def _iso(t: datetime.datetime) -> str:
@@ -209,10 +209,18 @@ def _window(task: dict) -> tuple[datetime.datetime, datetime.datetime]:
     return parse_utc(task["not_before"], "not_before"), parse_utc(task["not_after"], "not_after")
 
 
-def _minutes(max_minutes: Optional[int], room: int) -> int:
-    if not 1 <= int(max_minutes) <= room:
+def _minutes(max_minutes, room: int) -> int:
+    if room < 1:
+        raise Invalid("not enough time left in the client's time limit window")
+    try:
+        if isinstance(max_minutes, bool):
+            raise TypeError
+        minutes = int(max_minutes)
+    except (TypeError, ValueError, OverflowError):
+        raise Invalid("max_minutes must be a whole number of minutes")
+    if not 1 <= minutes <= room:
         raise Invalid(f"the scan may run 1 to {room} minutes inside the client's time limit")
-    return int(max_minutes)
+    return minutes
 
 
 def _classify(task: dict) -> str:
@@ -263,8 +271,10 @@ def _start(task: dict, actor: str, now: datetime.datetime, max_minutes: Optional
     if now >= na:
         raise Invalid("the client's time limit has ended")
     room = int((na - now).total_seconds() // 60)
+    if room < 1:
+        raise Invalid("not enough time left in the client's time limit window")
     minutes = _minutes(max_minutes, room) if max_minutes is not None else \
-        max(1, min(task.get("max_minutes") or DEFAULT_MINUTES, room))
+        min(task.get("max_minutes") or DEFAULT_MINUTES, room)
     cls = _classify(task)
     if actor == SCHEDULER and task.get("target_class") and cls != task["target_class"]:
         raise Unavailable("target unreachable")
@@ -304,9 +314,11 @@ def _deliver(task: dict, fields: dict, event: dict, on_deliver: Optional[Callabl
     try:
         on_deliver(task)
     except BaseException:
-        db.cas_task(task["id"], v + 1, {"stage": task["stage"], "scan_state": None})
+        if not db.cas_task(task["id"], v + 1, {"stage": task["stage"], "scan_state": None}):
+            raise Conflict("delivery failed and the task could not be restored; check it before retrying")
         raise
-    db.cas_task(task["id"], v + 1, fields, event)
+    if not db.cas_task(task["id"], v + 1, fields, event):
+        raise Conflict(MOVED)
 
 
 def transition(task_id: str, to: str, actor: str, *, org_id: Optional[str], version: Optional[int] = None,

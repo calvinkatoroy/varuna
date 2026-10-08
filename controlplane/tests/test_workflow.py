@@ -326,3 +326,165 @@ def test_update_proposal_refuses_stage_changes():
     tid = _task()
     with pytest.raises(ValueError):
         db.update_proposal(tid, stage="delivered")
+
+
+def test_update_and_claim_proposal_refuse_workflow_columns():
+    tid = _task()
+    for col in ("stage", "scan_state", "version"):
+        with pytest.raises(ValueError):
+            db.update_proposal(tid, **{col: 5})
+        with pytest.raises(ValueError):
+            db.claim_proposal(tid, "pending", **{col: 5})
+    assert _get(tid)["version"] == 0
+
+
+def test_pre_workflow_rows_are_closed_by_the_migration(tmp_path):
+    import sqlite3
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE proposals (id TEXT PRIMARY KEY, submitter TEXT NOT NULL, status TEXT NOT NULL "
+                "DEFAULT 'pending', mode TEXT DEFAULT 'standard', target TEXT NOT NULL, in_scope TEXT, out_of_scope TEXT, "
+                "division TEXT, purpose TEXT, environment TEXT, test_window TEXT, roe_json TEXT DEFAULT '{}', "
+                "authorization_attested INTEGER NOT NULL DEFAULT 0, emergency_contact TEXT, "
+                "tools_json TEXT DEFAULT '[]', opts_json TEXT DEFAULT '{}', job_id TEXT, reject_reason TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), "
+                "updated_at TEXT NOT NULL DEFAULT (datetime('now')))")
+    old.execute("INSERT INTO proposals (id, submitter, status, target) VALUES ('old1', 'alice', 'rejected', 'x.com')")
+    old.commit()
+    old.close()
+    db.close()
+    db._path = path
+    def stages():
+        return dict(tuple(r) for r in db.get_conn().execute("SELECT id, stage FROM proposals"))
+    assert stages() == {"old1": "expired"}
+    tid = _task()
+    assert stages()[tid] == "task"
+    db.close()
+    assert stages() == {"old1": "expired", tid: "task"}   # second start: no re-backfill
+
+
+def _fut(minutes):
+    return (dt.datetime.now(UTC) + dt.timedelta(minutes=minutes)).isoformat()
+
+
+_ALLOWED = [
+    # (id, from stage, from scan_state, to, actor, comment)
+    ("sched-start", "scan", "scheduled", "scan/in_progress", workflow.SCHEDULER, None),
+    ("sched-suspend", "scan", "scheduled", "scan/suspended", workflow.SCHEDULER, "agent offline"),
+    ("sched-expire", "scan", "scheduled", "expired", workflow.SCHEDULER, None),
+    ("pending-expire", "scan", "pending", "expired", workflow.SCHEDULER, None),
+    ("task-expire", "task", None, "expired", workflow.SCHEDULER, None),
+    ("susp-schedule", "scan", "suspended", "scan/scheduled", "rizky", None),
+    ("susp-complete", "scan", "suspended", "completed", workflow.SYSTEM, None),
+    ("susp-expire", "scan", "suspended", "expired", "rizky", "client went away"),
+    ("cyber-sendback", "review_lead_cyber", None, "review_lead_pentester", "agus", "more evidence"),
+    ("manager-sendback", "review_manager", None, "review_governance", "hendra", "wording"),
+    ("prog-suspend-sched", "scan", "in_progress", "scan/suspended", workflow.SCHEDULER, "window closing"),
+    ("prog-suspend-agent", "scan", "in_progress", "scan/suspended", workflow.SYSTEM, "agent lost"),
+]
+
+
+@pytest.mark.parametrize("frm_stage,frm_state,to,actor,comment", [c[1:] for c in _ALLOWED], ids=[c[0] for c in _ALLOWED])
+def test_every_remaining_table_row_is_allowed(frm_stage, frm_state, to, actor, comment):
+    tokens.issue_agent_token(models.CLOUD_AGENT)
+    tid = _task(stage=frm_stage, scan_state=frm_state, assignee="rizky")
+    extra = {"scheduled_at": _fut(30), "max_minutes": 30} if to == "scan/scheduled" else {}
+    t = workflow.transition(tid, to, actor, org_id=None, comment=comment, **extra)
+    assert workflow.state_key(t) == to
+    ev = _events(tid)
+    assert len(ev) == 1 and ev[0]["actor"] == actor and t["version"] == 1
+
+
+def test_suspended_close_needs_a_reason_and_sendbacks_need_a_comment():
+    tid = _task(stage="scan", scan_state="suspended", assignee="rizky")
+    with pytest.raises(workflow.Invalid):
+        workflow.transition(tid, "expired", "rizky", org_id=None, comment="  ")
+    for stage, to, who in (("review_lead_cyber", "review_lead_pentester", "agus"),
+                           ("review_manager", "review_governance", "hendra")):
+        t2 = _task(stage=stage, assignee="rizky")
+        with pytest.raises(workflow.Invalid):
+            workflow.transition(t2, to, who, org_id=None, comment=" ")
+        with pytest.raises(workflow.Forbidden):
+            workflow.transition(t2, to, "rizky", org_id=None, comment="x")
+
+
+def test_failed_dispatch_after_start_suspends_the_task(monkeypatch):
+    import dispatch
+    tokens.issue_agent_token(models.CLOUD_AGENT)
+
+    def refuse(job, pre_approved=False):
+        job.update(status=models.STATUS_FAILED, error="scan refused: agent belongs to another organization")
+        redis_store.set_job(job)
+    monkeypatch.setattr(dispatch, "dispatch_job", refuse)
+    tid = _task(stage="scan", scan_state="pending", assignee="rizky")
+    t = workflow.transition(tid, "scan/in_progress", "rizky", org_id=None)
+    assert (t["stage"], t["scan_state"]) == ("scan", "suspended")
+    assert "another organization" in t["suspend_reason"]
+    ev = _events(tid)
+    assert [(e["to_scan_state"], e["actor"]) for e in ev] == [("in_progress", "rizky"), ("suspended", workflow.SYSTEM)]
+
+
+def test_event_insert_failure_rolls_the_stage_change_back(monkeypatch):
+    tid = _task()
+
+    def boom(*a, **k):
+        raise RuntimeError("disk full")
+    monkeypatch.setattr(db, "_insert_event", boom)
+    with pytest.raises(RuntimeError):
+        workflow.transition(tid, "scan/pending", "rizky", org_id=None)
+    monkeypatch.undo()
+    t = _get(tid)
+    assert (t["stage"], t["version"], t["assignee"]) == ("task", 0, None)
+    assert _events(tid) == []
+
+
+def test_delivery_never_leaves_the_task_in_delivering():
+    tid = _task(stage="review_manager", assignee="rizky")
+
+    def meddle(t):
+        assert db.cas_task(tid, 1, {"assignee": "budi"})   # someone else moves it mid-delivery
+    with pytest.raises(workflow.Conflict):                  # final CAS lost
+        workflow.transition(tid, "delivered", "hendra", org_id=None, on_deliver=meddle)
+
+    tid2 = _task(stage="review_manager", assignee="rizky")
+
+    def meddle_then_fail(t):
+        assert db.cas_task(tid2, 1, {"assignee": "budi"})
+        raise RuntimeError("soffice died")
+    with pytest.raises(workflow.Conflict):                  # restore CAS lost
+        workflow.transition(tid2, "delivered", "hendra", org_id=None, on_deliver=meddle_then_fail)
+
+
+def test_system_actor_names_cannot_be_registered():
+    for name in ("sys:agent", "a:b", "sys:scheduler"):
+        with pytest.raises(ValueError):
+            auth.create_account(name, PW, "pentester")
+    assert db.get_account("sys:agent") is None
+
+
+@pytest.mark.parametrize("bad", ["abc", True, "1e3x", float("inf"), None])
+def test_bad_max_minutes_is_422_not_500(bad):
+    with pytest.raises(workflow.Invalid):
+        workflow._minutes(bad, 60)
+    tokens.issue_agent_token(models.CLOUD_AGENT)
+    tid = _task(stage="scan", scan_state="pending", assignee="rizky")
+    if bad is not None:
+        with pytest.raises(workflow.Invalid):
+            workflow.transition(tid, "scan/in_progress", "rizky", org_id=None, max_minutes=bad)
+        with pytest.raises(workflow.Invalid):
+            workflow.transition(tid, "scan/scheduled", "rizky", org_id=None, scheduled_at=_fut(30), max_minutes=bad)
+
+
+def test_less_than_a_minute_left_is_422():
+    tokens.issue_agent_token(models.CLOUD_AGENT)
+    tid = _task(stage="scan", scan_state="pending", assignee="rizky")
+    db.update_proposal(tid, not_after=(dt.datetime.now(UTC) + dt.timedelta(seconds=30)).isoformat())
+    for mm in (None, 5):
+        with pytest.raises(workflow.Invalid, match="not enough time left"):
+            workflow.transition(tid, "scan/in_progress", "rizky", org_id=None, max_minutes=mm)
+    assert (_get(tid)["stage"], _get(tid)["scan_state"]) == ("scan", "pending")
+
+
+@pytest.mark.parametrize("value", ["0001-01-01T00:00:00+14:00", "9999-12-31T23:59:59-05:00", "garbage", None])
+def test_extreme_or_garbage_times_are_422(value):
+    with pytest.raises(workflow.Invalid):
+        workflow.parse_utc(value, "scheduled_at")

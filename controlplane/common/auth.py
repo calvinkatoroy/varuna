@@ -56,6 +56,8 @@ def check_password(password: str, hashed: str) -> bool:
 
 def create_account(username: str, password: str, role: str, org_id: str | None = None) -> Account:
     """Provision an account (REQ-69: no self-registration; a Pro user calls this)."""
+    if ":" in username:
+        raise ValueError("username cannot contain ':'")
     if role not in ROLES:
         raise ValueError(f"invalid role: {role}")
     if (role == "client") != bool(org_id):

@@ -183,6 +183,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         if col not in cols:
             conn.execute(f"ALTER TABLE accounts ADD COLUMN {col} {ddl}")
     pcols = {r[1] for r in conn.execute("PRAGMA table_info(proposals)")}
+    first_stage = "stage" not in pcols
     if "scan_mode" not in pcols:
         conn.execute("ALTER TABLE proposals ADD COLUMN scan_mode TEXT NOT NULL DEFAULT 'local'")
     for col, ddl in (("stage", "TEXT NOT NULL DEFAULT 'task'"), ("scan_state", "TEXT"), ("path", "TEXT"),
@@ -192,6 +193,8 @@ def init_db(conn: sqlite3.Connection) -> None:
                      ("version", "INTEGER NOT NULL DEFAULT 0"), ("due_since", "TEXT"), ("target_class", "TEXT")):
         if col not in pcols:
             conn.execute(f"ALTER TABLE proposals ADD COLUMN {col} {ddl}")
+    if first_stage:   # rows from before the workflow existed are closed, never claimable
+        conn.execute("UPDATE proposals SET stage='expired' WHERE not_after IS NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_proposals_stage ON proposals(stage, scan_state)")
     for col, ddl in (("org_id", "TEXT"), ("display_name", "TEXT"), ("phone", "TEXT"),
                      ("token_version", "INTEGER NOT NULL DEFAULT 0"),
@@ -432,9 +435,12 @@ def get_proposal_by_job(job_id: str) -> Optional[dict]:
     return _proposal_row_to_dict(row) if row else None
 
 
+_WORKFLOW_COLS = frozenset({"stage", "scan_state", "version"})
+
+
 def update_proposal(pid: str, **fields) -> None:
-    if "stage" in fields or "scan_state" in fields:
-        raise ValueError("stage and scan_state change only through workflow.transition")
+    if _WORKFLOW_COLS & fields.keys():
+        raise ValueError("stage, scan_state and version change only through workflow.transition")
     if not fields:
         return
     sets, args = ["updated_at=datetime('now')"], []
@@ -482,6 +488,8 @@ def get_report_by_job(job_id: str) -> Optional[dict]:
 def claim_proposal(pid: str, from_status: str, **fields) -> bool:
     """Atomically move a proposal out of `from_status`; True only for the one caller that wins
     (concurrent approve/reject of the same proposal must not both proceed)."""
+    if _WORKFLOW_COLS & fields.keys():
+        raise ValueError("stage, scan_state and version change only through workflow.transition")
     sets, args = ["updated_at=datetime('now')"], []
     for k, v in fields.items():
         sets.append(f"{k}=?"); args.append(v)
