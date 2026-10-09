@@ -11,19 +11,23 @@ export function useApiData<T>(fetcher: () => Promise<T>, key?: string) {
   const [error, setError] = useState<string | null>(null)
   const [fresh, setFresh] = useState(false)
   const latest = useRef<T | null>(data)
+  const seq = useRef(0)   // newest request of this hook: an older answer that arrives later is ignored
 
   const apply = (next: T | null) => { latest.current = next; setData(next) }
 
-  const reload = useCallback(() => {
+  // `fresh`: start a new request even if one is in flight (it may predate a change) and let the newest win.
+  const load = useCallback((fresh: boolean) => {
+    const mine = ++seq.current
     setError(null)
-    const run = key ? fetchShared(key, fetcher) : fetcher()
+    const run = key ? fetchShared(key, fetcher, fresh) : fetcher()
     run
-      .then((d) => { apply(d); setFresh(true) })
-      .catch((e) => { setFresh(true); if (latest.current === null) setError(e?.message || 'Something went wrong.') })
+      .then((d) => { if (mine === seq.current) { apply(d); setFresh(true) } })
+      .catch((e) => { if (mine !== seq.current) return; setFresh(true); if (latest.current === null) setError(e?.message || 'Something went wrong.') })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  const reload = useCallback(() => load(true), [load])
 
-  useEffect(() => { reload() }, [reload])
+  useEffect(() => { load(false) }, [load])
   useEffect(() => {
     if (!key) return
     return subscribe(key, () => { const v = cacheGet<T>(key); if (v !== undefined) apply(v) })

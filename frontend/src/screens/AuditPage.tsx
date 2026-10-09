@@ -11,7 +11,7 @@ import { Trail } from '@/components/audit/Trail'
 import { TargetFindings } from '@/components/findings/TargetFindings'
 import { Button } from '@/components/ui/button'
 import { pdfBadge, auditApi, type AuditSummary } from '@/lib/audit'
-import { SEVS, SEV_LABEL, rowsKeyPrefix, type FindingRow } from '@/lib/findings'
+import { SEVS, SEV_LABEL, patchRows, rowsKeyPrefix, type FindingRow } from '@/lib/findings'
 import { bare } from '@/lib/format'
 import { invalidate } from '@/lib/swr'
 import { useApiData } from '@/lib/useApiData'
@@ -32,16 +32,26 @@ function readOnlyReason(s: AuditSummary): string {
 
 function AuditPage({ tid }: { tid: string }) {
   const { data: sum, error, reload } = useApiData<AuditSummary>(() => auditApi.summary(tid), `prv:/api/tasks/${tid}/audit`)
-  const [rev, setRev] = useState(0)   // bumped after any change: remounts the findings list, refetches preview and trail
+  const [rev, setRev] = useState(0)           // bumped after any change: refetches the preview and the trail
+  const [listRev, setListRev] = useState(0)   // bumped only when rows were added: remounts the findings list (page 1 again)
   const [sev, setSev] = useState<string>('')
   const [sel, setSel] = useState<FindingRow | null>(null)
   const [open, setOpen] = useState(false)
   const [adding, setAdding] = useState(false)
   const refresh = () => { setRev((n) => n + 1); reload() }                        // report content, PDF or trail changed
-  const changed = () => { invalidate(rowsKeyPrefix('prv', tid)); refresh() }      // findings changed: drop their cached pages
+  // A verdict or an edit changes one loaded row: patch it where it is, so the list keeps its place and its pages.
+  const patched = (id: string, patch: Partial<FindingRow>) => {
+    patchRows('prv', tid, id, patch)
+    setSel((s) => (s && s.id === id ? { ...s, ...patch } : s))
+  }
+  const added = () => { invalidate(rowsKeyPrefix('prv', tid)); setListRev((n) => n + 1); refresh() }   // a new row: drop the cached pages
 
-  if (error && !sum) return <ErrorRetry message={error} onRetry={reload} />
-  if (!sum) return <div className="p-10 text-ink-faint">Loading</div>
+  if (!sum) return (
+    <>
+      <ShellTitle size="band" title="Audit report" />
+      {error ? <ErrorRetry message={error} onRetry={reload} /> : <div className="p-10 text-ink-faint">Loading</div>}
+    </>
+  )
   const badge = pdfBadge(sum.pdf)
   const can = sum.can_audit
 
@@ -72,7 +82,7 @@ function AuditPage({ tid }: { tid: string }) {
                 {SEVS.map((s) => <option key={s} value={s}>{SEV_LABEL[s]}</option>)}
               </select>
             </div>
-            <TargetFindings key={`${rev}:${sev}`} plane="prv" taskId={tid} severity={sev || null} focusId={null} staff
+            <TargetFindings key={`${listRev}:${sev}`} plane="prv" taskId={tid} severity={sev || null} focusId={null} staff
               onOpen={(f) => { setSel(f); setOpen(true) }} onDismissFocus={() => {}} />
           </section>
           <section className={card} aria-label="Report preview">
@@ -86,8 +96,8 @@ function AuditPage({ tid }: { tid: string }) {
         </aside>
       </div>
 
-      <FindingDrawer f={sel} open={open} onOpenChange={setOpen} tid={tid} canAudit={can} onChanged={changed} />
-      <ManualDrawer tid={tid} open={adding} onOpenChange={setAdding} onAdded={changed} />
+      <FindingDrawer f={sel} open={open} onOpenChange={setOpen} tid={tid} canAudit={can} onPatched={patched} onChanged={refresh} />
+      <ManualDrawer tid={tid} open={adding} onOpenChange={setAdding} onAdded={added} />
     </>
   )
 }

@@ -11,8 +11,8 @@ import { useFindingDetail } from '@/lib/useFindingDetail'
 const field = 'mt-1 min-h-[44px] w-full rounded-input border border-rule bg-panel px-3 text-[13px] text-ink outline-none focus:border-accent disabled:opacity-60'
 const area = 'mt-1 w-full resize-y rounded-input border border-rule bg-panel px-3 py-2.5 text-[13px] text-ink outline-none focus:border-accent disabled:opacity-60'
 
-export function FindingDrawer({ f, open, onOpenChange, tid, canAudit, onChanged }: {
-  f: FindingRow | null; open: boolean; onOpenChange: (v: boolean) => void; tid: string; canAudit: boolean; onChanged: () => void
+export function FindingDrawer({ f, open, onOpenChange, tid, canAudit, onPatched, onChanged }: {
+  f: FindingRow | null; open: boolean; onOpenChange: (v: boolean) => void; tid: string; canAudit: boolean; onPatched: (id: string, patch: Partial<FindingRow>) => void; onChanged: () => void
 }) {
   const { detail, failed } = useFindingDetail('prv', open && f ? f.id : null)
   const [verdict, setVerdict] = useState<'tp' | 'fp'>('tp')
@@ -28,7 +28,7 @@ export function FindingDrawer({ f, open, onOpenChange, tid, canAudit, onChanged 
     if (v === verdict || busy || !canAudit) return
     const before = verdict
     setVerdict(v); setBusy(true)
-    try { await auditApi.verdict(f.id, v); invalidate(`prv:/api/findings/id/${f.id}`); onChanged() }
+    try { await auditApi.verdict(f.id, v); invalidate(`prv:/api/findings/id/${f.id}`); onPatched(f.id, { verdict: v }); onChanged() }
     catch { setVerdict(before) }   // api.ts already toasted the reason
     finally { setBusy(false) }
   }
@@ -40,7 +40,11 @@ export function FindingDrawer({ f, open, onOpenChange, tid, canAudit, onChanged 
     if (remediation !== (detail.remediation ?? '')) body.remediation = remediation
     if (!Object.keys(body).length) { toast('Nothing to save'); return }
     setBusy(true)
-    try { await auditApi.edit(tid, f.id, body); invalidate(`prv:/api/findings/id/${f.id}`); toast('Saved'); onChanged(); onOpenChange(false) }
+    try {
+      await auditApi.edit(tid, f.id, body); invalidate(`prv:/api/findings/id/${f.id}`); toast('Saved')
+      if (body.severity) onPatched(f.id, { severity: body.severity })
+      onChanged(); onOpenChange(false)
+    }
     catch {} finally { setBusy(false) }
   }
   const tone = (on: boolean, good: boolean) => on ? (good ? 'border-low bg-low-bg text-low-ink' : 'border-ink bg-panel text-ink') : 'border-rule text-ink-muted hover:text-ink'

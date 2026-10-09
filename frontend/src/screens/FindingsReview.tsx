@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Filter, ShieldCheck, Bug, FlaskConical, ChevronDown } from 'lucide-react'
-import { api, ApiError } from '@/api'
+import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ShellActions, ShellTitle } from '@/components/ShellSlots'
 import { ErrorRetry } from '@/components/ErrorRetry'
@@ -45,9 +45,8 @@ export default function FindingsReview() {
     const prev = f.verdict
     patchRows('prv', f.task_id, f.id, { verdict: v })
     setSel((s) => (s && s.id === f.id ? { ...s, verdict: v } : s))
-    api.ppost(`/api/findings/${f.id}/verdict`, { verdict: v }).then(() => reload()).catch((e) => {
-      // 403: not the assignee or a lead pentester. 409: the task is no longer at Completed. Say which, plainly.
-      if (e instanceof ApiError && (e.status === 403 || e.status === 409)) toast(e.status === 403 ? 'Only the assignee or a lead pentester can change a verdict.' : 'This report can only be changed while the task is Completed. Send it back first.')
+    api.ppost(`/api/findings/${f.id}/verdict`, { verdict: v }).then(() => reload()).catch(() => {
+      // api.ppost already toasted the server's reason (403 not the assignee, 409 task no longer Completed): just undo.
       patchRows('prv', f.task_id, f.id, { verdict: prev })
       setSel((s) => (s && s.id === f.id ? { ...s, verdict: prev } : s))
     })

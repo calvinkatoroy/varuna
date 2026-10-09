@@ -5,6 +5,7 @@ type Entry = { data: unknown; at: number }
 
 const store = new Map<string, Entry>()
 const inflight = new Map<string, Promise<unknown>>()
+const seqs = new Map<string, number>()   // per key: the newest request started; only its answer is stored
 const watchers = new Map<string, Set<() => void>>()
 let epoch = 0   // bumped by clearCache: answers that were already on the wire are not stored
 
@@ -29,13 +30,21 @@ export function subscribe(key: string, fn: () => void): () => void {
   return () => { set!.delete(fn) }
 }
 
-/** Run `fetcher` once per key at a time; the answer is cached. A second caller joins the request in flight. */
-export function fetchShared<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+/** Run `fetcher` once per key at a time; the answer is cached. A second caller joins the request in flight.
+ *  `fresh` starts a new request even when one is running (use it after a change: the running one may have
+ *  read the data before it). The newest request wins; an older answer is dropped and its caller gets the newest. */
+export function fetchShared<T>(key: string, fetcher: () => Promise<T>, fresh = false): Promise<T> {
   const running = inflight.get(key)
-  if (running) return running as Promise<T>
+  if (running && !fresh) return running as Promise<T>
   const started = epoch
+  const seq = (seqs.get(key) ?? 0) + 1
+  seqs.set(key, seq)
   const p: Promise<T> = fetcher()
-    .then((d) => { cacheSet(key, d, started); return d })
+    .then((d) => {
+      if (seqs.get(key) !== seq) return (inflight.get(key) ?? Promise.resolve(cacheGet<T>(key) ?? d)) as Promise<T>
+      cacheSet(key, d, started)
+      return d
+    })
     .finally(() => { if (inflight.get(key) === p) inflight.delete(key) })
   inflight.set(key, p)
   return p
