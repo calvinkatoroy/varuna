@@ -1,142 +1,127 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Filter, ShieldCheck, Bug, FlaskConical, ChevronDown } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
-import { ThemeToggle } from '@/components/ThemeToggle'
-import { TeamAccount } from '@/components/TeamAccount'
-import { BrandMark } from '@/components/BrandMark'
+import { ShellActions, ShellTitle } from '@/components/ShellSlots'
 import { ErrorRetry } from '@/components/ErrorRetry'
+import { TargetAccordion } from '@/components/findings/TargetAccordion'
+import { TargetFindings } from '@/components/findings/TargetFindings'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { FEEDS } from '@/lib/feeds'
+import { SEVS, SEV_CHIP, SEV_LABEL, patchRows, type FindingRow, type Sev, type TargetRow } from '@/lib/findings'
 import { useApiData } from '@/lib/useApiData'
+import { useFindingDetail } from '@/lib/useFindingDetail'
+import { useFindingsUrl } from '@/lib/useFindingsUrl'
 import { toast } from '@/lib/toast'
 
-type F = {
-  id: string; name: string; severity: string; host: string; url: string; tool: string; owner: string; org_name?: string
-  cve?: string | null; verdict: 'tp' | 'fp'; status: string; evidence: string; remediation?: string | null
-}
-const clientOf = (f: F) => f.org_name ?? f.owner   // org name from the server (owner is a username)
-const assetOf = (f: F) => f.url || f.host
-const sevPill: Record<string, string> = {
-  critical: 'bg-crit-bg text-crit', high: 'bg-high-bg text-high', medium: 'bg-med-bg text-med', low: 'bg-low-bg text-low',
-}
-const sevDot: Record<string, string> = { critical: 'bg-crit', high: 'bg-high', medium: 'bg-med', low: 'bg-low' }
-const statusPill: Record<string, string> = {
-  open: 'bg-accent-soft text-accent-ink', fixed: 'bg-low-bg text-low', accepted: 'bg-panel text-ink-muted',
-}
-const SEVS = ['critical', 'high', 'medium', 'low']
+const clientOf = (t: TargetRow) => t.org_name ?? 'Internal'   // organization name from the server
 
 export default function FindingsReview() {
-  const { data: rows, error, reload, setData: setRows } = useApiData<F[]>(() => api.pget('/api/findings'))
-  const [sel, setSel] = useState<F | null>(null)
-  const [open, setOpen] = useState(false)
-  const [sevFilter, setSevFilter] = useState<string | null>(null)
+  const { data: targets, error, reload, fresh } = useApiData<TargetRow[]>(FEEDS.teamTargets.load, FEEDS.teamTargets.key)
+  const url = useFindingsUrl()
   const [client, setClient] = useState('')
+  const [sevFilter, setSevFilter] = useState<string | null>(null)
+  const [sel, setSel] = useState<FindingRow | null>(null)
+  const [open, setOpen] = useState(false)
+  const { detail, failed } = useFindingDetail('prv', open && sel ? sel.id : null)
 
-  // Clients come from the findings themselves (their organization), so the filter always matches.
-  const clients = useMemo(() => [...new Set((rows ?? []).map(clientOf))].sort(), [rows])
-  useEffect(() => { if (!client && clients.length) setClient(clients[0]) }, [client, clients])
+  // Clients come from the targets themselves (their organization), so the filter always matches.
+  const clients = useMemo(() => [...new Set((targets ?? []).map(clientOf))].sort(), [targets])
+  // Start on the client of the deep-linked target, else the first client. Done once: later changes belong to
+  // the person using the dropdown. A stale cache may not know the linked target yet, so wait for a fresh load.
+  const synced = useRef(false)
+  useEffect(() => {
+    if (synced.current || !targets?.length) return
+    const linked = targets.find((t) => t.task_id === url.target)
+    if (!linked && !fresh) return
+    synced.current = true
+    setClient(linked ? clientOf(linked) : clients[0])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targets, fresh])
 
-  const list = useMemo(
-    () => (rows ?? []).filter((f) => clientOf(f) === client && (!sevFilter || f.severity === sevFilter)),
-    [rows, sevFilter, client],
-  )
+  const shown = useMemo(() => (targets ?? []).filter((t) => clientOf(t) === client), [targets, client])
+  const lost = !!url.target && !!targets && fresh && !targets.some((t) => t.task_id === url.target)
+  const pickClient = (cl: string) => { setClient(cl); url.set({ target: null, finding: null }) }
+  const openRow = (f: FindingRow) => { setSel(f); setOpen(true); url.set({ finding: f.id }) }
 
-  const setVerdict = (id: string, v: 'tp' | 'fp') => {
-    const prev = rows?.find((f) => f.id === id)?.verdict
-    setRows((rs) => rs?.map((f) => (f.id === id ? { ...f, verdict: v } : f)) ?? rs)
-    setSel((s) => (s && s.id === id ? { ...s, verdict: v } : s))
-    api.ppost(`/api/findings/${id}/verdict`, { verdict: v }).catch(() => {
-      if (!prev) return
-      setRows((rs) => rs?.map((f) => (f.id === id ? { ...f, verdict: prev } : f)) ?? rs)
-      setSel((s) => (s && s.id === id ? { ...s, verdict: prev } : s))
+  const setVerdict = (f: FindingRow, v: 'tp' | 'fp') => {
+    const prev = f.verdict
+    patchRows('prv', f.task_id, f.id, { verdict: v })
+    setSel((s) => (s && s.id === f.id ? { ...s, verdict: v } : s))
+    api.ppost(`/api/findings/${f.id}/verdict`, { verdict: v }).then(() => reload()).catch(() => {
+      patchRows('prv', f.task_id, f.id, { verdict: prev })
+      setSel((s) => (s && s.id === f.id ? { ...s, verdict: prev } : s))
     })
   }
-  const markFixed = (id: string) => {
-    setRows((rs) => rs?.map((f) => (f.id === id ? { ...f, status: 'fixed' } : f)) ?? rs)
-    setSel((s) => (s && s.id === id ? { ...s, status: 'fixed' } : s))
-    api.ppost(`/api/findings/${id}/status`, { status: 'fixed' }).then(
-      () => toast('Marked as fixed'),
+  const markFixed = (f: FindingRow) => {
+    patchRows('prv', f.task_id, f.id, { status: 'fixed' })
+    setSel((s) => (s && s.id === f.id ? { ...s, status: 'fixed' } : s))
+    api.ppost(`/api/findings/${f.id}/status`, { status: 'fixed' }).then(
+      () => { toast('Marked as fixed'); reload() },
       () => {
-        setRows((rs) => rs?.map((f) => (f.id === id ? { ...f, status: 'open' } : f)) ?? rs)
-        setSel((s) => (s && s.id === id ? { ...s, status: 'open' } : s))
+        patchRows('prv', f.task_id, f.id, { status: 'open' })
+        setSel((s) => (s && s.id === f.id ? { ...s, status: 'open' } : s))
       },
     )
   }
 
-  return (
-    <div className="mx-auto max-w-[1300px] p-[clamp(10px,2vw,28px)]">
-      <a href="#main" className="sr-only rounded-pill bg-cta-bg px-4 py-2 text-[13px] font-semibold text-cta-fg focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[70] focus:px-5 focus:py-3 focus:shadow-lg">Skip to content</a>
-      <header
-        className="relative flex flex-wrap items-center gap-4 overflow-hidden rounded-bento-lg px-[clamp(18px,2.4vw,30px)] py-5 text-[#F2F5EF]"
-        style={{ background: 'radial-gradient(120% 140% at 88% -20%, rgba(34,211,197,.22), transparent 46%), linear-gradient(158deg,#0B5FA5 0%,#0A2A43 55%,#060F18 100%)' }}
-      >
-        <div className="flex items-center gap-2.5 text-[20px] font-bold tracking-[-0.02em]">
-          <BrandMark size={32} />
-          Varuna
-        </div>
-        <div className="hidden h-6 w-px bg-white/15 sm:block" />
-        <div className="flex items-center gap-1 rounded-pill bg-white/[.16] p-1">
-          <Link to="/team" className="rounded-pill px-4 py-3 text-[13px] font-medium text-[#F2F5EF]/70 md:px-3.5 md:py-1.5">Board</Link>
-          <span aria-current="page" className="rounded-pill bg-[#F4F6F1] px-4 py-3 text-[13px] font-semibold text-[#12140F] md:px-3.5 md:py-1.5">Findings</span>
-        </div>
-        <div>
-          <div className="text-[12.5px] text-[#F2F5EF]/70">{client || 'Loading…'}</div>
-          <h1 className="text-[22px] font-bold tracking-[-0.02em]">Findings review</h1>
-        </div>
-        <div className="ml-auto flex max-w-full flex-wrap items-center gap-2.5">
-          <DropdownMenu>
-            <DropdownMenuTrigger className="flex h-11 items-center gap-2 rounded-pill bg-white/[.16] px-4 text-[13px] font-medium text-[#F2F5EF]">
-              <Filter size={15} /> {client || 'Loading…'} <ChevronDown size={14} />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {clients.map((cl) => <DropdownMenuItem key={cl} onClick={() => setClient(cl)}>{cl}</DropdownMenuItem>)}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <DropdownMenu>
-            <DropdownMenuTrigger className="flex h-11 items-center gap-2 rounded-pill bg-white/[.16] px-4 text-[13px] font-medium capitalize text-[#F2F5EF]">
-              <Filter size={15} /> {sevFilter ?? 'All severities'} <ChevronDown size={14} />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setSevFilter(null)}>All severities</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              {SEVS.map((s) => <DropdownMenuItem key={s} onClick={() => setSevFilter(s)} className="capitalize">{s}</DropdownMenuItem>)}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <ThemeToggle className="hidden h-11 w-11 place-items-center rounded-full bg-white/[.16] text-[#F2F5EF] transition-colors hover:bg-white/25 md:grid" />
-          <TeamAccount />
-        </div>
-      </header>
+  const filterBtn = 'flex h-11 items-center gap-2 rounded-pill bg-white/[.16] px-4 text-[13px] font-medium text-[#F2F5EF]'
 
-      <main id="main" tabIndex={-1} className="focus:outline-none">
+  return (
+    <>
+      <ShellTitle size="band" title="Findings review" kicker={client || 'Loading…'} />
+      <ShellActions>
+        <DropdownMenu>
+          <DropdownMenuTrigger className={filterBtn}>
+            <Filter size={15} /> {client || 'Loading…'} <ChevronDown size={14} />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {clients.map((cl) => <DropdownMenuItem key={cl} onClick={() => pickClient(cl)}>{cl}</DropdownMenuItem>)}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <DropdownMenu>
+          <DropdownMenuTrigger className={`${filterBtn} capitalize`}>
+            <Filter size={15} /> {sevFilter ?? 'All severities'} <ChevronDown size={14} />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => setSevFilter(null)}>All severities</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {SEVS.map((s) => <DropdownMenuItem key={s} onClick={() => setSevFilter(s)} className="capitalize">{s}</DropdownMenuItem>)}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </ShellActions>
+
       {error ? (
         <ErrorRetry message={error} onRetry={reload} />
-      ) : !rows ? (
+      ) : !targets ? (
         <div className="p-10 text-ink-faint">Loading…</div>
       ) : (
         <div className="mt-3.5 overflow-hidden rounded-bento-lg border border-rule bg-card">
-          <div className="grid grid-cols-[auto_1fr_auto] gap-4 border-b border-rule px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-ink-faint sm:grid-cols-[90px_1fr_1fr_90px_90px]">
-            <span>Severity</span><span>Finding</span><span className="hidden sm:block">Asset</span><span className="hidden sm:block">Verdict</span><span className="text-right sm:text-left">Status</span>
-          </div>
-          {list.map((f) => (
-            <button
-              key={f.id}
-              onClick={() => { setSel(f); setOpen(true) }}
-              className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-4 border-b border-rule px-5 py-3.5 text-left transition-colors last:border-0 hover:bg-panel sm:grid-cols-[90px_1fr_1fr_90px_90px]"
-            >
-              <span className={`inline-flex items-center gap-1.5 justify-self-start rounded-md px-2 py-1 text-[11px] font-bold capitalize ${sevPill[f.severity]}`}><span className={`h-1.5 w-1.5 rounded-full ${sevDot[f.severity]}`} />{f.severity}</span>
-              <span className="min-w-0"><span className="block truncate text-[14px] font-semibold text-ink">{f.name}</span><span className="text-[11.5px] text-ink-faint">{f.tool} · {f.cve ?? '—'}</span></span>
-              <span className="mono hidden truncate text-[12px] text-ink-muted sm:block">{assetOf(f)}</span>
-              <span className={`hidden items-center gap-1.5 text-[11px] font-bold uppercase sm:flex ${f.verdict === 'tp' ? 'text-low' : 'text-ink-faint'}`}><span className={`h-1.5 w-1.5 rounded-full ${f.verdict === 'tp' ? 'bg-low' : 'bg-ink-faint'}`} />{f.verdict}</span>
-              <span className={`justify-self-end rounded-pill px-2.5 py-1 text-[11px] font-semibold capitalize sm:justify-self-start ${statusPill[f.status]}`}>{f.status}</span>
-            </button>
-          ))}
-          {list.length === 0 && (
-            <div className="px-5 py-10 text-center text-[13px] text-ink-faint">
-              No {sevFilter ?? ''} findings for {client || 'this client'}.
+          {lost && (
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border-b border-rule px-5 py-4 text-[13.5px] text-ink">
+              <span>That target was not found. It may have been removed.</span>
+              <Button variant="outline" size="sm" className="min-h-[44px]" onClick={() => url.set({ target: null, finding: null })}>Show all targets</Button>
             </div>
           )}
+          {shown.length === 0 && <div className="px-5 py-10 text-center text-[13px] text-ink-faint">No findings for {client || 'this client'}.</div>}
+          <TargetAccordion
+            targets={shown}
+            openId={url.target}
+            staff
+            onToggle={(id) => url.set({ target: id, finding: null })}
+            renderPanel={(t) => (
+              <TargetFindings
+                plane="prv"
+                taskId={t.task_id}
+                severity={sevFilter}
+                focusId={url.finding}
+                staff
+                onOpen={openRow}
+                onDismissFocus={() => url.set({ finding: null })}
+              />
+            )}
+          />
         </div>
       )}
 
@@ -144,46 +129,44 @@ export default function FindingsReview() {
         {sel && (
           <DrawerContent>
             <div className="border-b border-rule p-6">
-              <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-bold capitalize ${sevPill[sel.severity]}`}><span className={`h-1.5 w-1.5 rounded-full ${sevDot[sel.severity]}`} />{sel.severity}</span>
+              <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-bold ${SEV_CHIP[sel.severity as Sev] ?? SEV_CHIP.info}`}>{SEV_LABEL[sel.severity as Sev] ?? sel.severity}</span>
               <DrawerTitle className="mt-2.5 text-[21px] font-bold tracking-[-0.02em] text-ink">{sel.name}</DrawerTitle>
-              <div className="mono mt-1 text-[13px] text-ink-muted">{assetOf(sel)}</div>
-              <div className="mt-1 text-[12.5px] text-ink-faint">{sel.tool} · {sel.cve ?? '—'}</div>
+              <div className="mono mt-1 text-[13px] text-ink-muted">{sel.url || sel.host}</div>
+              <div className="mt-1 text-[12.5px] text-ink-faint">{sel.tool} · {sel.cve ?? sel.cwe ?? '-'}</div>
             </div>
 
             <div className="flex-1 space-y-6 p-6">
               <section>
                 <h4 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Verdict</h4>
                 <div className="grid grid-cols-2 gap-2">
-                  <VerdictBtn on={sel.verdict === 'tp'} icon={<Bug size={15} />} label="True positive" tone="low" onClick={() => setVerdict(sel.id, 'tp')} />
-                  <VerdictBtn on={sel.verdict === 'fp'} icon={<FlaskConical size={15} />} label="False positive" tone="faint" onClick={() => setVerdict(sel.id, 'fp')} />
+                  <VerdictBtn on={sel.verdict === 'tp'} icon={<Bug size={15} />} label="True positive" tone="low" onClick={() => setVerdict(sel, 'tp')} />
+                  <VerdictBtn on={sel.verdict === 'fp'} icon={<FlaskConical size={15} />} label="False positive" tone="faint" onClick={() => setVerdict(sel, 'fp')} />
                 </div>
               </section>
               <section>
                 <h4 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-faint">Evidence</h4>
-                <pre className="overflow-x-auto rounded-input border border-rule bg-panel p-3 font-mono text-[12px] leading-relaxed text-ink">{sel.evidence}</pre>
+                <pre className="overflow-x-auto rounded-input border border-rule bg-panel p-3 font-mono text-[12px] leading-relaxed text-ink">{detail ? detail.evidence : failed ? 'Could not load the details.' : 'Loading'}</pre>
               </section>
               <section>
                 <h4 className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-ink-faint"><ShieldCheck size={13} className="text-accent-ink" /> AI remediation</h4>
-                <p className="text-[13.5px] leading-relaxed text-ink">{sel.remediation ?? 'Not yet enriched.'}</p>
+                <p className="text-[13.5px] leading-relaxed text-ink">{detail ? detail.remediation ?? 'Not yet enriched.' : failed ? 'Could not load the details.' : 'Loading'}</p>
               </section>
             </div>
 
             <div className="sticky bottom-0 flex gap-2.5 border-t border-rule bg-card p-6">
-              <Button variant="outline" size="lg" className="flex-1" disabled={sel.status === 'fixed'} onClick={() => markFixed(sel.id)}>{sel.status === 'fixed' ? 'Fixed' : 'Mark fixed'}</Button>
+              <Button variant="outline" size="lg" className="flex-1" disabled={sel.status === 'fixed'} onClick={() => markFixed(sel)}>{sel.status === 'fixed' ? 'Fixed' : 'Mark fixed'}</Button>
               <Button size="lg" className="flex-1" onClick={() => { toast('Review saved'); setOpen(false) }}>Save</Button>
             </div>
           </DrawerContent>
         )}
       </Drawer>
-      </main>
-
-    </div>
+    </>
   )
 }
 
 function VerdictBtn({ on, icon, label, tone, onClick }: { on: boolean; icon: React.ReactNode; label: string; tone: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={`flex items-center justify-center gap-2 rounded-input border px-3 py-3 text-[13px] font-semibold transition-colors ${on ? (tone === 'low' ? 'border-low bg-low-bg text-low' : 'border-ink bg-panel text-ink') : 'border-rule text-ink-muted hover:text-ink'}`}>
+    <button onClick={onClick} className={`flex min-h-[44px] items-center justify-center gap-2 rounded-input border px-3 py-3 text-[13px] font-semibold transition-colors ${on ? (tone === 'low' ? 'border-low bg-low-bg text-low' : 'border-ink bg-panel text-ink') : 'border-rule text-ink-muted hover:text-ink'}`}>
       {icon} {label}
     </button>
   )

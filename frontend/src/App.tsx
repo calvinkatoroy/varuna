@@ -112,8 +112,8 @@ export default function App() {
           <Route path="/proposals" element={<Navigate to="/tasks" replace />} />
           <Route element={<RoleRoute><TeamShell /></RoleRoute>}>
             <Route path="/team" element={<TeamBoard />} />
+            <Route path="/team/findings" element={<FindingsReview />} />
           </Route>
-          <Route path="/team/findings" element={<RoleRoute><FindingsReview /></RoleRoute>} />
           <Route element={<RoleRoute sysadmin><AdminShell /></RoleRoute>}>
             <Route path="/team/sysadmin" element={<SysAdmin />} />
           </Route>
