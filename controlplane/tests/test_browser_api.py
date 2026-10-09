@@ -75,21 +75,6 @@ def test_provisioned_client_can_login():
     assert r.status_code == 200 and "token" in r.json(), r.text
 
 
-def test_legacy_report_download_tenancy():
-    """/api/reports/{fname}/download (the older, filename-addressed download used by the
-    legacy Executive-Summary generator) still enforces tenancy independent of /api/reports'
-    listing, which now sources from the v2 delivered-report pipeline (see the next test)."""
-    reset()
-    Ha = _token("alice", "client")
-    _token("bob", "client")
-    Ht = _token("riyan", "pentester")
-    fa = browser.report_store.save_report("alice", "job-a", "Executive Summary", b"A", org_id=_org("alice"))["file"]
-    fb = browser.report_store.save_report("bob", "job-b", "Executive Summary", b"B", org_id=_org("bob"))["file"]
-    assert client.get(f"/api/reports/{fb}/download", headers=Ha).status_code == 404   # other org: as if missing
-    assert client.get(f"/api/reports/{fa}/download", headers=Ha).status_code == 200
-    assert client.get(f"/api/reports/{fa}/download", headers=Ht).status_code == 200
-
-
 def test_reports_list_is_v2_delivered_and_tenant_scoped():
     reset()
     Ha = _token("alice", "client")
@@ -241,22 +226,6 @@ def test_agent_status_and_install_token():
 
 
 # (legacy /api/approvals flow removed: tasks are claimed and started through /api/tasks/{id}/transition)
-
-
-def test_report_generate_and_download():
-    reset()
-    H = _token("staff", "client")
-    redis_store.set_job({"id": "jr", "target": "http://t.local", "submitter": "staff",
-                         "status": "done", "per_tool_status": {}, "org_id": _org("staff")})
-    db.save_findings("jr", "staff", _org("staff"), [{"name": "X", "severity": "high", "host": "h",
-                                      "impact": "i", "remediation": "r"}])
-    meta = client.post("/api/scans/jr/report", headers=H).json()
-    assert meta["template"] == "Executive Summary"
-    dl = client.get(f"/api/reports/{meta['file']}/download", headers=H)
-    assert dl.status_code == 200 and dl.content[:2] == b"PK"
-    # /api/reports itself is a separate, v2-delivered-only listing now (see
-    # test_reports_list_is_v2_delivered_and_tenant_scoped) - this legacy generate/download
-    # path doesn't feed it, by design.
 
 
 if __name__ == "__main__":

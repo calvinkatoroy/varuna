@@ -103,7 +103,7 @@ def _org_b_untouched(b):
 def test_org_a_cannot_reach_org_b_on_public_plane(api, tmp_path):
     _, b = _seed_two_orgs(tmp_path)
     tok = api.login("alpha", PW)
-    assert _sweep(api, tok, b) >= 31   # every public route (some with several org-B ids)
+    assert _sweep(api, tok, b) >= 29   # every public route (some with several org-B ids); 3 hits fewer since the legacy report routes left this plane
     _org_b_untouched(b)
 
 

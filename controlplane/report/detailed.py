@@ -348,13 +348,11 @@ def findings_register(doc, findings, show_verdict=False) -> None:
 def finding_detail(doc, f, evidence=True, show_verdict=False) -> None:
     sev = (f.get("severity") or "info").lower()
     doc.add_heading(f"{f['_id']}  {_nm(f)}", level=2)
-    t = doc.add_table(rows=1, cols=4)
+    t = doc.add_table(rows=1, cols=2)
     t.style = "Table Grid"
     _cell(t.rows[0].cells[0], "Severity", bold=True, fill="E8EEF3")
     _cell(t.rows[0].cells[1], sev.capitalize(), bold=True, fill=SEV_FILL.get(sev),
           color="000000" if sev in SEV_TEXT_DARK else "FFFFFF", align=WD_ALIGN_PARAGRAPH.CENTER)
-    _cell(t.rows[0].cells[2], "Status", bold=True, fill="E8EEF3")
-    _cell(t.rows[0].cells[3], (f.get("status") or "open").capitalize())
     doc.add_paragraph()
     pairs = [("Affected asset", f.get("host")), ("URL / parameter", f.get("url")),
              ("CVSS", f.get("cvss")), ("CWE", f.get("cwe")), ("CVE", f.get("cve")),

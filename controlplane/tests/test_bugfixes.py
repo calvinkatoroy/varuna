@@ -77,13 +77,13 @@ def test_pentester_cannot_set_aggressive_opts_lead_can():
     assert priv.post(f"/api/tasks/{pid}/transition", headers=Hl, json=body).status_code == 200
 
 
-def test_generate_report_is_tenant_scoped():                          # H2
+def test_public_plane_builds_no_report_from_a_scan():                 # H2: nothing unreviewed reaches a client
     from conftest import start_task
     redis_store._client = FakeRedis()
     Ha, Hb = _h("acme", "client"), _h("globex", "client")
     jid = start_task(_prop(Ha).json()["id"], "pen1")
-    assert pub.post(f"/api/scans/{jid}/report", headers=Hb).status_code == 404   # other org: as if missing
-    assert pub.post(f"/api/scans/{jid}/report", headers=Ha).status_code == 200
+    for H in (Ha, Hb):
+        assert pub.post(f"/api/scans/{jid}/report", headers=H).status_code in (404, 405)
 
 
 def test_concurrent_claims_have_one_winner_and_one_job():             # H3

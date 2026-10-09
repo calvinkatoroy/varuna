@@ -36,7 +36,6 @@ import classifier  # noqa: E402
 import cockpit  # noqa: E402
 import db  # noqa: E402
 import dispatch  # noqa: E402
-import generator  # noqa: E402
 import jwt_auth  # noqa: E402
 import mailer  # noqa: E402
 import models  # noqa: E402
@@ -51,8 +50,6 @@ import workflow  # noqa: E402
 import deps  # noqa: E402
 import profile_api  # noqa: E402
 from deps import current_user, require_pro  # noqa: E402
-
-DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 app = FastAPI(title="Varuna Browser API (public plane)")
 app.include_router(profile_api.router)
@@ -416,8 +413,7 @@ def agent_installer(request: Request, user: dict = Depends(current_user),
 
 
 # --- reports (v2): a client's own DELIVERED, signed-off, protected-PDF reports from the
-# review pipeline (db.reports) - not the legacy Redis Executive-Summary generator below,
-# which is a separate, older concept (REQ-50a) still used by /api/scans/{id}/report. ---
+# review pipeline (db.reports). Nothing unreviewed is ever generated or served on this plane. ---
 
 
 @app.get("/api/reports")
@@ -535,35 +531,14 @@ def set_finding_status(fid: str, body: FindingStatusBody, user: dict = Depends(c
                        scope: tenancy.Scope = Depends(deps.scope)):
     if body.status not in ("open", "fixed"):
         raise HTTPException(status_code=422, detail="status must be open or fixed")
-    if not db.get_finding(fid, org_id=scope.org_id):
+    f = db.get_finding_with_task(fid, org_id=scope.org_id)
+    if not f:
         raise HTTPException(status_code=404, detail="no such finding")
+    task = db.get_proposal(f["task_id"], org_id=None)   # a direct scan has no task (task_id is then the job id)
+    if task and task["stage"] != "delivered":
+        raise HTTPException(status_code=409, detail="Marking a finding fixed is available after the report is delivered.")
     db.set_finding(fid, status=body.status)
     return {"ok": True}
-
-
-@app.post("/api/scans/{job_id}/report")
-def generate_report(job_id: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
-    job = dispatch.get_job(scope, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="no such job")
-    # Public plane only serves the sanitized Executive Summary (REQ-49/50a). Pro full
-    # templates are on the private plane.
-    data = generator.generate(job, db.get_findings(job_id), "Executive Summary")
-    return report_store.save_report(user["username"], job_id, "Executive Summary", data, org_id=job.get("org_id"))
-
-
-@app.get("/api/reports/{fname}/download")
-def download_report(fname: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
-    if scope.org_id is not None and report_store.org_of(fname) != scope.org_id:
-        raise HTTPException(status_code=404, detail="no such report")
-    try:
-        data = report_store.read_report(fname)
-    except OSError:
-        raise HTTPException(status_code=404, detail="no such report")
-    return Response(content=data, media_type=DOCX_MIME,
-                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
-
-
 
 
 def _delivered_report_view(r: dict) -> dict:
