@@ -234,7 +234,8 @@ def quick_scans(user: dict = Depends(require_team)):
             continue
         job = redis_store.get_job(e.get("job") or "") or {}
         org = db.get_org(e.get("org") or "")
-        out.append({"at": e["ts"], "org": (org or {}).get("name") or e.get("org"), "user": e.get("submitter"),
+        # same UTC text format as the rest of the API
+        out.append({"at": e["ts"][:19].replace("T", " "), "org": (org or {}).get("name") or e.get("org"), "user": e.get("submitter"),
                     "target": e.get("target"), "status": job.get("status", "expired")})
         if len(out) >= 100:
             break
