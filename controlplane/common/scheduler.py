@@ -107,8 +107,9 @@ def _recover_delivery(t: dict, now: datetime.datetime, out: dict) -> None:
 
 
 def tick(now: datetime.datetime) -> dict:
-    out = {"started": 0, "expired": 0, "suspended": 0, "waiting": 0, "recovered": 0}
+    out = {"started": 0, "expired": 0, "suspended": 0, "waiting": 0, "recovered": 0, "reaped": 0}
     board.reap_stalled(now)
+    out["reaped"] = db.reap_pdfs(db.PDF_STALE_S) + db.reap_turns(db.TURN_STALE_S)
     waiting = db.list_proposals(stage="task", org_id=None) +         db.list_proposals(stage="scan", scan_state="pending", org_id=None)
     _each(waiting, _expire_waiting, now, out)
     _each(db.list_proposals(stage="scan", scan_state="scheduled", org_id=None), _start_scheduled, now, out)

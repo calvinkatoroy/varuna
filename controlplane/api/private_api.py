@@ -44,6 +44,7 @@ import jwt_auth  # noqa: E402
 import browser  # noqa: E402  (proposal/scan/finding logic is shared; only the auth plane differs)
 import deps  # noqa: E402
 import profile_api  # noqa: E402
+import audit_api  # noqa: E402
 import dispatch  # noqa: E402
 from sysadmin import router as sysadmin_router  # noqa: E402
 from tenancy import Scope  # noqa: E402
@@ -54,6 +55,7 @@ _CORS = os.environ.get("VARUNA_CORS_ORIGINS", "http://localhost:5173").split(","
 app.add_middleware(CORSMiddleware, allow_origins=_CORS, allow_methods=["*"], allow_headers=["*"])
 app.include_router(sysadmin_router)
 app.include_router(profile_api.router)
+app.include_router(audit_api.router)
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 

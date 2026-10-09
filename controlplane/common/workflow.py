@@ -421,3 +421,9 @@ def client_timeline(task_id: str) -> list[dict]:
             item["note"] = e["comment"]
         out.append(item)
     return out
+
+
+def can_audit(task: dict, actor: str) -> bool:
+    """Change a task's report (verdicts, findings, content, PDF, AI chat): the assignee or a lead pentester, at
+    `completed` only. Reviewers never edit; they send the task back."""
+    return task["stage"] == "completed" and OWNER in _tags(actor, task)
