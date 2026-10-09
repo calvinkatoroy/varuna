@@ -1,13 +1,13 @@
 import { api, download } from '@/api'
+import type { Sev } from './findings'
 
-export type Sev5 = 'critical' | 'high' | 'medium' | 'low' | 'info'
 export type PdfStatus = 'queued' | 'rendering' | 'converting' | 'ready' | 'failed'
 export type PdfJob = {
   id: string; n: number | null; status: PdfStatus; filename: string | null; content_version: number
   error: string | null; requested_by: string; created_at: string; updated_at: string
 }
 export type PdfSummary = { current: boolean; latest: PdfJob | null; active: PdfJob | null; history: PdfJob[] }
-export type AuditCounts = { total: number; tp: number; fp: number; manual: number; severity: Record<Sev5, number> }
+export type AuditCounts = { total: number; tp: number; fp: number; manual: number; severity: Record<Sev, number> }
 export type AuditSummary = {
   task: { id: string; target: string; stage: string; version: number; client: string; assignee: string | null }
   can_audit: boolean; ai_chat: boolean; content_version: number; counts: AuditCounts; pdf: PdfSummary
@@ -35,7 +35,7 @@ export type AiTurn = {
   diff: DiffRow[]; created_at: string; updated_at: string
 }
 export type ManualForm = {
-  name: string; severity: Sev5; host: string; url: string; description: string; evidence: string; impact: string; remediation: string
+  name: string; severity: Sev; host: string; url: string; description: string; evidence: string; impact: string; remediation: string
 }
 export const EMPTY_MANUAL: ManualForm = { name: '', severity: 'medium', host: '', url: '', description: '', evidence: '', impact: '', remediation: '' }
 
@@ -69,12 +69,36 @@ export function pdfBadge(p: PdfSummary): { label: string; tone: 'low' | 'med' | 
   if (p.latest) return { label: 'PDF out of date', tone: 'med' }
   return { label: 'No PDF yet', tone: 'med' }
 }
-export function validateManual(f: ManualForm): string | null {
-  if (!f.name.trim()) return 'Give the finding a name'
-  if (f.name.trim().length > 300) return 'The name is too long (300 characters at most)'
-  if (!f.description.trim()) return 'Describe what you found'
-  if (f.url.length > 2048) return 'The URL is too long'
+export type ManualProblem = { field: 'name' | 'description' | 'url'; msg: string }
+export function manualProblem(f: ManualForm): ManualProblem | null {
+  if (!f.name.trim()) return { field: 'name', msg: 'Give the finding a name' }
+  if (f.name.trim().length > 300) return { field: 'name', msg: 'The name is too long (300 characters at most)' }
+  if (!f.description.trim()) return { field: 'description', msg: 'Describe what you found' }
+  if (f.url.length > 2048) return { field: 'url', msg: 'The URL is too long' }
   return null
+}
+export const validateManual = (f: ManualForm): string | null => manualProblem(f)?.msg ?? null
+
+/** The second line of an audit-trail row, from what the server stored in `detail`. */
+export function trailDetail(r: TrailRow): string {
+  const d = r.detail ?? {}
+  const name = typeof d.name === 'string' ? d.name : ''
+  switch (r.action) {
+    case 'verdict': {
+      const what = d.verdict === 'fp' ? 'marked false positive' : d.verdict === 'tp' ? 'confirmed' : 'verdict changed'
+      return name ? `${name}: ${what}` : what
+    }
+    case 'finding_edit': {
+      const before = (d.before ?? {}) as Record<string, string>
+      const after = (d.after ?? {}) as Record<string, string>
+      const fields = Object.keys(after).map((k) => (k === 'severity' && before.severity ? `severity ${before.severity} to ${after.severity}` : k))
+      return `${name || 'Finding'}: changed ${fields.join(', ') || 'text'}`
+    }
+    case 'manual_add': return [name, d.severity].filter(Boolean).join(' · ')
+    case 'content_restore': return `Version ${r.subject} restored as version ${d.new_version ?? '?'}`
+    case 'pdf_requested': return d.content_version ? `Built from report version ${d.content_version}` : ''
+    default: return name
+  }
 }
 /** Bullets that follow each other become one list. */
 export type Grouped = PreviewItem | { kind: 'list'; items: string[] }
@@ -122,9 +146,9 @@ export const auditApi = {
   edit: (tid: string, fid: string, body: Partial<{ severity: string; impact: string; remediation: string }>) =>
     api.ppost(`${base(tid)}/findings/${enc(fid)}/edit`, body),
   addManual: (tid: string, f: ManualForm): Promise<{ id: string }> => api.ppost(`${base(tid)}/findings/manual`, f),
-  generate: (tid: string): Promise<{ job: PdfJob }> => api.ppost(`${base(tid)}/report/generate`),
+  generate: (tid: string): Promise<{ job: PdfJob }> => api.qppost(`${base(tid)}/report/generate`),
   job: (tid: string, jid: string): Promise<PdfJob> => api.qpget(`${base(tid)}/report/jobs/${enc(jid)}`),
-  password: (tid: string): Promise<{ password: string }> => api.pget(`${base(tid)}/report/password`),
+  password: (tid: string): Promise<{ password: string }> => api.qpget(`${base(tid)}/report/password`),
   downloadPdf: (tid: string, job: PdfJob) =>
     download(api.privateBase, `${base(tid)}/report/pdfs/${enc(job.id)}/download`, job.filename ?? 'Pentest_Report.pdf'),
   turns: (tid: string): Promise<AiTurn[]> => api.qpget(`${base(tid)}/ai/turns`),

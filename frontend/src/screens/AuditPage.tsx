@@ -13,10 +13,12 @@ import { Button } from '@/components/ui/button'
 import { pdfBadge, auditApi, type AuditSummary } from '@/lib/audit'
 import { SEVS, SEV_LABEL, patchRows, rowsKeyPrefix, type FindingRow } from '@/lib/findings'
 import { bare } from '@/lib/format'
+import { useReturnFocus } from '@/lib/returnFocus'
 import { invalidate } from '@/lib/swr'
 import { useApiData } from '@/lib/useApiData'
 
 const card = 'overflow-hidden rounded-bento-lg border border-rule bg-card'
+const cardOpen = 'rounded-bento-lg border border-rule bg-card'   // the Versions menu hangs out of its section: no clipping
 const TONE = { low: 'bg-low-bg text-low-ink', med: 'bg-med-bg text-med-ink', info: 'bg-panel text-ink' }
 
 export default function AuditRoute() {
@@ -38,6 +40,8 @@ function AuditPage({ tid }: { tid: string }) {
   const [sel, setSel] = useState<FindingRow | null>(null)
   const [open, setOpen] = useState(false)
   const [adding, setAdding] = useState(false)
+  const rowFocus = useReturnFocus()   // closing a drawer gives focus back to the row / button that opened it
+  const addFocus = useReturnFocus()
   const refresh = () => { setRev((n) => n + 1); reload() }                        // report content, PDF or trail changed
   // A verdict or an edit changes one loaded row: patch it where it is, so the list keeps its place and its pages.
   const patched = (id: string, patch: Partial<FindingRow>) => {
@@ -60,7 +64,7 @@ function AuditPage({ tid }: { tid: string }) {
       <ShellTitle size="band" title="Audit report" kicker={`${sum.task.client} · ${bare(sum.task.target)}`} />
       <ShellActions>
         <Link to="/team" className="flex h-11 items-center rounded-pill bg-white/[.16] px-4 text-[13px] font-medium text-[#F2F5EF]">Board</Link>
-        {can && <Button variant="glass" size="pill" onClick={() => setAdding(true)}><Plus size={16} /> Add finding</Button>}
+        {can && <Button variant="glass" size="pill" onClick={() => { addFocus.remember(); setAdding(true) }}><Plus size={16} /> Add finding</Button>}
       </ShellActions>
 
       <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-bento-lg bg-panel px-5 py-3.5 text-[13px] text-ink">
@@ -83,9 +87,9 @@ function AuditPage({ tid }: { tid: string }) {
               </select>
             </div>
             <TargetFindings key={`${listRev}:${sev}`} plane="prv" taskId={tid} severity={sev || null} focusId={null} staff
-              onOpen={(f) => { setSel(f); setOpen(true) }} onDismissFocus={() => {}} />
+              onOpen={(f) => { rowFocus.remember(); setSel(f); setOpen(true) }} onDismissFocus={() => {}} />
           </section>
-          <section className={card} aria-label="Report preview">
+          <section className={cardOpen} aria-label="Report preview">
             <h2 className="border-b border-rule px-5 py-3 text-[15px] font-bold text-ink">Report preview</h2>
             <ReportPreview tid={tid} rev={rev} canAudit={can} onRestored={refresh} />
           </section>
@@ -96,8 +100,8 @@ function AuditPage({ tid }: { tid: string }) {
         </aside>
       </div>
 
-      <FindingDrawer f={sel} open={open} onOpenChange={setOpen} tid={tid} canAudit={can} onPatched={patched} onChanged={refresh} />
-      <ManualDrawer tid={tid} open={adding} onOpenChange={setAdding} onAdded={added} />
+      <FindingDrawer f={sel} open={open} onOpenChange={setOpen} tid={tid} canAudit={can} onCloseAutoFocus={rowFocus.onCloseAutoFocus} onPatched={patched} onChanged={refresh} />
+      <ManualDrawer tid={tid} open={adding} onOpenChange={setAdding} onAdded={added} onCloseAutoFocus={addFocus.onCloseAutoFocus} />
     </>
   )
 }

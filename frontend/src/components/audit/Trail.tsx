@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ACTION_LABEL, auditApi, type TrailRow } from '@/lib/audit'
+import { ACTION_LABEL, auditApi, trailDetail, type TrailRow } from '@/lib/audit'
 import { when } from '@/lib/format'
 
 export function Trail({ tid, rev }: { tid: string; rev: number }) {
@@ -17,7 +17,7 @@ export function Trail({ tid, rev }: { tid: string; rev: number }) {
           <li key={r.id} className="text-[13px]">
             <span className="font-semibold text-ink">{ACTION_LABEL[r.action] ?? r.action}</span>
             <span className="text-ink-muted"> · {r.actor} · {when(r.at)}</span>
-            {r.detail?.name && <div className="text-ink-muted">{String(r.detail.name)}</div>}
+            {trailDetail(r) && <div className="break-words text-ink-muted">{trailDetail(r)}</div>}
           </li>
         ))}
         {rows && rows.length === 0 && <li className="text-[13px] text-ink-muted">Nothing has been changed yet.</li>}

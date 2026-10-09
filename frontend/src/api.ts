@@ -126,6 +126,8 @@ export const api = {
   qget: (p: string) => req(PUBLIC, p, {}, true),
   qpget: (p: string) => req(PRIVATE, p, {}, true),
   ppost: (p: string, body?: any) => req(PRIVATE, p, send('POST', body)),
+  // Quiet write: the caller shows the failure itself (inline), so no toast on top.
+  qppost: (p: string, body?: any) => req(PRIVATE, p, send('POST', body), true),
   pput: (p: string, body?: any) => req(PRIVATE, p, send('PUT', body)),
   publicBase: PUBLIC,
   privateBase: PRIVATE,
@@ -305,7 +307,7 @@ export async function download(base: string, path: string, filename: string) {
     a.href = url
     a.download = filename
     a.click()
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 30_000)   // revoking at once can cancel the download in Firefox/Safari
   } catch (e) {
     if (e instanceof ApiError && e.silent) throw e
     const msg = e instanceof ApiError ? e.message : 'Network error - check your connection.'

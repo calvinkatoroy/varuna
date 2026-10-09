@@ -97,7 +97,7 @@ export function TargetFindings({ plane, taskId, severity, focusId, staff, onOpen
         <p role="status" className="text-[12px] text-ink-muted">Showing {state.items.length} of {state.total}</p>
         {left > 0 && <Button variant="outline" size="lg" className="min-h-[44px]" disabled={busy} onClick={more}>{busy ? 'Loading' : `Load more (${left} left)`}</Button>}
       </div>
-      {error && <p role="alert" className="px-5 pb-3 text-[12px] text-crit">{error}</p>}
+      {error && <p role="alert" className="px-5 pb-3 text-[12px] text-crit-ink">{error}</p>}
     </div>
   )
 }

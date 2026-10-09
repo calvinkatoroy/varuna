@@ -11,8 +11,8 @@ import { useFindingDetail } from '@/lib/useFindingDetail'
 const field = 'mt-1 min-h-[44px] w-full rounded-input border border-rule bg-panel px-3 text-[13px] text-ink outline-none focus:border-accent disabled:opacity-60'
 const area = 'mt-1 w-full resize-y rounded-input border border-rule bg-panel px-3 py-2.5 text-[13px] text-ink outline-none focus:border-accent disabled:opacity-60'
 
-export function FindingDrawer({ f, open, onOpenChange, tid, canAudit, onPatched, onChanged }: {
-  f: FindingRow | null; open: boolean; onOpenChange: (v: boolean) => void; tid: string; canAudit: boolean; onPatched: (id: string, patch: Partial<FindingRow>) => void; onChanged: () => void
+export function FindingDrawer({ f, open, onOpenChange, tid, canAudit, onCloseAutoFocus, onPatched, onChanged }: {
+  f: FindingRow | null; open: boolean; onOpenChange: (v: boolean) => void; tid: string; canAudit: boolean; onCloseAutoFocus?: (e: Event) => void; onPatched: (id: string, patch: Partial<FindingRow>) => void; onChanged: () => void
 }) {
   const { detail, failed } = useFindingDetail('prv', open && f ? f.id : null)
   const [verdict, setVerdict] = useState<'tp' | 'fp'>('tp')
@@ -20,8 +20,9 @@ export function FindingDrawer({ f, open, onOpenChange, tid, canAudit, onPatched,
   const [impact, setImpact] = useState('')
   const [remediation, setRemediation] = useState('')
   const [busy, setBusy] = useState(false)
-  useEffect(() => { if (f) { setVerdict(f.verdict); setSeverity(sevOf(f.severity)) } }, [f?.id])   // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (detail) { setImpact(detail.impact ?? ''); setRemediation(detail.remediation ?? ''); setVerdict(detail.verdict) } }, [detail?.id])   // eslint-disable-line react-hooks/exhaustive-deps
+  // Local edits start from the saved values every time the drawer opens, so an unsaved change never comes back.
+  useEffect(() => { if (open && f) { setVerdict(f.verdict); setSeverity(sevOf(f.severity)) } }, [open, f?.id])   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open && detail) { setImpact(detail.impact ?? ''); setRemediation(detail.remediation ?? ''); setVerdict(detail.verdict) } }, [open, detail?.id])   // eslint-disable-line react-hooks/exhaustive-deps
   if (!f) return null
 
   const pick = async (v: 'tp' | 'fp') => {
@@ -51,10 +52,10 @@ export function FindingDrawer({ f, open, onOpenChange, tid, canAudit, onPatched,
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent>
+      <DrawerContent onCloseAutoFocus={onCloseAutoFocus}>
         <div className="border-b border-rule p-6 pr-16">
           <span className={`inline-flex rounded-md px-2 py-1 text-[12px] font-bold ${SEV_CHIP[sevOf(f.severity)]}`}>{SEV_LABEL[sevOf(f.severity)]}</span>
-          <DrawerTitle className="mt-2.5 text-[21px] font-bold tracking-[-0.02em] text-ink">{f.name}</DrawerTitle>
+          <DrawerTitle className="mt-2.5 break-words [overflow-wrap:anywhere] text-[21px] font-bold tracking-[-0.02em] text-ink">{f.name}</DrawerTitle>
           <div className="mono mt-1 break-all text-[13px] text-ink-muted">{f.url || f.host}</div>
           <div className="mt-1 text-[12.5px] text-ink-faint">{f.tool === 'manual' ? 'Added by hand' : f.tool} · {f.cve ?? f.cwe ?? '-'}</div>
         </div>

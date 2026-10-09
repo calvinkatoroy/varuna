@@ -22,7 +22,6 @@ export const STAGE_LABEL: Record<string, string> = {
 }
 // Moves that cannot be taken back take two taps (the first arms the button and says so).
 const CONSEQUENTIAL = new Set(['decline', 'approve', 'send_back', 'deliver', 'close', 'suspend'])
-const HAS_REPORT = new Set(['completed', 'review_lead_pentester', 'review_lead_cyber', 'review_governance', 'review_manager', 'delivering', 'delivered'])
 const key = (stage: string, s: string | null) => (stage === 'scan' && s ? `scan/${s}` : stage)
 const ta = 'w-full resize-none rounded-input border border-rule bg-panel px-3.5 py-3 text-[13px] text-ink placeholder:text-ink-muted outline-none focus:border-accent'
 const field = 'mt-1 min-h-[44px] w-full rounded-input border border-rule bg-panel px-3 text-[13px] text-ink outline-none focus:border-accent'
@@ -104,7 +103,7 @@ export function TaskDrawer({ card, open, onOpenChange, onMoved }: { card: BoardC
           {card.scanState === 'in_progress' && card.jobId && (
             <section className="rounded-input border border-rule bg-panel p-4"><ScanProgress jobId={card.jobId} base={api.privateBase} /></section>
           )}
-          {HAS_REPORT.has(card.stage) && (
+          {detail?.has_report && (
             <section className="rounded-input border border-rule bg-panel p-4">
               <p className="mb-3 text-[13px] text-ink">{card.stage === 'completed' ? 'Audit the findings, build the PDF and edit the wording on the audit page. Submit for review needs a current PDF.' : 'The report and its PDF are read-only at this stage. Send the task back to change them.'}</p>
               <Button variant="outline" className="min-h-[44px]" onClick={() => navigate(`/team/audit/${card.id}`)}>{card.stage === 'completed' ? 'Open audit page' : 'View report'}</Button>
