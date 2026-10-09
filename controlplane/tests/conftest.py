@@ -11,6 +11,7 @@ os.environ["BCRYPT_ROUNDS"] = "4"   # tests hash a lot of passwords; production 
 os.environ["VARUNA_SCHEDULER"] = "0"   # no background scheduler thread in tests; tests call scheduler.tick()
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "report"))
 import db  # noqa: E402
 
 
@@ -102,3 +103,15 @@ def api(monkeypatch):
 @pytest.fixture
 def priv(monkeypatch):
     return _Api(_fresh_app("private_api", monkeypatch))
+
+
+def ready_pdf(tid, org_name="PT A"):
+    """Give task `tid` content v1 and a ready, CURRENT PDF row (no LibreOffice): what Submit for review needs."""
+    import reportcontent
+    import reportdoc
+    t = db.get_proposal(tid, org_id=None)
+    c = reportcontent.ensure_v1(t)
+    job, _ = db.claim_pdf(tid, t["org_id"], c["version"], "tester")
+    db.finish_pdf(job["id"], tid, reportdoc.digest(reportdoc.findings_for(t)), f"pdf-{job['id']}.pdf",
+                  lambda n: reportdoc.pdf_filename(org_name, t["target"], n))
+    return job["id"]

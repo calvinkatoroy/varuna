@@ -9,4 +9,5 @@ pyjwt>=2.8          # browser API JWT sessions (C-6)
 python-dotenv>=1.0  # loads .env for host-run dev (Compose sets env vars itself, doesn't need this)
 python-multipart>=0.0.9  # v2 Plan 3: report version file uploads (FastAPI UploadFile)
 pypdf>=4.0          # v2 Plan 3: encrypt the delivered report PDF (read-only, password-protected)
+cryptography>=42.0  # step 4: AES-256 PDF encryption (pypdf needs it for AES-256)
 # UI is a separate React app under frontend/ (not a Python dep); Streamlit retired per C-6.

@@ -177,6 +177,66 @@ CREATE TABLE IF NOT EXISTS task_jobs (
     task_id  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_task_jobs_task ON task_jobs(task_id);
+
+-- Step 4. The report is a JSON document per task (append-only versions); PDFs and AI turns are jobs; edits are audited.
+CREATE TABLE IF NOT EXISTS report_content (
+    task_id      TEXT NOT NULL,
+    version      INTEGER NOT NULL,
+    org_id       TEXT NOT NULL DEFAULT '',
+    content_json TEXT NOT NULL,
+    created_by   TEXT NOT NULL,
+    note         TEXT NOT NULL DEFAULT '',
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (task_id, version)
+);
+CREATE TABLE IF NOT EXISTS report_pdfs (
+    id              TEXT PRIMARY KEY,
+    task_id         TEXT NOT NULL,
+    org_id          TEXT NOT NULL DEFAULT '',
+    n               INTEGER,
+    status          TEXT NOT NULL,
+    content_version INTEGER NOT NULL,
+    digest          TEXT,
+    filename        TEXT,
+    stored_name     TEXT,
+    error           TEXT,
+    requested_by    TEXT NOT NULL,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (task_id, n)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_report_pdfs_active ON report_pdfs(task_id)
+    WHERE status IN ('queued','rendering','converting');
+CREATE INDEX IF NOT EXISTS idx_report_pdfs_stored ON report_pdfs(stored_name);
+CREATE TABLE IF NOT EXISTS task_audit (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id     TEXT NOT NULL,
+    org_id      TEXT NOT NULL DEFAULT '',
+    actor       TEXT NOT NULL,
+    action      TEXT NOT NULL,
+    subject     TEXT NOT NULL DEFAULT '',
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_audit_task ON task_audit(task_id);
+CREATE TABLE IF NOT EXISTS ai_turns (
+    id              TEXT PRIMARY KEY,
+    task_id         TEXT NOT NULL,
+    org_id          TEXT NOT NULL DEFAULT '',
+    actor           TEXT NOT NULL,
+    prompt          TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    base_version    INTEGER NOT NULL,
+    summary         TEXT,
+    ops_json        TEXT,
+    error           TEXT,
+    applied         INTEGER NOT NULL DEFAULT 0,
+    applied_version INTEGER,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_turns_active ON ai_turns(task_id) WHERE status IN ('queued','running');
+CREATE INDEX IF NOT EXISTS idx_ai_turns_task ON ai_turns(task_id);
 CREATE TRIGGER IF NOT EXISTS trg_task_jobs_ins AFTER INSERT ON proposals WHEN NEW.job_id IS NOT NULL
 BEGIN INSERT OR IGNORE INTO task_jobs (job_id, task_id) VALUES (NEW.job_id, NEW.id); END;
 CREATE TRIGGER IF NOT EXISTS trg_task_jobs_upd AFTER UPDATE OF job_id ON proposals WHEN NEW.job_id IS NOT NULL
@@ -222,6 +282,16 @@ def init_db(conn: sqlite3.Connection) -> None:
         # Index after the migration: on an old DB the column does not exist when SCHEMA runs.
         conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_org ON {table}(org_id)")
     conn.execute("INSERT OR IGNORE INTO task_jobs (job_id, task_id) SELECT job_id, id FROM proposals WHERE job_id IS NOT NULL")
+    rcols = {r[1] for r in conn.execute("PRAGMA table_info(reports)")}
+    if "task_id" not in rcols:
+        conn.execute("ALTER TABLE reports ADD COLUMN task_id TEXT")
+        taken: set = set()   # an old database may hold two reports for one task (a resumed scan): only the oldest is linked
+        for rid, jid in conn.execute("SELECT id, job_id FROM reports ORDER BY created_at, id").fetchall():
+            row = conn.execute("SELECT task_id FROM task_jobs WHERE job_id=?", (jid,)).fetchone()
+            if row and row[0] not in taken:
+                taken.add(row[0])
+                conn.execute("UPDATE reports SET task_id=? WHERE id=?", (row[0], rid))
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_reports_task ON reports(task_id) WHERE task_id IS NOT NULL")
     conn.commit()
 
 
@@ -503,12 +573,12 @@ def get_report_by_job(job_id: str) -> Optional[dict]:
 
 # --- reports + versions (v2 review pipeline) ---
 def create_report(job_id: str, org_id: str, owner: str, template: str = "Full Technical",
-                  stage: str = "draft") -> str:
+                  stage: str = "draft", task_id: Optional[str] = None) -> str:
     import uuid
     rid = str(uuid.uuid4())
     get_conn().execute(
-        "INSERT INTO reports (id, job_id, org_id, owner, stage, template) VALUES (?,?,?,?,?,?)",
-        (rid, job_id, org_id, owner, stage, template),
+        "INSERT INTO reports (id, job_id, org_id, owner, stage, template, task_id) VALUES (?,?,?,?,?,?,?)",
+        (rid, job_id, org_id, owner, stage, template, task_id),
     )
     get_conn().commit()
     return rid
@@ -744,7 +814,7 @@ def wipe_tenancy() -> dict:
     (proposals, reports + versions, reset/email-change tokens). Findings are wiped separately."""
     conn = get_conn()
     counts = {}
-    for t in ("accounts", "orgs", "proposals", "task_events", "reports", "report_versions", "reset_tokens", "email_changes"):
+    for t in ("accounts", "orgs", "proposals", "task_events", "reports", "report_versions", "reset_tokens", "email_changes", "report_content", "report_pdfs", "task_audit", "ai_turns"):
         counts[t] = conn.execute(f"SELECT COUNT(*) AS c FROM {t}").fetchone()["c"]
         conn.execute(f"DELETE FROM {t}")
     conn.commit()
@@ -792,3 +862,259 @@ def claim_email_change(token_hash: str, now: int) -> Optional[tuple[str, str]]:
         return None
     r = conn.execute("SELECT username, email FROM email_changes WHERE token_hash=?", (token_hash,)).fetchone()
     return (r["username"], r["email"])
+
+# --- step 4: report content, PDFs, audit trail, AI turns ---
+PDF_STALE_S = 300     # a PDF job with no progress for this long is failed (the worker died or LibreOffice hung)
+TURN_STALE_S = 480    # an AI turn may need two model calls of up to 180 s
+
+
+def task_findings(task_id: str) -> list[dict]:
+    """Every finding of every job the task has run (unscoped: callers load the task through get_proposal first)."""
+    rows = get_conn().execute(
+        "SELECT f.* FROM findings f JOIN task_jobs tj ON tj.job_id = f.job_id WHERE tj.task_id=? "
+        "ORDER BY f.created_at, f.id", (task_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _content_row(row) -> dict:
+    d = dict(row)
+    d["content"] = json.loads(d.pop("content_json"))
+    return d
+
+
+def latest_content(task_id: str) -> Optional[dict]:
+    row = get_conn().execute(
+        "SELECT * FROM report_content WHERE task_id=? ORDER BY version DESC LIMIT 1", (task_id,)).fetchone()
+    return _content_row(row) if row else None
+
+
+def get_content(task_id: str, version: int) -> Optional[dict]:
+    row = get_conn().execute(
+        "SELECT * FROM report_content WHERE task_id=? AND version=?", (task_id, version)).fetchone()
+    return _content_row(row) if row else None
+
+
+def list_content_versions(task_id: str) -> list[dict]:
+    return [dict(r) for r in get_conn().execute(
+        "SELECT version, created_by, note, created_at FROM report_content WHERE task_id=? ORDER BY version DESC",
+        (task_id,)).fetchall()]
+
+
+def add_content(task_id: str, org_id: str, content: dict, actor: str, note: str = "",
+                base_version: Optional[int] = None) -> Optional[int]:
+    """Append version max+1. With `base_version`, only if that is still the latest (0 = none yet); else None."""
+    conn = get_conn()
+    try:
+        with conn:
+            top = conn.execute("SELECT COALESCE(MAX(version), 0) FROM report_content WHERE task_id=?",
+                               (task_id,)).fetchone()[0]
+            if base_version is not None and base_version != top:
+                return None
+            conn.execute("INSERT INTO report_content (task_id, version, org_id, content_json, created_by, note) "
+                         "VALUES (?,?,?,?,?,?)",
+                         (task_id, top + 1, org_id, json.dumps(content, ensure_ascii=False), actor, note))
+            return top + 1
+    except sqlite3.IntegrityError:   # a concurrent writer took top + 1
+        return None
+
+
+_PDF_ACTIVE = "('queued','rendering','converting')"
+
+
+def get_pdf(jid: str, task_id: Optional[str] = None) -> Optional[dict]:
+    q, args = "SELECT * FROM report_pdfs WHERE id=?", [jid]
+    if task_id is not None:
+        q += " AND task_id=?"; args.append(task_id)
+    row = get_conn().execute(q, args).fetchone()
+    return dict(row) if row else None
+
+
+def active_pdf(task_id: str) -> Optional[dict]:
+    row = get_conn().execute(
+        f"SELECT * FROM report_pdfs WHERE task_id=? AND status IN {_PDF_ACTIVE}", (task_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def latest_ready_pdf(task_id: str) -> Optional[dict]:
+    row = get_conn().execute(
+        "SELECT * FROM report_pdfs WHERE task_id=? AND status='ready' ORDER BY n DESC LIMIT 1", (task_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_pdfs(task_id: str, limit: int = 20) -> list[dict]:
+    return [dict(r) for r in get_conn().execute(
+        "SELECT * FROM report_pdfs WHERE task_id=? ORDER BY rowid DESC LIMIT ?", (task_id, limit)).fetchall()]
+
+
+def claim_pdf(task_id: str, org_id: str, content_version: int, actor: str) -> tuple[Optional[dict], bool]:
+    """Atomic: the unique index on active jobs lets exactly one insert win. -> (job, created). The loser gets the
+    active job with created=False (None only if that job finished in the meantime: the caller looks again)."""
+    import uuid
+    jid = str(uuid.uuid4())
+    conn = get_conn()
+    try:
+        with conn:
+            conn.execute("INSERT INTO report_pdfs (id, task_id, org_id, status, content_version, requested_by) "
+                         "VALUES (?,?,?,'queued',?,?)", (jid, task_id, org_id, content_version, actor))
+        return get_pdf(jid), True
+    except sqlite3.IntegrityError:
+        return active_pdf(task_id), False
+
+
+def set_pdf_state(jid: str, status: str, error: Optional[str] = None) -> bool:
+    """Move an ACTIVE job to a new state. False when it is no longer active (reaped): the worker then stops."""
+    conn = get_conn()
+    cur = conn.execute(
+        f"UPDATE report_pdfs SET status=?, error=?, updated_at=datetime('now') WHERE id=? AND status IN {_PDF_ACTIVE}",
+        (status, error, jid))
+    conn.commit()
+    return cur.rowcount == 1
+
+
+def finish_pdf(jid: str, task_id: str, digest: str, stored_name: str, name_for) -> Optional[dict]:
+    """Ready: assign the next per-task number and the user-facing filename in one transaction. None = the job was
+    reaped meanwhile (the caller deletes the file it wrote)."""
+    conn = get_conn()
+    try:
+        with conn:
+            n = conn.execute("SELECT COALESCE(MAX(n), 0) + 1 FROM report_pdfs WHERE task_id=?", (task_id,)).fetchone()[0]
+            cur = conn.execute(
+                f"UPDATE report_pdfs SET status='ready', n=?, filename=?, stored_name=?, digest=?, error=NULL, "
+                f"updated_at=datetime('now') WHERE id=? AND status IN {_PDF_ACTIVE}",
+                (n, name_for(n), stored_name, digest, jid))
+            if cur.rowcount != 1:
+                return None
+    except sqlite3.IntegrityError:
+        return None
+    return get_pdf(jid)
+
+
+def reap_pdfs(max_age_s: int) -> int:
+    conn = get_conn()
+    cur = conn.execute(
+        f"UPDATE report_pdfs SET status='failed', error='timed out, try again', updated_at=datetime('now') "
+        f"WHERE status IN {_PDF_ACTIVE} AND updated_at < datetime('now', ?)", (f"-{int(max_age_s)} seconds",))
+    conn.commit()
+    return cur.rowcount
+
+
+def pdf_filename_for_stored(stored_name: str) -> Optional[str]:
+    row = get_conn().execute("SELECT filename FROM report_pdfs WHERE stored_name=?", (stored_name,)).fetchone()
+    return row[0] if row else None
+
+
+def add_audit(task_id: str, org_id: str, actor: str, action: str, subject: str = "", detail: Optional[dict] = None) -> None:
+    conn = get_conn()
+    conn.execute("INSERT INTO task_audit (task_id, org_id, actor, action, subject, detail_json, at) "
+                 "VALUES (?,?,?,?,?,?,datetime('now'))",
+                 (task_id, org_id, actor, action, subject, json.dumps(detail or {}, ensure_ascii=False)))
+    conn.commit()
+
+
+def list_audit(task_id: str, limit: int = 200) -> list[dict]:
+    out = []
+    for r in get_conn().execute("SELECT * FROM task_audit WHERE task_id=? ORDER BY id DESC LIMIT ?", (task_id, limit)):
+        d = dict(r)
+        d["detail"] = json.loads(d.pop("detail_json") or "{}")
+        out.append(d)
+    return out
+
+
+_TURN_ACTIVE = "('queued','running')"
+_TURN_SETTABLE = frozenset({"status", "summary", "ops_json", "error"})
+
+
+def get_turn(turn_id: str, task_id: Optional[str] = None) -> Optional[dict]:
+    q, args = "SELECT * FROM ai_turns WHERE id=?", [turn_id]
+    if task_id is not None:
+        q += " AND task_id=?"; args.append(task_id)
+    row = get_conn().execute(q, args).fetchone()
+    return dict(row) if row else None
+
+
+def active_turn(task_id: str) -> Optional[dict]:
+    row = get_conn().execute(f"SELECT * FROM ai_turns WHERE task_id=? AND status IN {_TURN_ACTIVE}", (task_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_turns(task_id: str, limit: int = 30) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM (SELECT rowid AS rid, * FROM ai_turns WHERE task_id=? ORDER BY rowid DESC LIMIT ?) ORDER BY rid",
+        (task_id, limit)).fetchall()
+    return [{k: v for k, v in dict(r).items() if k != "rid"} for r in rows]
+
+
+def claim_turn(task_id: str, org_id: str, actor: str, prompt: str, base_version: int) -> tuple[Optional[dict], bool]:
+    import uuid
+    tid = str(uuid.uuid4())
+    conn = get_conn()
+    try:
+        with conn:
+            conn.execute("INSERT INTO ai_turns (id, task_id, org_id, actor, prompt, status, base_version) "
+                         "VALUES (?,?,?,?,?,'queued',?)", (tid, task_id, org_id, actor, prompt, base_version))
+        return get_turn(tid), True
+    except sqlite3.IntegrityError:
+        return active_turn(task_id), False
+
+
+def set_turn(turn_id: str, **fields) -> bool:
+    """Update an ACTIVE turn (queued or running). A finished turn never changes again."""
+    if not fields or set(fields) - _TURN_SETTABLE:
+        raise ValueError("unsupported turn fields")
+    sets = [f"{k}=?" for k in fields] + ["updated_at=datetime('now')"]
+    conn = get_conn()
+    cur = conn.execute(f"UPDATE ai_turns SET {', '.join(sets)} WHERE id=? AND status IN {_TURN_ACTIVE}",
+                       [*fields.values(), turn_id])
+    conn.commit()
+    return cur.rowcount == 1
+
+
+def apply_turn(turn_id: str, task_id: str, org_id: str, content: dict, actor: str, note: str) -> Optional[int]:
+    """One transaction: claim the turn (ready, unapplied, based on the latest version) AND append the new version.
+    None = already applied, not ready, stale, or lost a race."""
+    conn = get_conn()
+    try:
+        with conn:
+            cur = conn.execute(
+                "UPDATE ai_turns SET applied=1, updated_at=datetime('now') WHERE id=? AND task_id=? AND status='ready' "
+                "AND applied=0 AND base_version=(SELECT COALESCE(MAX(version), 0) FROM report_content WHERE task_id=?)",
+                (turn_id, task_id, task_id))
+            if cur.rowcount != 1:
+                return None
+            v = conn.execute("SELECT COALESCE(MAX(version), 0) + 1 FROM report_content WHERE task_id=?",
+                             (task_id,)).fetchone()[0]
+            conn.execute("INSERT INTO report_content (task_id, version, org_id, content_json, created_by, note) "
+                         "VALUES (?,?,?,?,?,?)", (task_id, v, org_id, json.dumps(content, ensure_ascii=False), actor, note))
+            conn.execute("UPDATE ai_turns SET applied_version=? WHERE id=?", (v, turn_id))
+            return v
+    except sqlite3.IntegrityError:
+        return None
+
+
+def reap_turns(max_age_s: int) -> int:
+    conn = get_conn()
+    cur = conn.execute(
+        f"UPDATE ai_turns SET status='failed', error='timed out, try again', updated_at=datetime('now') "
+        f"WHERE status IN {_TURN_ACTIVE} AND updated_at < datetime('now', ?)", (f"-{int(max_age_s)} seconds",))
+    conn.commit()
+    return cur.rowcount
+
+
+def report_for_task(task_id: str) -> Optional[dict]:
+    """The task's report row; a row made before `task_id` existed is found through the task's jobs."""
+    row = get_conn().execute(
+        "SELECT * FROM reports WHERE task_id=? OR job_id IN (SELECT job_id FROM task_jobs WHERE task_id=?) "
+        "ORDER BY (task_id IS NULL), created_at LIMIT 1", (task_id, task_id)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["password_viewed"] = bool(d["password_viewed"])
+    return d
+
+
+def set_report_password_if_empty(rid: str, sealed: str) -> bool:
+    conn = get_conn()
+    cur = conn.execute("UPDATE reports SET pdf_password=? WHERE id=? AND (pdf_password IS NULL OR pdf_password='')",
+                       (sealed, rid))
+    conn.commit()
+    return cur.rowcount == 1
