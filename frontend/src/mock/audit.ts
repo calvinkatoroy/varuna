@@ -8,6 +8,19 @@ const jobs: { id: string; n: number; t0: number; cv: number }[] = []
 const turns: AiTurn[] = []
 const trail: any[] = []
 let nid = 1
+const LONG = 'Varuna melakukan penilaian kerentanan aplikasi web secara otomatis pada portal.samudera.co.id untuk PT Samudera Logistik.'
+const SHORT = 'Varuna menguji portal.samudera.co.id untuk PT Samudera Logistik.'
+const texts: Record<number, string> = { 1: LONG }   // executive summary text per report version
+const started = new Map<string, number>()            // turn id -> start time, for the fake progress
+const dbNow = () => new Date().toISOString().slice(0, 19).replace('T', ' ')
+function tick(t: AiTurn) {   // fake progress: a turn is ready 3.5 s after it was asked
+  if (t.status !== 'ready' && t.status !== 'failed' && Date.now() - (started.get(t.id) ?? 0) > 3500) {
+    t.status = 'ready'; t.summary = 'Ringkasan eksekutif dipersingkat'
+    t.diff = [{ op: 'replace_text', where: 'Ringkasan Eksekutif', before: texts[version], after: SHORT, sanitized: false }]
+  }
+  t.outdated = !t.applied && t.base_version !== version
+  return t
+}
 
 const statusAt = (t0: number): PdfStatus => { const d = Date.now() - t0; return d < 1200 ? 'queued' : d < 2600 ? 'rendering' : d < 4200 ? 'converting' : 'ready' }
 const job = (j: (typeof jobs)[number]): PdfJob => {
@@ -28,7 +41,7 @@ const content = (): ContentView => ({
   version, created_by: 'dimas', created_at: '2026-10-09 08:00:00', note: '', versions: [...versions].reverse(),
   preview: [
     { id: 'executive_summary', title: 'Ringkasan Eksekutif', items: [
-      { kind: 'paragraph', text: 'Varuna melakukan penilaian kerentanan aplikasi web secara otomatis pada portal.samudera.co.id untuk PT Samudera Logistik.' },
+      { kind: 'paragraph', text: texts[version] },
       { kind: 'counts', counts: { critical: 3, high: 5, medium: 4, low: 3, info: 1 }, risk: 'Critical' }] },
     { id: 'methodology', title: 'Metodologi', items: [{ kind: 'bullet', text: 'Penemuan: aplikasi ditelusuri (crawl).' }, { kind: 'bullet', text: 'Deteksi: pemeriksaan kerentanan umum dijalankan.' }] },
     { id: 'findings', title: 'Temuan Rinci', items: [] },
@@ -42,7 +55,7 @@ export function auditRoute(m: string, path: string, body: any): any {
   if (m === 'GET' && rest === 'audit') return summary(tid)
   if (m === 'GET' && rest === 'audit/trail') return [...trail].reverse()
   if (m === 'GET' && rest === 'report/content') return content()
-  if (m === 'POST' && rest === 'report/restore') { version += 1; versions.push({ version, created_by: 'dimas', note: `Restored version ${body.version}`, created_at: '2026-10-09 09:00:00' }); return { version } }
+  if (m === 'POST' && rest === 'report/restore') { version += 1; texts[version] = texts[body.version] ?? texts[version - 1]; versions.push({ version, created_by: 'dimas', note: `Restored version ${body.version}`, created_at: '2026-10-09 09:00:00' }); return { version } }
   if (m === 'POST' && rest === 'report/generate') {
     const s = summary(tid).pdf
     if (s.active) return { job: s.active }
@@ -63,28 +76,23 @@ export function auditRoute(m: string, path: string, body: any): any {
     trail.push({ id: trail.length + 1, actor: 'dimas', action: 'finding_edit', subject: rest.split('/')[1], detail: {}, at: '2026-10-09 09:00:00' })
     return { ok: true }
   }
-  if (m === 'GET' && rest === 'ai/turns') return turns
+  if (m === 'GET' && rest === 'ai/turns') return turns.map(tick)
   const one = m === 'GET' && rest.match(/^ai\/turns\/([^/]+)$/)
   if (one) {
     const t = turns.find((x) => x.id === one[1]); if (!t) throw fail(404, 'no such suggestion')
-    if (t.status !== 'ready' && Date.now() - Date.parse(t.created_at) > 3500) {
-      t.status = 'ready'; t.summary = 'Ringkasan eksekutif dipersingkat'
-      t.diff = [{ op: 'replace_text', where: 'Ringkasan Eksekutif', before: 'Varuna melakukan penilaian kerentanan aplikasi web secara otomatis pada portal.samudera.co.id untuk PT Samudera Logistik.', after: 'Varuna menguji portal.samudera.co.id untuk PT Samudera Logistik.', sanitized: false }]
-    }
-    t.outdated = !t.applied && t.base_version !== version
-    return t
+    return tick(t)
   }
   if (m === 'POST' && rest === 'ai/turns') {
     const t: AiTurn = { id: 'turn-' + nid++, actor: 'dimas', prompt: body.prompt, status: 'running', summary: null, error: null, base_version: version, applied: false,
-      applied_version: null, outdated: false, diff: [], created_at: new Date().toISOString(), updated_at: '' }
-    turns.push(t)
+      applied_version: null, outdated: false, diff: [], created_at: dbNow(), updated_at: '' }
+    started.set(t.id, Date.now()); turns.push(t)
     return { turn: t }
   }
   const ap = m === 'POST' && rest.match(/^ai\/turns\/([^/]+)\/apply$/)
   if (ap) {
     const t = turns.find((x) => x.id === ap[1]); if (!t) throw fail(404, 'no such suggestion')
     if (t.applied || t.base_version !== version) throw fail(409, 'The report changed since this suggestion. Ask again.')
-    version += 1; t.applied = true; t.applied_version = version; t.diff = []
+    version += 1; texts[version] = SHORT; t.applied = true; t.applied_version = version; t.diff = []
     versions.push({ version, created_by: 'dimas', note: 'AI: ' + t.summary, created_at: '2026-10-09 09:05:00' })
     return { version }
   }

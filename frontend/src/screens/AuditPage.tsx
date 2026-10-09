@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { ErrorRetry } from '@/components/ErrorRetry'
 import { ShellActions, ShellTitle } from '@/components/ShellSlots'
+import { AiChat } from '@/components/audit/AiChat'
 import { FindingDrawer } from '@/components/audit/FindingDrawer'
 import { ManualDrawer } from '@/components/audit/ManualDrawer'
 import { PdfPanel } from '@/components/audit/PdfPanel'
@@ -10,7 +11,7 @@ import { ReportPreview } from '@/components/audit/ReportPreview'
 import { Trail } from '@/components/audit/Trail'
 import { TargetFindings } from '@/components/findings/TargetFindings'
 import { Button } from '@/components/ui/button'
-import { pdfBadge, auditApi, type AuditSummary } from '@/lib/audit'
+import { pdfBadge, auditApi, readOnlyReason, type AuditSummary } from '@/lib/audit'
 import { SEVS, SEV_LABEL, patchRows, rowsKeyPrefix, type FindingRow } from '@/lib/findings'
 import { bare } from '@/lib/format'
 import { useReturnFocus } from '@/lib/returnFocus'
@@ -24,12 +25,6 @@ const TONE = { low: 'bg-low-bg text-low-ink', med: 'bg-med-bg text-med-ink', inf
 export default function AuditRoute() {
   const { tid } = useParams()
   return tid ? <AuditPage key={tid} tid={tid} /> : null
-}
-
-function readOnlyReason(s: AuditSummary): string {
-  return s.task.stage !== 'completed'
-    ? 'This report is in review and cannot be changed here. To change it, the task has to be sent back to Completed.'
-    : 'Only the assignee or a lead pentester can change this report.'
 }
 
 function AuditPage({ tid }: { tid: string }) {
@@ -96,6 +91,7 @@ function AuditPage({ tid }: { tid: string }) {
         </div>
         <aside className="space-y-3.5">
           <PdfPanel tid={tid} summary={sum} onChanged={refresh} />
+          {sum.ai_chat && <AiChat tid={tid} summary={sum} onChanged={refresh} />}
           <Trail tid={tid} rev={rev} />
         </aside>
       </div>

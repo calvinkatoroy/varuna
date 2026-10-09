@@ -128,6 +128,13 @@ export function canApplyTurn(t: AiTurn, contentVersion: number, canAudit: boolea
   if (t.outdated || t.base_version !== contentVersion) return 'The report changed. Ask again.'
   return null
 }
+/** Why the report cannot be changed here (page note and chat panel), or null when the person may change it. */
+export function readOnlyReason(s: AuditSummary): string | null {
+  if (s.can_audit) return null
+  return s.task.stage !== 'completed'
+    ? 'This report is in review and cannot be changed here. To change it, the task has to be sent back to Completed.'
+    : 'Only the assignee or a lead pentester can change this report.'
+}
 export const ACTION_LABEL: Record<string, string> = {
   verdict: 'Changed a verdict', finding_edit: 'Edited a finding', manual_add: 'Added a finding', pdf_requested: 'Generated a PDF',
   content_apply: 'Applied an AI suggestion', content_restore: 'Restored a version', password_view: 'Viewed the PDF password',
