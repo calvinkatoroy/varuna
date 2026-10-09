@@ -68,6 +68,8 @@ def request_pdf(task: dict, actor: str, inline: bool = False):
 
 def _public_error(e: Exception) -> str:
     """A fixed sentence per failure kind. The exception text (paths, tool output) never reaches the page."""
+    if isinstance(e, pdfpass.Unavailable):
+        return str(e)
     if isinstance(e, subprocess.TimeoutExpired):
         return "PDF conversion timed out. Try again."
     if isinstance(e, FileNotFoundError):

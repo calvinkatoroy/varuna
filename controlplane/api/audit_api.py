@@ -92,7 +92,10 @@ def pdf_password(tid: str, user: dict = Depends(require_team), scope: Scope = De
     t = _task(tid, scope)
     if not db.latest_ready_pdf(t["id"]):
         raise HTTPException(status_code=409, detail="No PDF has been generated yet.")
-    pw = pdfpass.ensure(reportdoc.ensure_report(t)["id"])
+    try:
+        pw = pdfpass.ensure(reportdoc.ensure_report(t)["id"])
+    except pdfpass.Unavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
     db.add_audit(t["id"], t["org_id"], user["username"], "password_view", "", {})
     audit.log("pdf_password_view", actor=user["username"], task=t["id"])
     return JSONResponse(content={"password": pw}, headers={"Cache-Control": "no-store"})

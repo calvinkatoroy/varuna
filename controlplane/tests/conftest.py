@@ -9,6 +9,8 @@ os.environ["VARUNA_REQUIRE_MFA"] = ""
 os.environ.setdefault("NOTIFY_WEBHOOK_URL", "")
 os.environ["BCRYPT_ROUNDS"] = "4"   # tests hash a lot of passwords; production keeps the default cost 12
 os.environ["VARUNA_SCHEDULER"] = "0"   # no background scheduler thread in tests; tests call scheduler.tick()
+os.environ["VARUNA_ALLOW_DEV_KEY"] = "1"   # tests seal PDF passwords with the public dev key
+os.environ["VARUNA_SECRET_KEY"] = os.environ["VARUNA_SECRET_KEY_OLD"] = ""   # not from a developer .env
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "report"))

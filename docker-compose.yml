@@ -35,6 +35,8 @@ services:
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
       - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -hex 32)}
+      - VARUNA_SECRET_KEY=${VARUNA_SECRET_KEY:-}
+      - VARUNA_SECRET_KEY_OLD=${VARUNA_SECRET_KEY_OLD:-}
       - VARUNA_CORS_ORIGINS=${VARUNA_CORS_ORIGINS:-https://localhost}
       - VARUNA_PUBLIC_URL=${VARUNA_PUBLIC_URL:-}
       - VARUNA_CLOUD_ALLOW_HOSTS=${VARUNA_CLOUD_ALLOW_HOSTS:-}
@@ -76,6 +78,8 @@ services:
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
       - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -hex 32)}
+      - VARUNA_SECRET_KEY=${VARUNA_SECRET_KEY:-}
+      - VARUNA_SECRET_KEY_OLD=${VARUNA_SECRET_KEY_OLD:-}
       - VARUNA_CORS_ORIGINS=${VARUNA_CORS_ORIGINS:-https://localhost}
       - VARUNA_REQUIRE_MFA=${VARUNA_REQUIRE_MFA:-}
       - VARUNA_CLOUD_ALLOW_HOSTS=${VARUNA_CLOUD_ALLOW_HOSTS:-}

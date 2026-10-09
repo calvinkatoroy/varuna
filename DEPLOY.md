@@ -24,6 +24,7 @@ cp .env.example .env
 Edit `.env`:
 
 - `JWT_SECRET` : `openssl rand -hex 32` (REQUIRED; the stack refuses to start without it)
+- `VARUNA_SECRET_KEY` : `python -c "import secrets;print(secrets.token_urlsafe(32))"`. It seals the PDF passwords stored in the database. Back it up together with the database: without it every stored password is unreadable (clients get "contact your administrator" and new PDFs fail; the private API logs a warning at startup). To rotate, set the new value here and move the old one into `VARUNA_SECRET_KEY_OLD` (comma separated list); old values keep opening and new ones use the new key. If left empty, a key derived from `JWT_SECRET` is used and still opens, so set `VARUNA_SECRET_KEY` before ever changing `JWT_SECRET`. Without any real key the stack refuses to create passwords (the public dev default is only accepted when `VARUNA_ALLOW_DEV_KEY=1`, for host-run development).
 - `VARUNA_DOMAIN` : your domain, e.g. `varuna.example.com`
 - `CADDY_EMAIL` : your email (Let's Encrypt)
 - `VARUNA_CORS_ORIGINS` : `https://varuna.example.com`

@@ -136,7 +136,7 @@ def seed(creds_path: str = DEMO_CREDS) -> dict:
     tid = scanned(sam, "budi.santoso", "portal.samudera-logistik.co.id", "Pengujian kepatuhan portal pelanggan")
     review(tid, [("rizky", "review_lead_pentester"), ("dewi", "review_lead_cyber"), ("agus", "review_governance"),
                  ("sari", "review_manager"), ("hendra", "delivered")])
-    rid = db.get_report_by_job(db.get_proposal(tid, org_id=None)["job_id"])["id"]
+    rid = db.report_for_task(tid)["id"]
     print(f"budi.santoso: laporan {rid} DELIVERED, password PDF: {pdfpass.unseal(db.get_report(rid, org_id=None)['pdf_password'])}")
 
     # Samudera / siti: tugas masuk, belum diambil pentester.

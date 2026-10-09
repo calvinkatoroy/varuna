@@ -577,5 +577,9 @@ def view_password(rid: str, user: dict = Depends(current_user), scope: tenancy.S
         raise HTTPException(status_code=404, detail="no such report")
     if r["stage"] != models.REPORT_DELIVERED or not r["pdf_password"]:
         raise HTTPException(status_code=409, detail="report not delivered yet")
+    try:
+        pw = pdfpass.unseal(r["pdf_password"])
+    except pdfpass.Unavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
     audit.log("pdf_password_view", actor=user["username"], report=rid)
-    return JSONResponse(content={"password": pdfpass.unseal(r["pdf_password"])}, headers={"Cache-Control": "no-store"})
+    return JSONResponse(content={"password": pw}, headers={"Cache-Control": "no-store"})

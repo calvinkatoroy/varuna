@@ -97,7 +97,7 @@ def _recover_delivery(t: dict, now: datetime.datetime, out: dict) -> None:
     changed = datetime.datetime.strptime(t["updated_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.UTC)
     if now - changed < DELIVERY_STUCK:
         return
-    r = db.get_report_by_job(t["job_id"]) if t.get("job_id") else None
+    r = db.report_for_task(t["id"])   # the row delivery marked (reportdoc.ensure_report), whatever the job id is now
     if r and r["stage"] == models.REPORT_DELIVERED:
         ok = _move(t, "delivered", now)
     else:

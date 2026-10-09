@@ -560,17 +560,6 @@ def list_task_events(task_id: str) -> list[dict]:
         "SELECT * FROM task_events WHERE task_id=? ORDER BY id", (task_id,)).fetchall()]
 
 
-def get_report_by_job(job_id: str) -> Optional[dict]:
-    """Internal (unscoped) lookup of the report a task's job produced."""
-    row = get_conn().execute(
-        "SELECT * FROM reports WHERE job_id=? ORDER BY created_at DESC LIMIT 1", (job_id,)).fetchone()
-    if not row:
-        return None
-    d = dict(row)
-    d["password_viewed"] = bool(d["password_viewed"])
-    return d
-
-
 # --- reports + versions (v2 review pipeline) ---
 def create_report(job_id: str, org_id: str, owner: str, template: str = "Full Technical",
                   stage: str = "draft", task_id: Optional[str] = None) -> str:

@@ -30,6 +30,7 @@ import db  # noqa: E402
 import generator  # noqa: E402
 import ingest  # noqa: E402
 import models  # noqa: E402
+import pdfpass  # noqa: E402
 import redis_store  # noqa: E402
 import reportdoc  # noqa: E402
 import scheduler  # noqa: E402
@@ -73,6 +74,11 @@ def _warn_default_passwords() -> None:
     if weak:
         print(f"WARNING: team accounts still use the default password 'changeme': {', '.join(weak)}. "
               "Change them (POST /api/password or the admin reset) before any non-local use.", flush=True)
+
+
+@app.on_event("startup")
+def _check_password_keys() -> None:
+    pdfpass.check_sealed()
 
 
 @app.on_event("startup")

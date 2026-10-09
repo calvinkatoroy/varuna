@@ -60,7 +60,8 @@ def process_job(job_id: str, raw: dict) -> None:
     # the job's 24h Redis TTL to survive the (possibly multi-day) review pipeline.
     db.save_findings(job_id, job["submitter"], job_org(job), findings)
     # A task's scan gets its report automatically (direct team scans have none; use /api/reports/generate).
-    if db.get_proposal_by_job(job_id) and not db.get_report_by_job(job_id):
+    task = db.get_proposal_by_job(job_id)
+    if task and not db.report_for_task(task["id"]):
         try:
             start_review(job)
         except Exception as e:   # a report-generation failure must not lose the findings

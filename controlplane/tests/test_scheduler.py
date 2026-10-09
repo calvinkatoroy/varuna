@@ -227,7 +227,7 @@ def _delivering(with_report=None):
     db.get_conn().execute("UPDATE proposals SET stage='delivering', scan_state=NULL, job_id='jd', assignee='rizky' WHERE id=?", (tid,))
     db.get_conn().commit()
     if with_report:
-        rid = db.create_report("jd", db.get_proposal(tid, org_id=None)["org_id"], "alice")
+        rid = db.create_report("jd", db.get_proposal(tid, org_id=None)["org_id"], "alice", task_id=tid)
         db.set_report(rid, stage=with_report)
     return tid
 
