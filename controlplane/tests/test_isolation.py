@@ -38,11 +38,9 @@ def _seed_org(name, user, host, job_id, reports_dir):
     redis_store.add_org_job(org, job_id)
     db.save_findings(job_id, user, org, [{"name": "XSS", "severity": "high", "host": host}])
     rid = db.create_report(job_id, org, user, stage="delivered")
-    db.add_report_version(rid, filename=f"{rid}_v1.docx", editor="pen")
     db.set_report(rid, delivered_pdf=f"{rid}_delivered.pdf", pdf_password=f"pw-{user}", password_viewed=0)
     store.REPORTS_DIR = reports_dir
     store.save_report_file(f"{rid}_delivered.pdf", b"%PDF-1.4 " + user.encode())
-    store.save_report_file(f"{rid}_v1.docx", b"PK " + user.encode())
     legacy = store.save_report(user, job_id, "Executive Summary", b"PK " + user.encode(), org_id=org)["file"]
     fid = db.list_findings(org_id=org)[0]["id"]
     return {"org": org, "pid": pid, "rid": rid, "fid": fid, "job_id": job_id, "fname": legacy, "jid": ready_pdf(pid)}
@@ -58,7 +56,7 @@ def _candidates(b):
     """Every path parameter name the two apps use, mapped to org B's real ids."""
     return {
         "pid": [b["pid"]], "tid": [b["pid"]], "rid": [b["rid"]], "fid": [b["fid"]], "job_id": [b["job_id"]], "jid": [b["jid"]],
-        "fname": [b["fname"], f"{b['rid']}_delivered.pdf", f"{b['rid']}_v1.docx"],
+        "fname": [b["fname"], f"{b['rid']}_delivered.pdf"],
         "id": [b["pid"], b["rid"]], "n": ["1"], "username": ["beta"], "action": ["disable"], "org_id": [b["org"]],
     }
 
@@ -97,7 +95,7 @@ def _org_b_untouched(b):
     assert f["status"] == "open" and f["verdict"] == "tp"
     r = db.get_report(b["rid"], org_id=b["org"])
     assert r["stage"] == "delivered" and r["password_viewed"] is False
-    assert len(db.list_report_versions(b["rid"])) == 1
+    assert len(db.list_content_versions(b["pid"])) == 1 and db.get_pdf(b["jid"])["status"] == "ready"
     assert redis_store.is_suspended(b["job_id"]) is False
     assert db.get_account("beta")["disabled"] == 0
 
@@ -158,12 +156,10 @@ def test_staff_sees_both_orgs(priv, tmp_path, role):
     auth.create_account("staff1", PW, role)
     tok = priv.login("staff1", PW)
     assert {f["id"] for f in priv.get("/api/findings", tok).json()} == {a["fid"], b["fid"]}
-    assert {r["id"] for r in priv.get("/api/pipeline/reports", tok).json()} == {a["rid"], b["rid"]}
     clients = {c["client"] for col in priv.get("/api/board", tok).json() for c in col["cards"]}
     assert clients == {"PT Alpha", "PT Beta"}
     for x in (a, b):
         assert priv.get(f"/api/tasks/{x['pid']}/detail", tok).status_code == 200
-        assert priv.get(f"/api/pipeline/reports/{x['rid']}/versions", tok).status_code == 200
 
 
 def test_sysadmin_has_no_tenant_access(api, priv, tmp_path):
@@ -173,9 +169,9 @@ def test_sysadmin_has_no_tenant_access(api, priv, tmp_path):
     for path in ("/api/tasks", "/api/findings", "/api/reports", "/api/scans", f"/api/tasks/{b['pid']}"):
         assert api.get(path, tok).status_code == 403, path
     # the private plane refuses a sysadmin's token on its tenant GET routes too
-    for path in ("/api/findings", "/api/board", "/api/pipeline/reports", "/api/reports/all",
+    for path in ("/api/findings", "/api/board", "/api/reports/all",
                  f"/api/findings/{b['job_id']}", f"/api/tasks/{a['pid']}/detail",
-                 f"/api/pipeline/reports/{a['rid']}/versions", f"/api/scans/{b['job_id']}/events"):
+                 f"/api/scans/{b['job_id']}/events"):
         assert priv.get(path, tok).status_code == 403, path
 
 

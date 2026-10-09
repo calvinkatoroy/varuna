@@ -120,20 +120,6 @@ def test_port_and_path_are_validated():
     assert _prop(Hc, path="../../etc").status_code == 422
 
 
-def test_bad_docx_is_rejected_and_password_not_listed():              # H5, H6
-    Hrep, Hgov = _h("aisah", "pentester"), _h("hani", "governance")
-    org = db.create_org("org-dan")
-    rid = db.create_report("j9", org, "dan")
-    db.create_proposal({"submitter": "dan", "target": "http://t", "org_id": org, "stage": "completed",
-                        "job_id": "j9", "assignee": "aisah"})
-    up = lambda data: priv.post(f"/api/pipeline/reports/{rid}/version",
-                                files={"file": ("f.docx", data, DOCX)}, headers=Hrep)
-    assert up(b"").status_code == 422 and up(b"NOT A DOCX").status_code == 422
-    assert db.list_report_versions(rid) == []
-    assert up(_docx()).status_code == 200
-    db.set_report(rid, stage=models.REPORT_DELIVERED, pdf_password="s3cret", delivered_pdf="x.pdf")
-    rows = priv.get("/api/pipeline/reports", headers=Hrep).json()
-    assert rows and all("pdf_password" not in r for r in rows)
 
 
 def test_target_validated_at_submit():                                # M2
@@ -271,28 +257,11 @@ def test_finished_scan_starts_review_automatically(tmp_path):
     assert len(reports) == 1 and reports[0]["stage"] == models.REPORT_DRAFT and reports[0]["owner"] == "zed"
     assert reports[0]["org_id"] == _org("zed")                         # copied from the proposal
     assert {f["org_id"] for f in db.get_findings(jid)} == {_org("zed")}
-    assert len(db.list_report_versions(reports[0]["id"])) == 1
+    assert db.latest_content(db.get_proposal_by_job(jid)["id"])["version"] == 1
     ingest.process_job(jid, {"nuclei": json.dumps(nuclei)})       # re-ingest must not duplicate
     assert len([r for r in db.list_reports(org_id=None) if r["job_id"] == jid]) == 1
 
 
-def test_reviewer_can_switch_template_and_history_is_kept(tmp_path):
-    import store as report_store
-    report_store.REPORTS_DIR = str(tmp_path)
-    Hrep, Hpen = _h("aisah2", "pentester"), _h("pen22", "governance")
-    redis_store._client = FakeRedis()
-    org = db.create_org("org-dan")
-    rid = db.create_report("jt", org, "dan")
-    db.create_proposal({"submitter": "dan", "target": "http://t", "org_id": org, "stage": "completed", "job_id": "jt", "assignee": "aisah2"})
-    db.save_findings("jt", "dan", org, [{"name": "X", "severity": "high", "host": "h"}])
-    assert "Formal Handover" in priv.get("/api/templates", headers=Hrep).json()
-    assert priv.post(f"/api/pipeline/reports/{rid}/template", json={"template": "Formal Handover"}, headers=Hpen).status_code == 403
-    assert priv.post(f"/api/pipeline/reports/{rid}/template", json={"template": "Nope"}, headers=Hrep).status_code == 422
-    r = priv.post(f"/api/pipeline/reports/{rid}/template", json={"template": "Formal Handover"}, headers=Hrep)
-    assert r.status_code == 200 and r.json()["version_no"] == 1
-    assert db.get_report(rid, org_id=None)["template"] == "Formal Handover"
-    priv.post(f"/api/pipeline/reports/{rid}/template", json={"template": "Raw Findings"}, headers=Hrep)
-    assert [v["version_no"] for v in db.list_report_versions(rid)] == [1, 2]
 
 
 def test_refusals_from_middleware_still_carry_cors_headers():
@@ -349,65 +318,10 @@ def test_stalled_scans_are_failed_after_the_agent_is_silent_too_long():
     assert board.reap_stalled(now=later) == 0                          # idempotent
 
 
-def test_concurrent_manager_approvals_deliver_exactly_once(tmp_path):
-    import store as report_store
-    import pdf_deliver
-    from reportlab.pdfgen import canvas
-    report_store.REPORTS_DIR = str(tmp_path)
-
-    def fake_pdf(_):                       # no LibreOffice in tests; count how many deliveries run
-        calls.append(1)
-        b = io.BytesIO(); c = canvas.Canvas(b); c.drawString(72, 720, "x"); c.showPage(); c.save()
-        return b.getvalue()
-    calls = []
-    old = pdf_deliver.CONVERT
-    pdf_deliver.CONVERT = fake_pdf
-    try:
-        Hm = _h("bayu9", "manager")
-        org = db.create_org("org-dan")
-        tid = db.create_proposal({"submitter": "dan", "target": "http://t", "org_id": org, "stage": "review_manager", "job_id": "jr"})
-        rid = db.create_report("jr", org, "dan")
-        db.add_report_version(rid, filename=f"{rid}_v1.docx", editor="x")
-        report_store.save_report_file(f"{rid}_v1.docx", _docx("final"))
-        go = lambda _: priv.post(f"/api/tasks/{tid}/transition", headers=Hm, json={"to": "delivered", "version": 0}).status_code
-        with cf.ThreadPoolExecutor(8) as ex:
-            codes = list(ex.map(go, range(8)))
-        assert codes.count(200) == 1, codes            # one delivery wins, the rest are refused
-        assert set(codes) <= {200, 409}, codes
-        assert len(calls) == 1, "the PDF must be produced once, with one password"
-        assert db.get_report(rid, org_id=None)["stage"] == models.REPORT_DELIVERED
-        assert db.get_proposal(tid, org_id=None)["stage"] == "delivered"
-    finally:
-        pdf_deliver.CONVERT = old
 
 
-def test_failed_delivery_puts_the_task_back(tmp_path):
-    import store as report_store
-    import pdf_deliver
-    report_store.REPORTS_DIR = str(tmp_path)
-    old = pdf_deliver.CONVERT
-    pdf_deliver.CONVERT = lambda _: (_ for _ in ()).throw(RuntimeError("soffice died"))
-    try:
-        Hm = _h("bayu10", "manager")
-        org = db.create_org("org-dan")
-        tid = db.create_proposal({"submitter": "dan", "target": "http://t", "org_id": org, "stage": "review_manager", "job_id": "jr2"})
-        rid = db.create_report("jr2", org, "dan")
-        db.add_report_version(rid, filename=f"{rid}_v1.docx", editor="x")
-        report_store.save_report_file(f"{rid}_v1.docx", _docx("final"))
-        assert priv.post(f"/api/tasks/{tid}/transition", headers=Hm, json={"to": "delivered", "version": 0}).status_code == 502
-        assert db.get_proposal(tid, org_id=None)["stage"] == "review_manager", "not stuck in a transient stage"
-    finally:
-        pdf_deliver.CONVERT = old
 
 
-def test_view_once_password_is_shown_once_even_under_concurrency():
-    redis_store._client = FakeRedis()
-    Hc = _h("vera", "client")
-    rid = db.create_report("jv", _org("vera"), "vera", stage=models.REPORT_DELIVERED)
-    db.set_report(rid, pdf_password="s3cr3t", delivered_pdf="x.pdf", password_viewed=0)
-    with cf.ThreadPoolExecutor(8) as ex:
-        codes = list(ex.map(lambda _: pub.get(f"/api/reports/{rid}/password", headers=Hc).status_code, range(8)))
-    assert codes.count(200) == 1 and codes.count(403) == 7, codes
 
 
 def test_team_gets_live_scan_progress_on_the_private_plane():
@@ -457,3 +371,43 @@ def test_installer_cmd_download_is_gated_and_carries_a_working_one_time_token(mo
     assert tokens.consume_enrollment_token(tok) == "inst_client"                     # a real token for THIS client
     assert tokens.consume_enrollment_token(tok) is None                              # and it works once
     assert pub.get("/api/agent/installer").status_code == 401                        # not for anonymous callers
+
+
+
+def test_concurrent_manager_approvals_deliver_exactly_once(tmp_path):
+    import store as report_store
+    from conftest import ready_pdf
+    report_store.REPORTS_DIR = str(tmp_path)
+    Hm = _h("bayu9", "manager")
+    org = db.create_org("org-dan")
+    tid = db.create_proposal({"submitter": "dan", "target": "http://t", "org_id": org, "stage": "review_manager", "job_id": "jr"})
+    rid = db.create_report("jr", org, "dan")
+    stored = db.get_pdf(ready_pdf(tid))["stored_name"]
+    go = lambda _: priv.post(f"/api/tasks/{tid}/transition", headers=Hm, json={"to": "delivered", "version": 0}).status_code
+    with cf.ThreadPoolExecutor(8) as ex:
+        codes = list(ex.map(go, range(8)))
+    assert codes.count(200) == 1, codes                       # one delivery wins, the rest are refused
+    assert set(codes) <= {200, 409}, codes
+    rep = db.get_report(rid, org_id=None)
+    assert rep["stage"] == models.REPORT_DELIVERED and rep["delivered_pdf"] == stored
+    assert db.get_proposal(tid, org_id=None)["stage"] == "delivered"
+
+
+def test_delivery_without_a_pdf_puts_the_task_back():
+    Hm = _h("bayu10", "manager")
+    org = db.create_org("org-dan")
+    tid = db.create_proposal({"submitter": "dan", "target": "http://t", "org_id": org, "stage": "review_manager", "job_id": "jr2"})
+    db.create_report("jr2", org, "dan")
+    assert priv.post(f"/api/tasks/{tid}/transition", headers=Hm, json={"to": "delivered", "version": 0}).status_code == 409
+    assert db.get_proposal(tid, org_id=None)["stage"] == "review_manager", "not stuck in a transient stage"
+
+
+def test_the_client_password_is_the_same_for_every_request_even_in_parallel():
+    redis_store._client = FakeRedis()
+    import pdfpass
+    Hc = _h("vera", "client")
+    rid = db.create_report("jv", _org("vera"), "vera", stage=models.REPORT_DELIVERED)
+    db.set_report(rid, pdf_password=pdfpass.seal("s3cr3t"), delivered_pdf="x.pdf")
+    with cf.ThreadPoolExecutor(8) as ex:
+        res = list(ex.map(lambda _: pub.get(f"/api/reports/{rid}/password", headers=Hc), range(8)))
+    assert {r.status_code for r in res} == {200} and {r.json()["password"] for r in res} == {"s3cr3t"}

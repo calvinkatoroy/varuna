@@ -43,7 +43,7 @@ def test_cannot_disable_or_demote_last_sysadmin(priv):
 def test_sysadmin_has_no_tenant_access(priv):
     _root()
     tok = priv.login("root", "Passw0rd!x")
-    for path in ("/api/findings", "/api/board", "/api/pipeline/reports", "/api/reports/all"):
+    for path in ("/api/findings", "/api/board", "/api/tasks/x/detail", "/api/reports/all"):
         assert priv.get(path, tok).status_code == 403
 
 

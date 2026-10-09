@@ -267,21 +267,6 @@ if __name__ == "__main__":
     print("test_browser_api: all green")
 
 
-def test_client_delivered_pdf_and_view_once_password():
-    reset()
-    Ha = _token("alice", "client")
-    Hb = _token("bob", "client")
-    rid = db.create_report("j1", _org("alice"), "alice")
-    db.set_report(rid, stage=models.REPORT_DELIVERED, delivered_pdf=f"{rid}.pdf",
-                  pdf_password="pw123", password_viewed=0)
-    browser.report_store.save_report_file(f"{rid}.pdf", b"%PDF-1.4 fake")
-    assert client.get(f"/api/reports/{rid}/delivered", headers=Hb).status_code == 404  # other org
-    assert client.get(f"/api/reports/{rid}/password", headers=Hb).status_code == 404   # and burns nothing
-    r = client.get(f"/api/reports/{rid}/delivered", headers=Ha)
-    assert r.status_code == 200 and r.content == b"%PDF-1.4 fake"
-    p = client.get(f"/api/reports/{rid}/password", headers=Ha)
-    assert p.status_code == 200 and p.json()["password"] == "pw123"
-    assert client.get(f"/api/reports/{rid}/password", headers=Ha).status_code == 403  # view-once
 
 
 def test_client_cannot_access_undelivered_report():
@@ -395,3 +380,35 @@ def test_scan_events_streams_progress_until_done():
     assert frames[-1]["status"] == "done"
     assert frames[-1]["per_tool_status"] == {"katana": "done", "nuclei": "done"}
     assert len(frames) >= 3   # at least: initial, mid-transition, final
+
+
+def test_client_gets_the_pdf_with_its_strict_name_and_a_persistent_password():
+    reset()
+    import pdfpass
+    Ha, Hb = _token("alice", "client"), _token("bob", "client")
+    rid = db.create_report("j1", _org("alice"), "alice", stage=models.REPORT_DELIVERED)
+    db.set_report(rid, delivered_pdf="pdf-abc.pdf", pdf_password=pdfpass.seal("pw123"))
+    job, _ = db.claim_pdf("t1", _org("alice"), 1, "rizky")
+    db.finish_pdf(job["id"], "t1", "dg", "pdf-abc.pdf", lambda n: "PT_A_x_Pentest_Report_1.pdf")
+    browser.report_store.save_report_file("pdf-abc.pdf", b"%PDF-1.4 fake")
+    assert client.get(f"/api/reports/{rid}/delivered", headers=Hb).status_code == 404   # other org
+    assert client.get(f"/api/reports/{rid}/password", headers=Hb).status_code == 404
+    r = client.get(f"/api/reports/{rid}/delivered", headers=Ha)
+    assert r.status_code == 200 and r.content == b"%PDF-1.4 fake"
+    assert r.headers["content-disposition"] == ("attachment; filename=\"PT_A_x_Pentest_Report_1.pdf\"; "
+                                                "filename*=UTF-8''PT_A_x_Pentest_Report_1.pdf")
+    for _ in range(3):                                   # no view-once any more: the same answer every time
+        p = client.get(f"/api/reports/{rid}/password", headers=Ha)
+        assert p.status_code == 200 and p.json() == {"password": "pw123"} and p.headers["cache-control"] == "no-store"
+    assert client.get("/api/reports", headers=Ha).json()[0]["filename"] == "PT_A_x_Pentest_Report_1.pdf"
+
+
+def test_password_needs_delivery_and_old_plaintext_values_still_read():
+    reset()
+    Ha = _token("alice", "client")
+    rid = db.create_report("j9", _org("alice"), "alice")          # still a draft
+    db.set_report(rid, pdf_password="legacy-plain")
+    assert client.get(f"/api/reports/{rid}/password", headers=Ha).status_code == 409
+    db.set_report(rid, stage=models.REPORT_DELIVERED, delivered_pdf="x.pdf")
+    assert client.get(f"/api/reports/{rid}/password", headers=Ha).json()["password"] == "legacy-plain"
+    assert client.get("/api/reports", headers=Ha).json()[0]["filename"] == "Pentest_Report.pdf"   # no job row: safe fallback

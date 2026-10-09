@@ -75,7 +75,7 @@ def _meta(t: dict) -> str:
     if stage == "scan":
         return _scan_meta(t)
     if stage == "completed":
-        return "Scan finished, ready to submit"
+        return "Scan finished, ready to audit"
     if stage == workflow.DELIVERING:
         return "Delivering the protected PDF"
     if stage == "delivered":
@@ -84,9 +84,8 @@ def _meta(t: dict) -> str:
         return t.get("decline_cause") or "Declined"
     if stage == "expired":
         return "Client window ended"
-    r = db.get_report_by_job(t["job_id"]) if t.get("job_id") else None
-    v = db.latest_version(r["id"]) if r else None
-    return f"v{v['version_no']} · {v['editor']}" if v else "No report yet"
+    c, p = db.latest_content(t["id"]), db.latest_ready_pdf(t["id"])
+    return f"Report v{c['version']} · PDF {p['n']}" if c and p else "No PDF yet"
 
 
 def _iso(db_time: str | None) -> str | None:

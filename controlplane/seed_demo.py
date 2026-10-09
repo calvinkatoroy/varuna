@@ -83,6 +83,8 @@ def make_job(target: str, submitter: str, org_id: str) -> dict:
 
 import datetime  # noqa: E402
 import ingest  # noqa: E402
+import pdfjobs  # noqa: E402
+import pdfpass  # noqa: E402
 import seed_account  # noqa: E402
 import workflow  # noqa: E402
 
@@ -104,6 +106,7 @@ def scanned(org_id: str, client: str, host: str, notes: str) -> str:
     tid = task(org_id, client, host, notes, stage="completed", assignee="rizky", job_id=job["id"])
     db.save_findings(job["id"], client, org_id, FINDINGS.get(host, []))
     ingest.start_review(job, editor="rizky")
+    pdfjobs.request_pdf(db.get_proposal(tid, org_id=None), "rizky", inline=True)   # Submit for review needs a real PDF
     return tid
 
 
@@ -134,7 +137,7 @@ def seed(creds_path: str = DEMO_CREDS) -> dict:
     review(tid, [("rizky", "review_lead_pentester"), ("dewi", "review_lead_cyber"), ("agus", "review_governance"),
                  ("sari", "review_manager"), ("hendra", "delivered")])
     rid = db.get_report_by_job(db.get_proposal(tid, org_id=None)["job_id"])["id"]
-    print(f"budi.santoso: laporan {rid} DELIVERED, password PDF: {db.get_report(rid, org_id=None)['pdf_password']}")
+    print(f"budi.santoso: laporan {rid} DELIVERED, password PDF: {pdfpass.unseal(db.get_report(rid, org_id=None)['pdf_password'])}")
 
     # Samudera / siti: tugas masuk, belum diambil pentester.
     task(sam, "siti.rahayu", "api.samudera-logistik.co.id", "Pengujian sebelum rilis. Kontak: Siti Rahayu, 0812-5550-0101",

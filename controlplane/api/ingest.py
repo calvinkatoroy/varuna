@@ -24,9 +24,9 @@ import parse  # noqa: E402
 import correlate  # noqa: E402
 import ollama  # noqa: E402
 import audit  # noqa: E402
-import generator  # noqa: E402
+import reportcontent  # noqa: E402
 import notify  # noqa: E402
-import store as report_store  # noqa: E402
+import reportdoc  # noqa: E402
 
 
 def job_org(job: dict) -> str:
@@ -36,30 +36,14 @@ def job_org(job: dict) -> str:
     return (p or {}).get("org_id") or job.get("org_id") or ""
 
 
-def add_manual_finding(job_id: str, fields: dict) -> list[dict]:
-    """Append a Pro-entered finding to a job, then re-correlate + enrich (§4.6a, REQ-57 to 60).
-
-    Uses the same schema and pipeline as automated findings; tagged tool="manual" (REQ-58).
-    Correlation may dedup it against an existing automated finding on the same host/url.
-    """
-    job = redis_store.get_job(job_id)
-    if not job:
-        raise ValueError("no such job (it may have expired)")
-    manual = models.Finding(tool="manual", **fields).to_dict()
-    combined = db.get_findings(job_id) + [manual]
-    combined = correlate.correlate(combined)          # dedup + tag + priority over the whole set
-    combined = ollama.enrich_missing(combined)         # enrich only the not-yet-enriched (REQ-59)
-    db.save_findings(job_id, job["submitter"], job_org(job), combined)
-    return combined
-
-
-def start_review(job: dict, template: str = "Full Technical", editor: str = "system") -> str:
-    """Generate v1 of the task's report (a draft until delivery). The owner is the client who owns the job."""
-    data = generator.generate(job, db.get_findings(job["id"]), template)
-    rid = db.create_report(job["id"], job_org(job), job["submitter"], template=template)
-    fname = f"{rid}_v1.docx"
-    report_store.save_report_file(fname, data)
-    db.add_report_version(rid, filename=fname, editor=editor, note="auto-generated v1")
+def start_review(job: dict, editor: str = "system") -> str:
+    """A task's report starts when its scan is ingested: the report row (the password and the delivered file live
+    there) and content v1. No document is built here; the PDF is made later, on the audit page. Safe to repeat."""
+    task = db.get_proposal_by_job(job["id"])
+    if not task:
+        raise ValueError("this scan belongs to no task")
+    rid = reportdoc.ensure_report(task)["id"]
+    reportcontent.ensure_v1(task, editor)
     audit.log("report_created", actor=editor, report=rid, job=job["id"])
     notify.notify(f"Report {rid[:8]} is ready for the assignee")
     return rid

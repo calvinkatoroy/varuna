@@ -40,6 +40,8 @@ import generator  # noqa: E402
 import jwt_auth  # noqa: E402
 import mailer  # noqa: E402
 import models  # noqa: E402
+import pdfpass  # noqa: E402
+import reportdoc  # noqa: E402
 import redis_store  # noqa: E402
 import scanopts  # noqa: E402
 import store as report_store  # noqa: E402
@@ -416,13 +418,6 @@ def agent_installer(request: Request, user: dict = Depends(current_user),
 # --- reports (v2): a client's own DELIVERED, signed-off, protected-PDF reports from the
 # review pipeline (db.reports) - not the legacy Redis Executive-Summary generator below,
 # which is a separate, older concept (REQ-50a) still used by /api/scans/{id}/report. ---
-def _delivered_report_view(r: dict) -> dict:
-    p = db.get_proposal_by_job(r["job_id"])
-    return {
-        "id": r["id"], "engagement": (p or {}).get("target", r["job_id"]),
-        "delivered": r["updated_at"], "findings": len(db.get_findings(r["job_id"])),
-        "templates": [r["template"]], "signed": True,
-    }
 
 
 @app.get("/api/reports")
@@ -557,37 +552,6 @@ def generate_report(job_id: str, user: dict = Depends(current_user), scope: tena
     return report_store.save_report(user["username"], job_id, "Executive Summary", data, org_id=job.get("org_id"))
 
 
-@app.get("/api/reports/{rid}/delivered")
-def download_delivered(rid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
-    """Client downloads their organization's DELIVERED report as a password-protected PDF (read-only)."""
-    r = db.get_report(rid, org_id=scope.org_id)
-    if not r:
-        raise HTTPException(status_code=404, detail="no such report")
-    if r["stage"] != models.REPORT_DELIVERED or not r["delivered_pdf"]:
-        raise HTTPException(status_code=409, detail="report not delivered yet")
-    try:
-        data = report_store.read_report(r["delivered_pdf"])
-    except OSError:
-        raise HTTPException(status_code=404, detail="delivered file missing")
-    return Response(content=data, media_type="application/pdf",
-                    headers={"Content-Disposition": f'attachment; filename="{r["delivered_pdf"]}"'})
-
-
-@app.get("/api/reports/{rid}/password")
-def view_password(rid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
-    """View-once PDF password for the owning organization. After one view, the client must ask
-    governance to re-issue it."""
-    r = db.get_report(rid, org_id=scope.org_id)
-    if not r:
-        raise HTTPException(status_code=404, detail="no such report")
-    if r["stage"] != models.REPORT_DELIVERED or not r["pdf_password"]:
-        raise HTTPException(status_code=409, detail="report not delivered yet")
-    if not db.claim_password_view(rid):   # atomic: two simultaneous requests cannot both see it
-        raise HTTPException(status_code=403,
-                            detail="password already viewed; request re-issue from governance")
-    return {"password": r["pdf_password"]}
-
-
 @app.get("/api/reports/{fname}/download")
 def download_report(fname: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
     if scope.org_id is not None and report_store.org_of(fname) != scope.org_id:
@@ -598,3 +562,45 @@ def download_report(fname: str, user: dict = Depends(current_user), scope: tenan
         raise HTTPException(status_code=404, detail="no such report")
     return Response(content=data, media_type=DOCX_MIME,
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+
+
+def _delivered_report_view(r: dict) -> dict:
+    p = db.get_proposal_by_job(r["job_id"])
+    return {
+        "id": r["id"], "engagement": (p or {}).get("target", r["job_id"]),
+        "delivered": r["updated_at"], "findings": len(db.get_findings(r["job_id"])),
+        "templates": [r["template"]], "signed": True,
+        "filename": reportdoc.safe_filename(db.pdf_filename_for_stored(r["delivered_pdf"] or "")),
+    }
+
+
+@app.get("/api/reports/{rid}/delivered")
+def download_delivered(rid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    """Client downloads their organization's DELIVERED report: the password-protected PDF, under its strict name."""
+    r = db.get_report(rid, org_id=scope.org_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="no such report")
+    if r["stage"] != models.REPORT_DELIVERED or not r["delivered_pdf"]:
+        raise HTTPException(status_code=409, detail="report not delivered yet")
+    try:
+        data = report_store.read_report(r["delivered_pdf"])
+    except OSError:
+        raise HTTPException(status_code=404, detail="delivered file missing")
+    name = db.pdf_filename_for_stored(r["delivered_pdf"])
+    return Response(content=data, media_type="application/pdf",
+                    headers={"Content-Disposition": reportdoc.content_disposition(name), "Cache-Control": "no-store"})
+
+
+@app.get("/api/reports/{rid}/password")
+def view_password(rid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    """The PDF password of the owning organization's delivered report. It never changes for a report, so the client
+    can read it again whenever they open the file. Every read is logged, without the value."""
+    r = db.get_report(rid, org_id=scope.org_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="no such report")
+    if r["stage"] != models.REPORT_DELIVERED or not r["pdf_password"]:
+        raise HTTPException(status_code=409, detail="report not delivered yet")
+    audit.log("pdf_password_view", actor=user["username"], report=rid)
+    return JSONResponse(content={"password": pdfpass.unseal(r["pdf_password"])}, headers={"Cache-Control": "no-store"})

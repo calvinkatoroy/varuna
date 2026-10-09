@@ -621,37 +621,12 @@ def set_report(rid: str, **fields) -> None:
     get_conn().commit()
 
 
-def claim_password_view(rid: str) -> bool:
-    """Atomic view-once: True only for the single caller that flips password_viewed 0 -> 1."""
-    cur = get_conn().execute("UPDATE reports SET password_viewed=1 WHERE id=? AND password_viewed=0", (rid,))
-    get_conn().commit()
-    return cur.rowcount == 1
 
 
-def add_report_version(rid: str, filename: str, editor: str, note: str = "") -> int:
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT COALESCE(MAX(version_no), 0) AS mx FROM report_versions WHERE report_id=?", (rid,)
-    ).fetchone()
-    n = row["mx"] + 1
-    conn.execute(
-        "INSERT INTO report_versions (report_id, version_no, filename, editor, note) "
-        "VALUES (?,?,?,?,?)", (rid, n, filename, editor, note),
-    )
-    conn.commit()
-    return n
 
 
-def list_report_versions(rid: str) -> list[dict]:
-    return [dict(r) for r in get_conn().execute(
-        "SELECT * FROM report_versions WHERE report_id=? ORDER BY version_no", (rid,)).fetchall()]
 
 
-def latest_version(rid: str) -> Optional[dict]:
-    row = get_conn().execute(
-        "SELECT * FROM report_versions WHERE report_id=? ORDER BY version_no DESC LIMIT 1", (rid,)
-    ).fetchone()
-    return dict(row) if row else None
 
 
 # --- findings (v2, durable - findings must outlive the 24h job/redis TTL to survive the

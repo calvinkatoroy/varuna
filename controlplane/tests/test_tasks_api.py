@@ -150,33 +150,8 @@ def test_two_approvers_over_http_one_200_one_409(priv):
     assert sorted(codes) == [200, 409] and len(db.list_task_events(tid)) == 1
 
 
-def _report_for(tid, tmp_path):
-    import docx
-    import store
-    store.REPORTS_DIR = str(tmp_path)
-    t = db.get_proposal(tid, org_id=None)
-    rid = db.create_report(t["job_id"], t["org_id"], "alice")
-    d = docx.Document(); d.add_paragraph("final"); b = io.BytesIO(); d.save(b)
-    store.save_report_file(f"{rid}_v1.docx", b.getvalue())
-    db.add_report_version(rid, filename=f"{rid}_v1.docx", editor="rizky")
-    return rid
 
 
-def test_manager_approval_delivers_the_protected_pdf(priv, tmp_path, monkeypatch):
-    import pdf_deliver
-    from reportlab.pdfgen import canvas
-
-    def fake(_docx):
-        b = io.BytesIO(); c = canvas.Canvas(b); c.drawString(72, 720, "x"); c.showPage(); c.save()
-        return b.getvalue()
-    monkeypatch.setattr(pdf_deliver, "CONVERT", fake)
-    _staff(("hendra", "manager"))
-    tid = _new_task(stage="review_manager", assignee="rizky", job_id="jdel")
-    rid = _report_for(tid, tmp_path)
-    r = _move(priv, priv.login("hendra", PW), tid, "delivered")
-    assert r.status_code == 200 and r.json()["stage"] == "delivered", r.text
-    rep = db.get_report(rid, org_id=None)
-    assert rep["stage"] == "delivered" and rep["delivered_pdf"] and rep["pdf_password"]
 
 
 def test_delivery_without_a_report_is_409_and_stage_restored(priv):
@@ -186,16 +161,6 @@ def test_delivery_without_a_report_is_409_and_stage_restored(priv):
     assert db.get_proposal(tid, org_id=None)["stage"] == "review_manager"
 
 
-def test_staff_events_and_detail(priv):
-    _staff(("rizky", "pentester"))
-    tid = _new_task()
-    tok = priv.login("rizky", PW)
-    _move(priv, tok, tid, "declined", comment="internal note")
-    ev = priv.get(f"/api/tasks/{tid}/events", tok).json()
-    assert ev[-1]["actor"] == "rizky" and ev[-1]["comment"] == "internal note"
-    d = priv.get(f"/api/tasks/{tid}/detail", tok).json()
-    assert d["task"]["decline_cause"] == "internal note" and d["report_id"] is None and d["versions"] == []
-    assert priv.get("/api/tasks/nope/detail", tok).status_code == 404
 
 
 def test_legacy_proposal_routes_are_gone(api, priv):
@@ -223,13 +188,6 @@ def test_install_token_unlocks_once_a_task_is_claimed(api):
     assert api.post("/api/agent/install-token", tok).status_code == 200
 
 
-def test_legacy_report_pipeline_routes_are_gone(priv):
-    auth.create_account("sari", PW, "governance")
-    tok = priv.login("sari", PW)
-    for path in ("/api/pipeline/reports/x/forward", "/api/pipeline/reports/x/sendback"):
-        assert priv.post(path, tok).status_code in (404, 405), path
-    assert priv.post("/api/pipeline/reports", tok, {"job_id": "j", "template": "Full Technical"}).status_code == 405
-    assert db.get_report(db.create_report("j", "o", "alice"), org_id=None)["stage"] == "draft"
 
 
 def test_transition_without_version_is_422(priv):
@@ -318,45 +276,10 @@ def test_reviewer_cannot_ask_for_another_stages_column(priv):
 
 
 # --- on-demand report ---
-def _done_job(jid="jrep"):
-    redis_store.set_job({"id": jid, "target": "http://8.8.8.8", "target_class": "cloud", "submitter": "alice",
-                         "role": "client", "tools": [], "status": "done", "per_tool_status": {}, "org_id": None})
 
 
-def test_generate_report_route_creates_once_and_is_idempotent(priv, tmp_path):
-    import store
-    store.REPORTS_DIR = str(tmp_path)
-    _staff(("rizky", "pentester"))
-    _done_job()
-    tid = _new_task(stage="completed", assignee="rizky", job_id="jrep")
-    tok = priv.login("rizky", PW)
-    assert any(a["kind"] == "generate_report" for a in workflow.actions(db.get_proposal(tid, org_id=None), "rizky"))
-    r1 = priv.post(f"/api/tasks/{tid}/report", tok)
-    assert r1.status_code == 200, r1.text
-    r2 = priv.post(f"/api/tasks/{tid}/report", tok)
-    assert r2.json()["report_id"] == r1.json()["report_id"]
-    assert len(db.list_reports(org_id=None)) == 1
-    rep = db.get_report(r1.json()["report_id"], org_id=None)
-    assert rep["org_id"] == db.get_proposal(tid, org_id=None)["org_id"]
-    assert not any(a["kind"] == "generate_report" for a in workflow.actions(db.get_proposal(tid, org_id=None), "rizky"))
 
 
-def test_generate_report_refusals(priv, tmp_path):
-    import store
-    store.REPORTS_DIR = str(tmp_path)
-    _staff(("rizky", "pentester"), ("budi", "pentester"), ("sari", "governance"))
-    _done_job()
-    tid = _new_task(stage="completed", assignee="rizky", job_id="jrep")
-    assert priv.post(f"/api/tasks/{tid}/report", priv.login("budi", PW)).status_code == 403   # not the assignee
-    assert priv.post(f"/api/tasks/{tid}/report", priv.login("sari", PW)).status_code == 403
-    assert priv.post("/api/tasks/nope/report", priv.login("rizky", PW)).status_code == 404
-    nojob = _new_task(stage="completed", assignee="rizky")
-    assert priv.post(f"/api/tasks/{nojob}/report", priv.login("rizky", PW)).status_code == 409
-    gone = _new_task(stage="completed", assignee="rizky", job_id="expired-job")
-    assert priv.post(f"/api/tasks/{gone}/report", priv.login("rizky", PW)).status_code == 409
-    assert db.list_reports(org_id=None) == []
-    assert not any(a["kind"] == "generate_report" for a in workflow.actions(db.get_proposal(
-        _new_task(stage="scan", scan_state="pending", assignee="rizky"), org_id=None), "rizky"))
 
 
 def test_client_scan_responses_carry_no_staff_fields(api):
@@ -381,3 +304,37 @@ def test_legacy_approval_routes_are_gone(api):
     tok = api.login("alice", PW)
     for path, method in (("/api/approvals", "GET"), ("/api/approvals/x/approve", "POST"), ("/api/approvals/x/reject", "POST")):
         assert api.request(method, path, tok, json={}).status_code in (404, 405), path
+
+
+def test_manager_approval_publishes_the_pdf_built_at_audit_time(priv, tmp_path, monkeypatch):
+    import store
+    from conftest import ready_pdf
+    monkeypatch.setattr(store, "REPORTS_DIR", str(tmp_path))
+    _staff(("hendra", "manager"))
+    tid = _new_task(stage="review_manager", assignee="rizky", job_id="jdel")
+    rid = db.create_report("jdel", db.get_proposal(tid, org_id=None)["org_id"], "alice")
+    stored = db.get_pdf(ready_pdf(tid))["stored_name"]
+    r = _move(priv, priv.login("hendra", PW), tid, "delivered")
+    assert r.status_code == 200 and r.json()["stage"] == "delivered", r.text
+    rep = db.get_report(rid, org_id=None)
+    assert rep["stage"] == "delivered" and rep["delivered_pdf"] == stored
+
+
+def test_staff_events_and_detail(priv):
+    _staff(("rizky", "pentester"))
+    tid = _new_task()
+    tok = priv.login("rizky", PW)
+    _move(priv, tok, tid, "declined", comment="internal note")
+    ev = priv.get(f"/api/tasks/{tid}/events", tok).json()
+    assert ev[-1]["actor"] == "rizky" and ev[-1]["comment"] == "internal note"
+    d = priv.get(f"/api/tasks/{tid}/detail", tok).json()
+    assert d["task"]["decline_cause"] == "internal note" and d["can_audit"] is False and d["has_report"] is False
+    assert priv.get("/api/tasks/nope/detail", tok).status_code == 404
+
+
+def test_legacy_report_pipeline_routes_are_gone(priv):
+    auth.create_account("sari", PW, "governance")
+    tok = priv.login("sari", PW)
+    for path in ("/api/pipeline/reports/x/forward", "/api/pipeline/reports/x/sendback", "/api/pipeline/reports"):
+        assert priv.post(path, tok, {"job_id": "j", "template": "Full Technical"}).status_code in (404, 405), path
+    assert db.get_report(db.create_report("j", "o", "alice"), org_id=None)["stage"] == "draft"

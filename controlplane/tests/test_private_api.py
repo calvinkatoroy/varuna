@@ -6,6 +6,8 @@ the manual-finding + report pipeline. Offline, FakeRedis-backed, Ollama falls ba
 import os
 import sys
 
+import pytest
+
 HERE = os.path.dirname(__file__)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "common"))
@@ -62,17 +64,6 @@ def test_findings_pro_only():
     assert client.get("/api/findings/j1", headers=_std_header()).status_code == 403
 
 
-def test_manual_finding_then_review():
-    reset()
-    H = _pro_header()
-    redis_store.set_job({"id": "j1", "target": "http://t", "submitter": "ihsan",
-                         "status": "done", "per_tool_status": {}})
-    r = client.post("/api/findings/j1/manual", headers=H, json={
-        "name": "IDOR", "severity": "high", "host": "http://t",
-        "url": "http://t/x", "description": "d", "evidence": "e"})
-    assert r.status_code == 200 and r.json()[0]["tool"] == "manual"
-    review = client.get("/api/findings/j1", headers=H).json()
-    assert review[0]["name"] == "IDOR"
 
 
 def test_full_report_templates_and_archive():
@@ -89,12 +80,6 @@ def test_full_report_templates_and_archive():
     assert len(archive) == 3
 
 
-def test_manual_missing_job_404():
-    reset()
-    H = _pro_header()
-    r = client.post("/api/findings/none/manual", headers=H,
-                    json={"name": "x", "severity": "low", "host": "h"})
-    assert r.status_code == 404
 
 
 if __name__ == "__main__":
@@ -130,22 +115,6 @@ def _move(H, tid, to, **body):
                        json={"to": to, "version": _db.get_proposal(tid, org_id=None)["version"], **body})
 
 
-def test_review_pipeline_versions_follow_the_task_stage():
-    reset()
-    Hpen = _hdr("aisah", "pentester")
-    Hlead = _hdr("riyan", "lead_pentester")
-    Hgov = _hdr("dodi", "governance")
-    tid, rid = _review_task("completed", "j1")
-    up = lambda H, data: client.post(f"/api/pipeline/reports/{rid}/version", files={"file": ("e.docx", data, DOCX_MIME)}, headers=H)
-    r = up(Hpen, EDITED)                                       # the assignee edits at `completed`
-    assert r.status_code == 200 and r.json()["version_no"] == 1, r.text
-    assert up(Hgov, EDITED).status_code == 403                 # governance does not own this stage
-    assert _move(Hpen, tid, "review_lead_pentester").status_code == 200
-    assert up(Hlead, LEAD_V).status_code == 200                # the lead pentester owns the first review
-    assert _move(Hlead, tid, "review_lead_cyber").json()["stage"] == "review_lead_cyber"
-    versions = client.get(f"/api/pipeline/reports/{rid}/versions", headers=Hlead).json()
-    assert [v["version_no"] for v in versions] == [1, 2]
-    assert client.get(f"/api/pipeline/reports/{rid}/versions/1/download", headers=Hlead).content == EDITED
 
 
 def test_review_pipeline_sendback_needs_a_comment():
@@ -172,47 +141,10 @@ def _fake_convert(_docx):
 pdf_deliver.CONVERT = _fake_convert
 
 
-def test_manager_approval_delivers_protected_pdf():
-    reset()
-    Hgov, Hman = _hdr("hani", "governance"), _hdr("bayu", "manager")
-    tid, rid = _review_task("review_manager", "j3")
-    _db.add_report_version(rid, filename=f"{rid}_v1.docx", editor="hani")
-    report_store.save_report_file(f"{rid}_v1.docx", FINAL)
-    assert _move(Hgov, tid, "delivered").status_code == 403
-    r = _move(Hman, tid, "delivered")
-    assert r.status_code == 200 and r.json()["stage"] == "delivered", r.text
-    rep = _db.get_report(rid, org_id=None)
-    assert rep["stage"] == models.REPORT_DELIVERED and rep["delivered_pdf"] and rep["pdf_password"]
-    assert rep["password_viewed"] is False
-    assert _PdfReader(_io.BytesIO(report_store.read_report(rep["delivered_pdf"]))).is_encrypted
 
 
-def test_governance_reissue_password():
-    reset()
-    Hgov, Hman, Hrep = _hdr("hani", "governance"), _hdr("bayu", "manager"), _hdr("aisah", "pentester")
-    tid, rid = _review_task("review_manager", "j4")
-    _db.add_report_version(rid, filename=f"{rid}_v1.docx", editor="hani")
-    report_store.save_report_file(f"{rid}_v1.docx", FINAL)
-    _move(Hman, tid, "delivered")
-    _db.set_report(rid, password_viewed=1)                     # client already viewed
-    assert client.post(f"/api/pipeline/reports/{rid}/reissue-password", headers=Hrep).status_code == 403
-    r = client.post(f"/api/pipeline/reports/{rid}/reissue-password", headers=Hgov)
-    assert r.status_code == 200 and r.json()["password"]
-    assert _db.get_report(rid, org_id=None)["password_viewed"] is False
 
 
-def test_finished_task_scan_generates_v1_owned_by_client():
-    reset()
-    import ingest
-    org = _db.create_org("PT Alice")
-    job = {"id": "jc", "target": "http://t", "submitter": "alice", "status": "done", "per_tool_status": {}, "org_id": org}
-    redis_store.set_job(job)
-    _db.create_proposal({"submitter": "alice", "target": "http://t", "org_id": org, "stage": "completed", "job_id": "jc"})
-    _db.save_findings("jc", "alice", org, [{"name": "X", "severity": "high", "host": "h"}])
-    rid = ingest.start_review(job)
-    rep = _db.get_report(rid, org_id=org)
-    assert rep["owner"] == "alice" and rep["org_id"] == org and rep["stage"] == models.REPORT_DRAFT
-    assert len(_db.list_report_versions(rid)) == 1
 
 
 # --- v2 board/detail/verdict views ---
@@ -243,18 +175,6 @@ def test_board_shape_and_stages():
     assert next(c for c in scan if c["id"] == running)["jobId"] == "j-scan"
 
 
-def test_detail_for_a_task_with_its_report():
-    reset()
-    H = _hdr("riyan", "lead_pentester")
-    org = _db.create_org("PT Alice")
-    pid = _db.create_proposal({"submitter": "alice", "target": "http://t", "org_id": org, "notes": "Compliance",
-                               "stage": "completed", "job_id": "jd", "assignee": "riyan"})
-    rid = _db.create_report("jd", org, "alice")
-    _db.add_report_version(rid, filename="f.docx", editor="aisah", note="v1")
-    d = client.get(f"/api/tasks/{pid}/detail", headers=H).json()
-    assert d["task"]["notes"] == "Compliance" and d["report_id"] == rid
-    assert len(d["versions"]) == 1 and d["versions"][0]["editor"] == "aisah"
-    assert client.get("/api/tasks/nope/detail", headers=H).status_code == 404
 
 
 def test_suspend_resume_requires_team_owner_and_reason_and_flags_job():
@@ -288,3 +208,74 @@ def test_finding_verdict_requires_team_and_updates():
                        headers=Hc).status_code == 403
     r = client.post(f"/api/findings/{fid}/verdict", json={"verdict": "fp"}, headers=Ht)
     assert r.status_code == 200 and _db.get_findings("jf")[0]["verdict"] == "fp"
+
+
+
+def test_manager_approval_publishes_the_latest_current_pdf():
+    reset()
+    from conftest import ready_pdf
+    Hgov, Hman = _hdr("hani", "governance"), _hdr("bayu", "manager")
+    tid, rid = _review_task("review_manager", "j3")
+    stored = _db.get_pdf(ready_pdf(tid))["stored_name"]
+    report_store.save_report_file(stored, b"%PDF-1.4 x")
+    assert _move(Hgov, tid, "delivered").status_code == 403
+    r = _move(Hman, tid, "delivered")
+    assert r.status_code == 200 and r.json()["stage"] == "delivered", r.text
+    rep = _db.get_report(rid, org_id=None)
+    assert rep["stage"] == models.REPORT_DELIVERED and rep["delivered_pdf"] == stored
+
+
+def test_delivery_refuses_a_missing_or_out_of_date_pdf():
+    reset()
+    from conftest import ready_pdf
+    Hman = _hdr("bayu2", "manager")
+    tid, _ = _review_task("review_manager", "j5")
+    r = _move(Hman, tid, "delivered")
+    assert r.status_code == 409 and "no PDF" in r.json()["detail"]
+    _db.save_findings("j5", "alice", _db.get_proposal(tid, org_id=None)["org_id"],
+                      [{"name": "X", "severity": "high", "host": "h"}])
+    ready_pdf(tid)
+    _db.set_finding(_db.get_findings("j5")[0]["id"], verdict="fp")              # the report changed after its PDF
+    r = _move(Hman, tid, "delivered")
+    assert r.status_code == 409 and "changed" in r.json()["detail"]
+    assert _db.get_proposal(tid, org_id=None)["stage"] == "review_manager"      # not stuck in `delivering`
+
+
+def test_detail_says_whether_the_viewer_may_audit():
+    reset()
+    H, Hrev = _hdr("riyan", "lead_pentester"), _hdr("hani2", "governance")
+    org = _db.create_org("PT Alice")
+    pid = _db.create_proposal({"submitter": "alice", "target": "http://t", "org_id": org, "notes": "Compliance",
+                               "stage": "completed", "job_id": "jd", "assignee": "aisah"})
+    d = client.get(f"/api/tasks/{pid}/detail", headers=H).json()
+    assert d["task"]["notes"] == "Compliance" and d["can_audit"] is True and d["has_report"] is True
+    assert "versions" not in d and "report_id" not in d
+    assert client.get(f"/api/tasks/{pid}/detail", headers=Hrev).json()["can_audit"] is False
+    assert client.get("/api/tasks/nope/detail", headers=H).status_code == 404
+
+
+def test_finished_task_scan_starts_the_report_with_content_v1():
+    reset()
+    import ingest
+    org = _db.create_org("PT Alice")
+    job = {"id": "jc", "target": "http://t", "submitter": "alice", "status": "done", "per_tool_status": {}, "org_id": org}
+    redis_store.set_job(job)
+    tid = _db.create_proposal({"submitter": "alice", "target": "http://t", "org_id": org, "stage": "completed", "job_id": "jc"})
+    _db.save_findings("jc", "alice", org, [{"name": "X", "severity": "high", "host": "h"}])
+    rid = ingest.start_review(job)
+    rep = _db.get_report(rid, org_id=org)
+    assert rep["owner"] == "alice" and rep["org_id"] == org and rep["stage"] == models.REPORT_DRAFT and rep["task_id"] == tid
+    assert _db.latest_content(tid)["version"] == 1
+    assert ingest.start_review(job) == rid and len(_db.list_content_versions(tid)) == 1     # repeating changes nothing
+    with pytest.raises(ValueError):
+        ingest.start_review({"id": "no-task-job"})
+
+
+def test_removed_word_upload_routes_are_gone():
+    reset()
+    H = _hdr("riyan3", "lead_pentester")
+    for method, path in (("get", "/api/pipeline/reports"), ("get", "/api/templates"),
+                         ("post", "/api/pipeline/reports/x/version"), ("post", "/api/pipeline/reports/x/template"),
+                         ("post", "/api/pipeline/reports/x/reissue-password"), ("post", "/api/tasks/x/report"),
+                         ("post", "/api/findings/j/manual")):
+        assert getattr(client, method)(path, headers=H).status_code in (404, 405), path
