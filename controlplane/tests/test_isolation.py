@@ -43,7 +43,8 @@ def _seed_org(name, user, host, job_id, reports_dir):
     store.save_report_file(f"{rid}_delivered.pdf", b"%PDF-1.4 " + user.encode())
     legacy = store.save_report(user, job_id, "Executive Summary", b"PK " + user.encode(), org_id=org)["file"]
     fid = db.list_findings(org_id=org)[0]["id"]
-    return {"org": org, "pid": pid, "rid": rid, "fid": fid, "job_id": job_id, "fname": legacy, "jid": ready_pdf(pid)}
+    turn = db.claim_turn(pid, org, "pen", "x", 1)[0]["id"]
+    return {"org": org, "pid": pid, "rid": rid, "fid": fid, "job_id": job_id, "fname": legacy, "jid": ready_pdf(pid), "turn_id": turn}
 
 
 def _seed_two_orgs(tmp_path):
@@ -56,6 +57,7 @@ def _candidates(b):
     """Every path parameter name the two apps use, mapped to org B's real ids."""
     return {
         "pid": [b["pid"]], "tid": [b["pid"]], "rid": [b["rid"]], "fid": [b["fid"]], "job_id": [b["job_id"]], "jid": [b["jid"]],
+        "turn_id": [b["turn_id"]],
         "fname": [b["fname"], f"{b['rid']}_delivered.pdf"],
         "id": [b["pid"], b["rid"]], "n": ["1"], "username": ["beta"], "action": ["disable"], "org_id": [b["org"]],
     }

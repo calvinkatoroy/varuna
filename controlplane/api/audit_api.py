@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
+import aiturns  # noqa: E402
 import audit  # noqa: E402
 import db  # noqa: E402
 import deps  # noqa: E402
@@ -233,3 +234,66 @@ def add_manual(tid: str, body: ManualBody, user: dict = Depends(require_team), s
         raise HTTPException(status_code=409, detail=STAGE_MOVED)
     db.add_audit(t["id"], t["org_id"], user["username"], "manual_add", fid, {"name": name[:120], "severity": fields["severity"]})
     return {"id": fid}
+
+
+# --- AI chat: a turn is a job the page polls; nothing changes until Apply ---
+class TurnBody(BaseModel):
+    prompt: str = Field(max_length=4000)   # the real cap (1000) is enforced after control characters are stripped
+
+
+class ApplyBody(BaseModel):
+    base_version: int
+
+
+def _ai_on() -> None:
+    if not aiturns.enabled():
+        raise HTTPException(status_code=503, detail="The AI assistant is turned off.")
+
+
+@router.post("/ai/turns")
+def ai_submit(tid: str, body: TurnBody, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    _ai_on()
+    t = _task(tid, scope)
+    require_owner(t, user)
+    try:
+        turn = _rate(aiturns.submit, t, user["username"], body.prompt)
+    except aiturns.Disabled:
+        raise HTTPException(status_code=503, detail="The AI assistant is turned off.")
+    except aiturns.Busy:
+        raise HTTPException(status_code=409, detail="A suggestion is already being prepared. Wait for it to finish.")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return JSONResponse(status_code=202, content={"turn": aiturns.view(turn, t)})
+
+
+@router.get("/ai/turns")
+def ai_history(tid: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    _ai_on()
+    t = _task(tid, scope)
+    db.reap_turns(db.TURN_STALE_S)
+    return [aiturns.view(x, t) for x in db.list_turns(t["id"])]
+
+
+@router.get("/ai/turns/{turn_id}")
+def ai_turn(tid: str, turn_id: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    _ai_on()
+    t = _task(tid, scope)
+    turn = db.get_turn(turn_id, task_id=t["id"])
+    if not turn:
+        raise HTTPException(status_code=404, detail="no such suggestion")
+    return aiturns.view(turn, t)
+
+
+@router.post("/ai/turns/{turn_id}/apply")
+def ai_apply(tid: str, turn_id: str, body: ApplyBody, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    _ai_on()
+    t = _task(tid, scope)
+    require_owner(t, user)
+    try:
+        return {"version": aiturns.apply(t, user["username"], turn_id, body.base_version)}
+    except LookupError:
+        raise HTTPException(status_code=404, detail="no such suggestion")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except aiturns.Stale:
+        raise HTTPException(status_code=409, detail="The report changed since this suggestion. Ask again.")
