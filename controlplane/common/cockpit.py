@@ -76,7 +76,7 @@ def build_cockpit(username: str, org_id: str) -> dict:
     proposals = db.list_proposals(org_id=org_id)
     engagements = [e for e in (_engagement(p) for p in proposals) if e]
 
-    findings = [f for f in db.list_findings(org_id=org_id) if f.get("verdict") == "tp"]
+    findings = [f for f in db.list_findings(org_id=org_id) if f.get("verdict") == "tp" and not f.get("quick")]   # quick scans are not verified
     sev = {"critical": 0, "high": 0, "medium": 0, "low": 0}
     fixed = 0
     for f in findings:

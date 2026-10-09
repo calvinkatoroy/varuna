@@ -41,6 +41,7 @@ export function TargetAccordion({ targets, openId, staff, onToggle, renderPanel 
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
                     <span className="mono truncate text-[15px] font-semibold text-ink" title={t.target}>{bare(t.target)}</span>
+                    {t.quick && <span className="rounded-md border border-med bg-med-bg px-1.5 py-0.5 text-[12px] font-medium text-ink">Quick scan, not verified</span>}
                     {staff && t.org_name && <span className="rounded-md border border-rule bg-panel px-1.5 py-0.5 text-[12px] text-ink-muted">{t.org_name}</span>}
                   </span>
                   <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">

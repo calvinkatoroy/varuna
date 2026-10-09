@@ -6,7 +6,7 @@ import { TaskForm } from '@/components/TaskForm'
 import { tasks } from '@/api'
 
 // "New task" for an activated client.
-export function NewTaskDrawer({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (v: boolean) => void; onCreated?: () => void }) {
+export function NewTaskDrawer({ open, onOpenChange, onCreated, initialTarget }: { open: boolean; onOpenChange: (v: boolean) => void; onCreated?: () => void; initialTarget?: string }) {
   const [sent, setSent] = useState(false)
   const close = (v: boolean) => { onOpenChange(v); if (!v) setTimeout(() => setSent(false), 200) }
 
@@ -29,7 +29,7 @@ export function NewTaskDrawer({ open, onOpenChange, onCreated }: { open: boolean
               <p className="mt-1 text-[13px] text-ink-muted">Tell us what to test and when the scan may run.</p>
             </div>
             <div className="flex-1 p-6">
-              <TaskForm onSubmit={async (t) => { await tasks.create(t); setSent(true); onCreated?.() }} />
+              <TaskForm key={initialTarget ?? ''} initialTarget={initialTarget} onSubmit={async (t) => { await tasks.create(t); setSent(true); onCreated?.() }} />
             </div>
           </>
         )}

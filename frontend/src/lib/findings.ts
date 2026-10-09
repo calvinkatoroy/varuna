@@ -20,6 +20,7 @@ export const sevVar = (s: string): string => ({ critical: 'crit', medium: 'med' 
 export type TargetRow = {
   task_id: string; target: string; total: number; fixed: number; scanned_at: string; counts: Counts
   org_name?: string; fp?: number   // staff only
+  quick?: boolean                  // a client's own quick scan: not verified, no report
 }
 export type FindingRow = {
   id: string; task_id: string; name: string; severity: string; host: string; url: string; tool: string

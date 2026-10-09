@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { ChevronDown, Filter } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown, Filter, Zap } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ClientPage } from '@/components/ClientPage'
@@ -9,6 +9,8 @@ import { SegBar } from '@/components/viz/SegBar'
 import { TargetAccordion } from '@/components/findings/TargetAccordion'
 import { TargetFindings } from '@/components/findings/TargetFindings'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
+import { QuickScanDrawer } from '@/components/QuickScanDrawer'
+import { NewTaskDrawer } from './NewTaskDrawer'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { FEEDS } from '@/lib/feeds'
 import { SEV_LABEL, patchRows, sevOf, sevVar, totalsOf, type FindingRow, type TargetRow } from '@/lib/findings'
@@ -18,6 +20,7 @@ import { useApiData } from '@/lib/useApiData'
 import { useFindingDetail } from '@/lib/useFindingDetail'
 import { useFindingsUrl } from '@/lib/useFindingsUrl'
 
+type ScanJob = { id: string; target: string; status: string; quick?: boolean }
 const chip = 'rounded-md border border-rule bg-panel px-1.5 py-0.5 text-[11px] text-ink-muted'
 
 export default function ClientFindings() {
@@ -27,12 +30,30 @@ export default function ClientFindings() {
   const [open, setOpen] = useState(false)
   const [site, setSite] = useState<string | null>(null)
   const { detail, failed } = useFindingDetail('pub', open && sel ? sel.id : null)
+  const [quickOpen, setQuickOpen] = useState(false)
+  const [verify, setVerify] = useState<string | null>(null)
+  const { data: jobs, reload: reloadJobs } = useApiData<ScanJob[]>(() => api.get('/api/scans'), 'pub:/api/scans')
+  const running = (jobs ?? []).filter((j) => j.quick && (j.status === 'queued' || j.status === 'running'))
+  const wasRunning = useRef(0)
+  useEffect(() => {   // follow a quick scan while it runs, then pick up its findings a moment after it ends
+    if (!running.length) {
+      if (wasRunning.current) setTimeout(reload, 4000)
+      wasRunning.current = 0
+      return
+    }
+    wasRunning.current = running.length
+    const t = setInterval(reloadJobs, 5000)
+    return () => clearInterval(t)
+  }, [running.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Portfolio-wide stats (severity bars, resolved gauge) stay unfiltered - the engagement filter only narrows
   // the accordion below, same as the team's severity filter narrows its list, not its totals.
-  const sums = useMemo(() => totalsOf(targets ?? []), [targets])
-  const sites = useMemo(() => [...new Set((targets ?? []).map((t) => bare(t.target)))].sort(), [targets])
-  const shown = useMemo(() => (site ? (targets ?? []).filter((t) => bare(t.target) === site) : targets ?? []), [targets, site])
+  // Quick scans are not verified, so they stay out of these totals and have their own section below.
+  const verifiedTargets = useMemo(() => (targets ?? []).filter((t) => !t.quick), [targets])
+  const quickTargets = useMemo(() => (targets ?? []).filter((t) => t.quick), [targets])
+  const sums = useMemo(() => totalsOf(verifiedTargets), [verifiedTargets])
+  const sites = useMemo(() => [...new Set(verifiedTargets.map((t) => bare(t.target)))].sort(), [verifiedTargets])
+  const shown = useMemo(() => (site ? verifiedTargets.filter((t) => bare(t.target) === site) : verifiedTargets), [verifiedTargets, site])
   const maxCount = Math.max(1, ...Object.values(sums.counts))
   const resolvedPct = sums.total ? Math.round((sums.fixed / sums.total) * 100) : 0
   // Only after a fresh answer: a stale cache must not claim a brand-new target does not exist.
@@ -56,7 +77,8 @@ export default function ClientFindings() {
     <ClientPage
       title="Findings"
       sub="Confirmed issues across your scans, grouped by target."
-      action={
+      action={<>
+        <Button variant="glass" size="pill" onClick={() => setQuickOpen(true)}><Zap size={15} /> Quick scan</Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="glass" size="pill"><Filter size={15} /> {site ?? 'All engagements'} <ChevronDown size={14} /></Button>
@@ -67,7 +89,7 @@ export default function ClientFindings() {
             {sites.map((s) => <DropdownMenuItem key={s} onClick={() => setSite(s)}>{s}</DropdownMenuItem>)}
           </DropdownMenuContent>
         </DropdownMenu>
-      }
+      </>}
     >
       {error ? (
         <ErrorRetry message={error} onRetry={reload} />
@@ -123,8 +145,43 @@ export default function ClientFindings() {
               )}
             />
           </section>
+
+          {/* Quick scans: the client's own checks of internal systems. Not verified, never a report. */}
+          {(quickTargets.length > 0 || running.length > 0) && (
+            <section aria-labelledby="quick-h" className="rounded-bento border border-rule bg-card">
+              <div className="border-b border-rule px-5 py-4">
+                <h2 id="quick-h" className="m-0 text-[15px] font-semibold text-ink">Quick scans</h2>
+                <p className="mt-1 text-[12.5px] leading-relaxed text-ink-muted">Run by you on your own systems. Not verified by our security team, so they may include false alarms, and they are not part of the numbers above.</p>
+              </div>
+              {running.map((j) => (
+                <div key={j.id} role="status" className="flex items-center gap-2 border-b border-rule px-5 py-3.5 text-[13px] text-ink">
+                  <span className="h-2 w-2 flex-none animate-pulse rounded-full bg-accent" aria-hidden />
+                  <span className="mono truncate">{bare(j.target)}</span>
+                  <span className="text-ink-muted">{j.status === 'queued' ? 'waiting for your agent' : 'scanning'}</span>
+                </div>
+              ))}
+              <TargetAccordion
+                targets={quickTargets}
+                openId={url.target}
+                staff={false}
+                onToggle={(id) => url.set({ target: id, finding: null })}
+                renderPanel={(t) => (
+                  <>
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule px-5 py-3 text-[12.5px] text-ink-muted">
+                      <span>Want our team to check these and write the report?</span>
+                      <Button variant="outline" size="sm" className="min-h-[44px]" onClick={() => setVerify(t.target)}>Request a verified report</Button>
+                    </div>
+                    <TargetFindings plane="pub" taskId={t.task_id} severity={null} focusId={url.finding} staff={false} onOpen={openRow} onDismissFocus={() => url.set({ finding: null })} />
+                  </>
+                )}
+              />
+            </section>
+          )}
         </div>
       )}
+
+      <QuickScanDrawer open={quickOpen} onOpenChange={setQuickOpen} onStarted={() => { reloadJobs(); invalidate(FEEDS.clientTargets.key) }} />
+      <NewTaskDrawer open={!!verify} onOpenChange={(v) => { if (!v) setVerify(null) }} initialTarget={verify ?? undefined} />
 
       <Drawer open={open} onOpenChange={setOpen}>
         {sel && (

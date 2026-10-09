@@ -4,6 +4,7 @@ import { api } from '@/api'
 import { Button } from '@/components/ui/button'
 import { ShellActions, ShellTitle } from '@/components/ShellSlots'
 import { ErrorRetry } from '@/components/ErrorRetry'
+import { QuickScanLog } from '@/components/QuickScanLog'
 import { TargetAccordion } from '@/components/findings/TargetAccordion'
 import { TargetFindings } from '@/components/findings/TargetFindings'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
@@ -121,6 +122,8 @@ export default function FindingsReview() {
           />
         </div>
       )}
+
+      <QuickScanLog />
 
       <Drawer open={open} onOpenChange={setOpen}>
         {sel && (

@@ -99,6 +99,9 @@ function pageFor(u: URLSearchParams, staff: boolean) {
 export function findingsRoute(m: string, path: string, body: any, staff: boolean): any {
   const u = new URL(path, 'http://mock')
   const p = u.pathname
+  if (m === 'GET' && p === '/api/scans') return []
+  if (m === 'GET' && p === '/api/quick-scans') return []
+  if (m === 'POST' && p === '/api/quick-scans') return { job_id: 'mock-quick', state: 'dispatched' }
   if (m === 'GET' && p === '/api/findings/targets') return targetsFor(staff)
   if (m === 'GET' && p === '/api/findings') {
     if (u.searchParams.get('task_id')) return pageFor(u.searchParams, staff)
