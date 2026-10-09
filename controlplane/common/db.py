@@ -169,6 +169,18 @@ CREATE TABLE IF NOT EXISTS task_events (
     at              TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id);
+
+-- Every scan job a task has run (a resume after a failed job starts a new one). Filled by the triggers
+-- below whenever proposals.job_id is set, so findings of earlier jobs still belong to the task.
+CREATE TABLE IF NOT EXISTS task_jobs (
+    job_id   TEXT PRIMARY KEY,
+    task_id  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_jobs_task ON task_jobs(task_id);
+CREATE TRIGGER IF NOT EXISTS trg_task_jobs_ins AFTER INSERT ON proposals WHEN NEW.job_id IS NOT NULL
+BEGIN INSERT OR IGNORE INTO task_jobs (job_id, task_id) VALUES (NEW.job_id, NEW.id); END;
+CREATE TRIGGER IF NOT EXISTS trg_task_jobs_upd AFTER UPDATE OF job_id ON proposals WHEN NEW.job_id IS NOT NULL
+BEGIN INSERT OR IGNORE INTO task_jobs (job_id, task_id) VALUES (NEW.job_id, NEW.id); END;
 """
 
 
@@ -209,6 +221,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN org_id TEXT NOT NULL DEFAULT ''")
         # Index after the migration: on an old DB the column does not exist when SCHEMA runs.
         conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_org ON {table}(org_id)")
+    conn.execute("INSERT OR IGNORE INTO task_jobs (job_id, task_id) SELECT job_id, id FROM proposals WHERE job_id IS NOT NULL")
     conn.commit()
 
 
@@ -433,7 +446,8 @@ def list_proposals(stage: Optional[str] = None, *, org_id: Optional[str],
 
 
 def get_proposal_by_job(job_id: str) -> Optional[dict]:
-    row = get_conn().execute("SELECT * FROM proposals WHERE job_id=?", (job_id,)).fetchone()
+    row = get_conn().execute("SELECT p.* FROM proposals p JOIN task_jobs tj ON tj.task_id = p.id WHERE tj.job_id=?",
+                             (job_id,)).fetchone()
     return _proposal_row_to_dict(row) if row else None
 
 
@@ -635,7 +649,7 @@ def list_findings(*, org_id: Optional[str]) -> list[dict]:
 _SEVS = ("critical", "high", "medium", "low")
 _SEV_RANK = ("CASE LOWER(f.severity) WHEN 'critical' THEN 0 WHEN 'high' THEN 1 "
              "WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END")
-_FROM = "FROM findings f LEFT JOIN proposals p ON p.job_id = f.job_id"
+_FROM = "FROM findings f LEFT JOIN task_jobs tj ON tj.job_id = f.job_id LEFT JOIN proposals p ON p.id = tj.task_id"
 _TARGET = "COALESCE(p.id, f.job_id)"
 _LIST_COLS = "f.id, f.name, f.severity, f.host, f.url, f.tool, f.cve, f.cwe, f.verdict, f.status"
 

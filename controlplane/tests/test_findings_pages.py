@@ -193,3 +193,44 @@ def test_legacy_flat_list_is_unchanged(api, priv):
     assert isinstance(api.get("/api/findings?limit=50", api.login("alpha", PW)).json(), list)
     staff = priv.get("/api/findings", _staff(priv)).json()
     assert isinstance(staff, list) and staff[0]["org_name"] == "PT Alpha"
+
+
+def test_huge_negative_or_garbage_cursors_are_422(api):
+    _, pid = _seed("alpha", "PT Alpha", "a.co.id", "jobA", {"high": 3})
+    tok = api.login("alpha", PW)
+    enc = lambda raw: base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    for c in (enc(b"o" + b"9" * 30), enc(b"o" + str(10**9 + 1).encode()), enc(b"o-1"), enc(b"o"), enc(b"o1.5"),
+              enc(b"x5"), enc("o١".encode()), "not base64 at all", "%FF%FE", "AAAA"):
+        r = api.get(f"/api/findings?task_id={pid}&cursor={c}", tok)
+        assert r.status_code == 422, (c, r.status_code)
+    assert api.get(f"/api/findings?task_id={pid}&cursor={enc(b'o' + str(10**9).encode())}", tok).status_code == 200
+
+
+def test_staff_plane_rejects_a_huge_cursor_too(priv):
+    _, pid = _seed("alpha", "PT Alpha", "a.co.id", "jobA", {"high": 3})
+    bad = base64.urlsafe_b64encode(b"o" + b"9" * 30).decode().rstrip("=")
+    assert priv.get(f"/api/findings?task_id={pid}&cursor={bad}", _staff(priv)).status_code == 422
+
+
+def test_findings_of_every_job_of_a_task_group_under_the_task(api):
+    org, pid = _seed("alpha", "PT Alpha", "a.co.id", "jobA", {"high": 2, "info": 1})
+    db.update_proposal(pid, job_id="jobA2")   # a resume after a failed job starts a new one
+    db.save_findings("jobA2", "alpha", org, _rows("a.co.id", {"critical": 1, "medium": 2}))
+    tok = api.login("alpha", PW)
+    (t,) = api.get("/api/findings/targets", tok).json()
+    assert t["task_id"] == pid and t["total"] == 6 and t["counts"] == {"critical": 1, "high": 2, "medium": 2, "low": 0, "info": 1}
+    page = api.get(f"/api/findings?task_id={pid}", tok).json()
+    assert page["total"] == 6 and len(page["items"]) == 6
+    old = _by_name("jobA")["high issue 000"]
+    assert api.get(f"/api/findings/id/{old}", tok).json()["task_id"] == pid
+    assert db.get_proposal_by_job("jobA")["id"] == pid
+
+
+def test_task_jobs_are_backfilled_for_existing_rows():
+    org = make_client("alpha", "PT Alpha", PW)
+    pid = db.create_proposal({"submitter": "alpha", "org_id": org, "target": "https://a.co.id", "job_id": "jobA"})
+    conn = db.get_conn()
+    conn.execute("DELETE FROM task_jobs")   # a database from before the table existed
+    conn.commit()
+    db.init_db(conn)
+    assert [r["job_id"] for r in conn.execute("SELECT job_id FROM task_jobs WHERE task_id=?", (pid,))] == ["jobA"]

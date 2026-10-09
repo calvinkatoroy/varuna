@@ -434,6 +434,9 @@ def list_reports(user: dict = Depends(current_user), scope: tenancy.Scope = Depe
 
 # --- client findings (v2): flat, tenancy-filtered, confirmed (tp) findings across all of a
 # client's own engagements - what ClientFindings.tsx shows. ---
+MAX_OFFSET = 10**9   # far past any real result set; keeps SQLite's integer binding in range
+
+
 def _cursor_encode(offset: int) -> str:
     return base64.urlsafe_b64encode(f"o{offset}".encode()).decode().rstrip("=")
 
@@ -441,7 +444,7 @@ def _cursor_encode(offset: int) -> str:
 def _cursor_decode(cursor: str) -> int:
     try:
         raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode("ascii")
-        if raw[:1] == "o" and raw[1:].isascii() and raw[1:].isdigit():
+        if raw[:1] == "o" and raw[1:].isascii() and raw[1:].isdigit() and len(raw) <= 11 and int(raw[1:]) <= MAX_OFFSET:
             return int(raw[1:])
     except ValueError:   # bad base64 and bad ascii are both ValueErrors
         pass
