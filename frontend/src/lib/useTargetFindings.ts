@@ -1,6 +1,6 @@
 // lib/useTargetFindings.ts
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { cacheGet, cacheSet, subscribe } from './swr'
+import { cacheEpoch, cacheGet, cacheSet, subscribe } from './swr'
 import { findingsApi, mergeRows, rowsKey, type FindingsPage, type Plane, type RowsState } from './findings'
 
 // The rows of ONE open target (and severity filter). They live in the swr cache, so closing and re-opening a
@@ -17,6 +17,7 @@ export function useTargetFindings(plane: Plane, taskId: string, severity: string
   const [tick, setTick] = useState(0)
   const deepLink = useRef(focusId)   // honoured on the first successful load only
   const used = useRef(false)
+  const loads = useRef(0)   // bumped by every Load more: a reopen refresh that started before one is stale
 
   useEffect(() => subscribe(key, () => { const s = cacheGet<RowsState>(key); if (s) setState(s) }), [key])
 
@@ -25,13 +26,16 @@ export function useTargetFindings(plane: Plane, taskId: string, severity: string
     const cached = cacheGet<RowsState>(key)
     const focus = used.current ? null : deepLink.current
     setState(cached ?? null); setError(null); setGone(false); setFocusLost(false)
+    const started = cacheEpoch()
+    const asked = loads.current
     const fail = (e: any) => { if (live) setError(e?.message || 'Could not load the findings.') }
     const apply = (p: FindingsPage) => {
       if (!live) return
       used.current = true
+      if (asked !== loads.current) return   // Load more ran meanwhile: its rows are newer than this answer
       const s: RowsState = { items: p.items, next: p.next_cursor, total: p.total }
-      cacheSet(key, s)
-      setState(s)
+      cacheSet(key, s, started)
+      setState(cacheGet<RowsState>(key) ?? s)
     }
     const api = findingsApi(plane)
     const anchor = focus && !cached?.items.some((f) => f.id === focus) ? focus : cached?.items[cached.items.length - 1]?.id
@@ -49,12 +53,14 @@ export function useTargetFindings(plane: Plane, taskId: string, severity: string
     const s = cacheGet<RowsState>(key)
     if (!s?.next || busy) return undefined
     setBusy(true)
+    loads.current++
+    const started = cacheEpoch()
     try {
       const p = await findingsApi(plane).page(taskId, { cursor: s.next, severity })
       const cur = cacheGet<RowsState>(key) ?? s
       const merged = mergeRows(cur.items, p.items)
-      cacheSet(key, { items: merged, next: p.next_cursor, total: p.total })
-      return merged[cur.items.length]?.id
+      cacheSet(key, { items: merged, next: p.next_cursor, total: p.total }, started)
+      return cacheGet<RowsState>(key) ? merged[cur.items.length]?.id : undefined
     } catch (e: any) {
       setError(e?.message || 'Could not load more findings.')
       return undefined

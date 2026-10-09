@@ -2,12 +2,13 @@ import { useEffect, useRef } from 'react'
 import { ArrowUpRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ErrorRetry } from '@/components/ErrorRetry'
+import { restoring } from '@/lib/scroll'
 import { useTargetFindings } from '@/lib/useTargetFindings'
-import { SEV_LABEL, sevVar, type FindingRow, type Plane, type Sev } from '@/lib/findings'
+import { SEV_LABEL, sevOf, sevVar, type FindingRow, type Plane } from '@/lib/findings'
 
 const chip = 'rounded-md border border-rule bg-panel px-1.5 py-0.5 text-[12px] text-ink-muted'
 const statusPill: Record<string, string> = {
-  open: 'bg-accent-soft text-accent-ink', fixed: 'bg-low-bg text-low', accepted: 'bg-panel text-ink-muted',
+  open: 'bg-accent-soft text-accent-ink', fixed: 'bg-low-bg text-low-ink', accepted: 'bg-panel text-ink-muted',
 }
 
 function FindingRowView({ f, staff, highlight, onOpen }: { f: FindingRow; staff: boolean; highlight: boolean; onOpen: (f: FindingRow) => void }) {
@@ -23,7 +24,7 @@ function FindingRowView({ f, staff, highlight, onOpen }: { f: FindingRow; staff:
       {/* Phone: severity (dot + word) and state on the first line, the full wrapping title below. */}
       <span className="col-start-1 row-start-1 flex items-center gap-2 sm:w-[84px] sm:flex-none">
         <span aria-hidden className="h-2.5 w-2.5 flex-none rounded-full" style={{ background: `var(--color-${sevVar(f.severity)})`, opacity: resolved ? 0.4 : 1 }} />
-        <span className="text-[12px] text-ink-muted">{SEV_LABEL[f.severity as Sev] ?? f.severity}</span>
+        <span className="text-[12px] text-ink-muted" title={sevOf(f.severity) === f.severity ? undefined : f.severity}>{SEV_LABEL[sevOf(f.severity)]}</span>
       </span>
       <span className="col-span-2 row-start-2 min-w-0 sm:col-auto sm:row-auto sm:flex-1">
         <span className={`line-clamp-2 block text-[15.5px] font-medium leading-snug sm:line-clamp-none sm:truncate ${resolved ? 'text-ink-muted' : 'text-ink'}`}>{f.name}</span>
@@ -35,11 +36,11 @@ function FindingRowView({ f, staff, highlight, onOpen }: { f: FindingRow; staff:
       </span>
       {staff ? (
         <span className="col-start-2 row-start-1 flex flex-none items-center justify-end gap-2 sm:w-[170px]">
-          <span className={`text-[12px] font-bold uppercase ${f.verdict === 'tp' ? 'text-low' : 'text-ink-muted'}`}>{f.verdict === 'tp' ? 'TP' : 'FP'}</span>
+          <span className={`text-[12px] font-bold uppercase ${f.verdict === 'tp' ? 'text-low-ink' : 'text-ink-muted'}`}>{f.verdict === 'tp' ? 'TP' : 'FP'}</span>
           <span className={`rounded-pill px-2.5 py-1 text-[12px] font-semibold capitalize ${statusPill[f.status] ?? 'bg-panel text-ink-muted'}`}>{f.status}</span>
         </span>
       ) : resolved ? (
-        <span className="col-start-2 row-start-1 flex-none text-right text-[12px] font-medium text-low sm:w-[76px]">Resolved</span>
+        <span className="col-start-2 row-start-1 flex-none text-right text-[12px] font-medium text-low-ink sm:w-[76px]">Resolved</span>
       ) : (
         <span aria-hidden className="col-start-2 row-start-1 grid h-8 w-8 flex-none place-items-center rounded-full border border-rule text-ink-faint transition-opacity duration-200 group-hover:text-ink sm:opacity-0 sm:group-hover:opacity-100"><ArrowUpRight size={15} /></span>
       )}
@@ -56,6 +57,8 @@ export function TargetFindings({ plane, taskId, severity, focusId, staff, onOpen
   // Deep link: once the rows are there, bring the linked row to the middle of the screen (instant, no animation).
   const deepLink = useRef(focusId)
   const scrolled = useRef(false)
+  // Back/Forward onto a link that names a finding: the saved scroll position wins over re-centring the row.
+  useEffect(() => { if (restoring.on) scrolled.current = true }, [])
   useEffect(() => {
     if (!deepLink.current || scrolled.current || !state) return
     const el = document.getElementById(`f-${deepLink.current}`)

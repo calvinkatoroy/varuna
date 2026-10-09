@@ -34,7 +34,7 @@ const ACTIVATED = 'varuna-activated'
 // It is a layout route: once activated it renders ONE ClientShell and the tab pages fill its outlet.
 function ClientGate() {
   const { user } = useAuth()
-  // Activation is remembered per account, so a second user on this browser goes through onboarding.
+  // One localStorage key holds the last activated username: a different user on this browser goes through onboarding.
   const [activated, setActivated] = useState(() => localStorage.getItem(ACTIVATED))
   if (user && user.role !== 'client') return <Navigate to="/team" replace />
   if (user?.role === 'client' && activated === user.username) return <ClientShell />

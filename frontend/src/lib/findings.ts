@@ -10,10 +10,12 @@ export const PAGE = 100
 export const SEV_LABEL: Record<Sev, string> = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', info: 'Info' }
 export const SEV_LETTER: Record<Sev, string> = { critical: 'C', high: 'H', medium: 'M', low: 'L', info: 'I' }
 export const SEV_CHIP: Record<Sev, string> = {
-  critical: 'bg-crit-bg text-crit', high: 'bg-high-bg text-high', medium: 'bg-med-bg text-med', low: 'bg-low-bg text-low', info: 'bg-panel text-ink',
+  critical: 'bg-crit-bg text-crit-ink', high: 'bg-high-bg text-high-ink', medium: 'bg-med-bg text-med-ink', low: 'bg-low-bg text-low-ink', info: 'bg-panel text-ink',
 }
+/** A severity the screens know; anything else (manual findings, nuclei `unknown`) is Info, as the server counts it. */
+export const sevOf = (s: string): Sev => ((SEVS as readonly string[]).includes(s?.toLowerCase()) ? (s.toLowerCase() as Sev) : 'info')
 // The colour tokens are --color-crit / --color-med; --color-critical draws nothing.
-export const sevVar = (s: string): string => ({ critical: 'crit', medium: 'med' } as Record<string, string>)[s] ?? s
+export const sevVar = (s: string): string => ({ critical: 'crit', medium: 'med' } as Record<string, string>)[sevOf(s)] ?? sevOf(s)
 
 export type TargetRow = {
   task_id: string; target: string; total: number; fixed: number; scanned_at: string; counts: Counts

@@ -41,7 +41,7 @@ export function PostureBubbles({ posture }: { posture: Record<string, number> })
   return (
     <div className="flex flex-1 flex-col">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full flex-1">
-        {nodes.map((n, i) => {
+        {nodes.map((n) => {
           const s = n.data
           const on = hover === s.key
           const count = posture[s.key] ?? 0

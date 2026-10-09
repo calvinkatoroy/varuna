@@ -35,6 +35,10 @@ export default {
         'high-bg': 'var(--color-high-bg)',
         'med-bg': 'var(--color-med-bg)',
         'low-bg': 'var(--color-low-bg)',
+        'crit-ink': 'var(--color-crit-ink)',
+        'high-ink': 'var(--color-high-ink)',
+        'med-ink': 'var(--color-med-ink)',
+        'low-ink': 'var(--color-low-ink)',
         // --- shadcn/ui color names mapped onto the same tokens ---
         background: 'var(--color-shell)',
         foreground: 'var(--color-ink)',

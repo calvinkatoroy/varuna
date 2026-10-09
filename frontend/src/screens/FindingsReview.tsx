@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Filter, ShieldCheck, Bug, FlaskConical, ChevronDown } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
@@ -9,7 +9,7 @@ import { TargetFindings } from '@/components/findings/TargetFindings'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { FEEDS } from '@/lib/feeds'
-import { SEVS, SEV_CHIP, SEV_LABEL, patchRows, type FindingRow, type Sev, type TargetRow } from '@/lib/findings'
+import { SEVS, SEV_CHIP, SEV_LABEL, patchRows, sevOf, type FindingRow, type TargetRow } from '@/lib/findings'
 import { useApiData } from '@/lib/useApiData'
 import { useFindingDetail } from '@/lib/useFindingDetail'
 import { useFindingsUrl } from '@/lib/useFindingsUrl'
@@ -20,7 +20,6 @@ const clientOf = (t: TargetRow) => t.org_name ?? 'Internal'   // organization na
 export default function FindingsReview() {
   const { data: targets, error, reload, fresh } = useApiData<TargetRow[]>(FEEDS.teamTargets.load, FEEDS.teamTargets.key)
   const url = useFindingsUrl()
-  const [client, setClient] = useState('')
   const [sevFilter, setSevFilter] = useState<string | null>(null)
   const [sel, setSel] = useState<FindingRow | null>(null)
   const [open, setOpen] = useState(false)
@@ -28,17 +27,14 @@ export default function FindingsReview() {
 
   // Clients come from the targets themselves (their organization), so the filter always matches.
   const clients = useMemo(() => [...new Set((targets ?? []).map(clientOf))].sort(), [targets])
-  // Start on the client of the deep-linked target, else the first client. Done once: later changes belong to
+  // Start on the client of the deep-linked target, else the first client. Chosen once: later changes belong to
   // the person using the dropdown. A stale cache may not know the linked target yet, so wait for a fresh load.
-  const synced = useRef(false)
-  useEffect(() => {
-    if (synced.current || !targets?.length) return
-    const linked = targets.find((t) => t.task_id === url.target)
-    if (!linked && !fresh) return
-    synced.current = true
-    setClient(linked ? clientOf(linked) : clients[0])
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targets, fresh])
+  const linked = targets?.find((t) => t.task_id === url.target)
+  const waiting = !!url.target && !linked && !fresh
+  const initial = !targets?.length || waiting ? '' : linked ? clientOf(linked) : clients[0]
+  const [picked, setPicked] = useState('')
+  const client = picked || initial   // cached targets show at once, without a flash of "no findings"
+  const setClient = setPicked
 
   const shown = useMemo(() => (targets ?? []).filter((t) => clientOf(t) === client), [targets, client])
   const lost = !!url.target && !!targets && fresh && !targets.some((t) => t.task_id === url.target)
@@ -104,7 +100,7 @@ export default function FindingsReview() {
               <Button variant="outline" size="sm" className="min-h-[44px]" onClick={() => url.set({ target: null, finding: null })}>Show all targets</Button>
             </div>
           )}
-          {shown.length === 0 && <div className="px-5 py-10 text-center text-[13px] text-ink-faint">No findings for {client || 'this client'}.</div>}
+          {shown.length === 0 && (client || fresh) && <div className="px-5 py-10 text-center text-[13px] text-ink-faint">No findings for {client || 'this client'}.</div>}
           <TargetAccordion
             targets={shown}
             openId={url.target}
@@ -129,7 +125,7 @@ export default function FindingsReview() {
         {sel && (
           <DrawerContent>
             <div className="border-b border-rule p-6">
-              <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-bold ${SEV_CHIP[sel.severity as Sev] ?? SEV_CHIP.info}`}>{SEV_LABEL[sel.severity as Sev] ?? sel.severity}</span>
+              <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-bold ${SEV_CHIP[sevOf(sel.severity)]}`} title={sevOf(sel.severity) === sel.severity ? undefined : sel.severity}>{SEV_LABEL[sevOf(sel.severity)]}</span>
               <DrawerTitle className="mt-2.5 text-[21px] font-bold tracking-[-0.02em] text-ink">{sel.name}</DrawerTitle>
               <div className="mono mt-1 text-[13px] text-ink-muted">{sel.url || sel.host}</div>
               <div className="mt-1 text-[12.5px] text-ink-faint">{sel.tool} · {sel.cve ?? sel.cwe ?? '-'}</div>
@@ -166,7 +162,7 @@ export default function FindingsReview() {
 
 function VerdictBtn({ on, icon, label, tone, onClick }: { on: boolean; icon: React.ReactNode; label: string; tone: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={`flex min-h-[44px] items-center justify-center gap-2 rounded-input border px-3 py-3 text-[13px] font-semibold transition-colors ${on ? (tone === 'low' ? 'border-low bg-low-bg text-low' : 'border-ink bg-panel text-ink') : 'border-rule text-ink-muted hover:text-ink'}`}>
+    <button onClick={onClick} className={`flex min-h-[44px] items-center justify-center gap-2 rounded-input border px-3 py-3 text-[13px] font-semibold transition-colors ${on ? (tone === 'low' ? 'border-low bg-low-bg text-low-ink' : 'border-ink bg-panel text-ink') : 'border-rule text-ink-muted hover:text-ink'}`}>
       {icon} {label}
     </button>
   )

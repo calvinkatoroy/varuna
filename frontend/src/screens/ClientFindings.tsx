@@ -11,7 +11,7 @@ import { TargetFindings } from '@/components/findings/TargetFindings'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { FEEDS } from '@/lib/feeds'
-import { SEV_LABEL, patchRows, sevVar, totalsOf, type FindingRow, type Sev, type TargetRow } from '@/lib/findings'
+import { SEV_LABEL, patchRows, sevOf, sevVar, totalsOf, type FindingRow, type TargetRow } from '@/lib/findings'
 import { bare } from '@/lib/format'
 import { invalidate } from '@/lib/swr'
 import { useApiData } from '@/lib/useApiData'
@@ -55,7 +55,7 @@ export default function ClientFindings() {
   return (
     <ClientPage
       title="Findings"
-      sub="Confirmed issues from your latest scan."
+      sub="Confirmed issues across your scans, grouped by target."
       action={
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -133,7 +133,7 @@ export default function ClientFindings() {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ background: `var(--color-${sevVar(sel.severity)})` }} />
-                  <span className="text-[12px] text-ink-muted">{SEV_LABEL[sel.severity as Sev] ?? sel.severity}</span>
+                  <span className="text-[12px] text-ink-muted">{SEV_LABEL[sevOf(sel.severity)]}</span>
                 </div>
                 <DrawerTitle className="mt-2 text-[23px] font-bold tracking-[-0.02em] text-ink">{sel.name}</DrawerTitle>
                 <div className="mono mt-1.5 text-[13px] text-ink-muted">{sel.url || sel.host}</div>

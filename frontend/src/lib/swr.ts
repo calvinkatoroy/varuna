@@ -11,7 +11,12 @@ let epoch = 0   // bumped by clearCache: answers that were already on the wire a
 export const cacheGet = <T>(key: string): T | undefined => store.get(key)?.data as T | undefined
 export const cacheKeys = (prefix: string): string[] => [...store.keys()].filter((k) => k.startsWith(prefix))
 
-export function cacheSet<T>(key: string, data: T): void {
+export const cacheEpoch = (): number => epoch
+
+/** The one way to write the cache. Pass the `cacheEpoch()` read when the request started: if `clearCache()`
+ *  ran since (another person signed in), the answer is dropped instead of stored. */
+export function cacheSet<T>(key: string, data: T, startedAt?: number): void {
+  if (startedAt !== undefined && startedAt !== epoch) return
   store.set(key, { data, at: Date.now() })
   watchers.get(key)?.forEach((fn) => fn())
 }
@@ -30,7 +35,7 @@ export function fetchShared<T>(key: string, fetcher: () => Promise<T>): Promise<
   if (running) return running as Promise<T>
   const started = epoch
   const p: Promise<T> = fetcher()
-    .then((d) => { if (started === epoch) cacheSet(key, d); return d })
+    .then((d) => { cacheSet(key, d, started); return d })
     .finally(() => { if (inflight.get(key) === p) inflight.delete(key) })
   inflight.set(key, p)
   return p

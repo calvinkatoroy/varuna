@@ -50,6 +50,11 @@
   --color-high-bg: #352713;
   --color-med-bg: #322D11;
   --color-low-bg: #123029;
+  /* -ink: severity colour for WORDS (chips, labels); the plain tokens stay for dots and bars. 4.5:1+ on their -bg */
+  --color-crit-ink: #F2565B;
+  --color-high-ink: #EDA64A;
+  --color-med-ink: #DCC646;
+  --color-low-ink: #42C4A2;
 
   /* Dark-mode page background: the hero-style navy + cyan gradient fills the screen (never
      pure black). --bg-x / --bg-y are nudged by the pointer for a cheap parallax. */
@@ -105,6 +110,10 @@
   --color-high-bg: #F7E8D3;
   --color-med-bg: #F5EFCF;
   --color-low-bg: #D6EEE7;
+  --color-crit-ink: #A81F1F;
+  --color-high-ink: #8A4E00;
+  --color-med-ink: #6E5A00;
+  --color-low-ink: #0F6B54;
 }
 
 html,
