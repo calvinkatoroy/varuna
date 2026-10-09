@@ -376,8 +376,10 @@ _SETTABLE = _BUMPS + ("display_name", "phone", "email", "must_change_password", 
 
 
 def upsert_account(username: str, password_hash: str, role: str, org_id: Optional[str] = None) -> None:
+    # A new account starts at a random token_version, so a deleted-then-recreated username never accepts the old
+    # account's tokens (they all carried version 0 before).
     get_conn().execute(
-        "INSERT INTO accounts (username, password_hash, role, org_id) VALUES (?, ?, ?, ?) "
+        "INSERT INTO accounts (username, password_hash, role, org_id, token_version) VALUES (?, ?, ?, ?, abs(random()) % 1000000000) "
         "ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, role=excluded.role, "
         "org_id=excluded.org_id, token_version=token_version+1",
         (username, password_hash, role, org_id),

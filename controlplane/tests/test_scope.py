@@ -21,7 +21,7 @@ def test_account_has_org_and_token_version_bumps():
     oid = db.create_org("CV Bahari")
     db.upsert_account("rina", "h", "client", org_id=oid)
     a = db.get_account("rina")
-    assert a["org_id"] == oid and a["token_version"] == 0 and a["must_change_password"] == 0
+    assert a["org_id"] == oid and a["must_change_password"] == 0
     for fields in ({"password_hash": "h2"}, {"role": "client"}, {"disabled": 1}, {"org_id": oid}):
         before = db.get_account("rina")["token_version"]
         db.set_account("rina", **fields)

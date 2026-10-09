@@ -439,3 +439,11 @@ def test_the_client_password_is_the_same_for_every_request_even_in_parallel():
     with cf.ThreadPoolExecutor(8) as ex:
         res = list(ex.map(lambda _: pub.get(f"/api/reports/{rid}/password", headers=Hc), range(8)))
     assert {r.status_code for r in res} == {200} and {r.json()["password"] for r in res} == {"s3cr3t"}
+
+
+def test_recreated_account_does_not_accept_old_tokens():
+    auth.create_account("gone-user", "pw-Aa1234567", "pentester")
+    old = db.get_account("gone-user")["token_version"]
+    db.get_conn().execute("DELETE FROM accounts WHERE username='gone-user'"); db.get_conn().commit()
+    auth.create_account("gone-user", "pw-Aa1234567", "pentester")
+    assert db.get_account("gone-user")["token_version"] != old
