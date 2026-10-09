@@ -221,3 +221,22 @@ def test_findings_by_target_are_org_scoped(api, priv, tmp_path):
     for path in ("/api/findings/targets", f"/api/findings?task_id={a['pid']}", f"/api/findings/id/{a['fid']}"):
         assert priv.get(path, root).status_code == 403, path
     _org_b_untouched(b)
+
+
+NEW_ROUTES = (("GET", "/audit"), ("GET", "/audit/trail"), ("GET", "/report/content"), ("POST", "/report/restore"),
+              ("POST", "/findings/manual"), ("POST", "/findings/{fid}/edit"))
+
+
+def test_audit_routes_are_staff_only_and_org_scoped(api, priv, tmp_path):
+    a, b = _seed_two_orgs(tmp_path)
+    paths = priv.app.openapi()["paths"]
+    for method, tail in NEW_ROUTES:                                 # the sweep really visits each new route
+        assert method.lower() in paths[f"/api/tasks/{{tid}}{tail}"], tail
+    tok = api.login("alpha", PW)
+    for who in (a, b):                                              # a client token: 403 even for its OWN task
+        for method, tail in NEW_ROUTES:
+            url = f"/api/tasks/{who['pid']}" + tail.replace("{fid}", who["fid"])
+            r = priv.request(method, url, tok, json={**BODY, "name": "x", "severity": "low", "base_version": 1})
+            assert r.status_code == 403 and "role required" in r.text, (method, url, r.status_code)
+    assert priv.post(f"/api/findings/{b['fid']}/verdict", tok, {"verdict": "fp"}).status_code == 403
+    assert db.get_finding(b["fid"], org_id=b["org"])["verdict"] == "tp"

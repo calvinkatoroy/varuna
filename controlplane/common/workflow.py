@@ -22,6 +22,7 @@ import dispatch
 import models
 import notify
 import redis_store
+import reportdoc
 import tokens
 
 UTC = datetime.UTC
@@ -358,6 +359,10 @@ def transition(task_id: str, to: str, actor: str, *, org_id: Optional[str], vers
         fields["suspend_reason"] = note
         if task.get("job_id"):
             side = lambda: redis_store.set_suspended(task["job_id"], True)   # agent pauses at the next phase
+    elif kind == "submit":
+        gap = reportdoc.pdf_gap(task)   # a ready PDF built from this very content and these very findings
+        if gap:
+            raise Conflict(gap)
     elif kind == "schedule":
         fields.update(_schedule_fields(task, scheduled_at, max_minutes, opts))
     elif kind in ("start", "resume"):
@@ -378,30 +383,8 @@ def transition(task_id: str, to: str, actor: str, *, org_id: Optional[str], vers
     return db.get_proposal(task_id, org_id=None)
 
 
-def actions(task: dict, actor: str) -> list[dict]:
-    """The moves a person could make from the task's current state, with whether they may and why not."""
-    tags = _tags(actor, task)
-    out = []
-    for (frm, to), rule in RULES.items():
-        if frm != state_key(task) or rule["who"] <= _SYSTEM_ONLY:
-            continue
-        ok = bool(tags & rule["who"])
-        out.append({"to": to, "kind": rule["kind"], "comment": rule["comment"], "allowed": ok,
-                    "why": None if ok else _why(rule["who"])})
-    if (task["stage"] == "completed" or task["stage"] in STAGE_ROLE) and task.get("job_id")             and not db.get_report_by_job(task["job_id"]):
-        ok = can_edit_report(task, actor)   # transition-free: the report is generated on demand
-        out.append({"to": "", "kind": "generate_report", "comment": False, "allowed": ok,
-                    "why": None if ok else "only the stage owner can do this"})
-    return out
 
 
-def can_edit_report(task: dict, actor: str) -> bool:
-    """Upload a version / switch template: the assignee or a lead at `completed`, else the stage's role."""
-    tags = _tags(actor, task)
-    if task["stage"] == "completed":
-        return OWNER in tags
-    role = STAGE_ROLE.get(task["stage"])
-    return bool(role) and role in tags
 
 
 def client_status(task: dict) -> str:
@@ -420,6 +403,23 @@ def client_timeline(task_id: str) -> list[dict]:
         if word == "declined":
             item["note"] = e["comment"]
         out.append(item)
+    return out
+
+
+def actions(task: dict, actor: str) -> list[dict]:
+    """The moves a person could make from the task's current state, with whether they may and why not."""
+    tags = _tags(actor, task)
+    out = []
+    for (frm, to), rule in RULES.items():
+        if frm != state_key(task) or rule["who"] <= _SYSTEM_ONLY:
+            continue
+        ok = bool(tags & rule["who"])
+        why = None if ok else _why(rule["who"])
+        if ok and rule["kind"] == "submit":
+            gap = reportdoc.pdf_gap(task)   # the audit page's PDF must be current (transition() enforces it too)
+            if gap:
+                ok, why = False, gap
+        out.append({"to": to, "kind": rule["kind"], "comment": rule["comment"], "allowed": ok, "why": why})
     return out
 
 

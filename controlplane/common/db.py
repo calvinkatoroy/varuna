@@ -657,11 +657,11 @@ def save_findings(job_id: str, owner: str, org_id: str, findings: list[dict]) ->
         )
     if ids:
         conn.execute(
-            f"DELETE FROM findings WHERE job_id=? AND id NOT IN ({','.join('?' * len(ids))})",
+            f"DELETE FROM findings WHERE job_id=? AND COALESCE(tool,'') != 'manual' AND id NOT IN ({','.join('?' * len(ids))})",
             [job_id, *ids],
         )
     else:
-        conn.execute("DELETE FROM findings WHERE job_id=?", (job_id,))
+        conn.execute("DELETE FROM findings WHERE job_id=? AND COALESCE(tool,'') != 'manual'", (job_id,))
     conn.commit()
 
 
@@ -1093,3 +1093,16 @@ def set_report_password_if_empty(rid: str, sealed: str) -> bool:
                        (sealed, rid))
     conn.commit()
     return cur.rowcount == 1
+
+
+def insert_manual_finding(task: dict, f: dict) -> str:
+    """A hand-entered finding of the task's latest scan: random id (never merged with a scanner finding), confirmed (tp)."""
+    import uuid
+    fid = "m" + uuid.uuid4().hex[:15]
+    cols = ("name", "severity", "host", "url", "description", "evidence", "remediation", "impact")
+    conn = get_conn()
+    conn.execute("INSERT INTO findings (id, job_id, owner, org_id, tool, verdict, status, " + ", ".join(cols) + ") "
+                 "VALUES (?,?,?,?,'manual','tp','open'," + ",".join("?" * len(cols)) + ")",
+                 (fid, task["job_id"], task["submitter"], task["org_id"], *(f.get(c, "") for c in cols)))
+    conn.commit()
+    return fid

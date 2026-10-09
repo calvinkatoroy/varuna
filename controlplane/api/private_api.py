@@ -223,15 +223,6 @@ class VerdictBody(BaseModel):
     verdict: str   # "tp" | "fp"
 
 
-@app.post("/api/findings/{fid}/verdict")
-def set_finding_verdict(fid: str, body: VerdictBody, user: dict = Depends(require_team),
-                        scope: Scope = Depends(deps.scope)):
-    if body.verdict not in ("tp", "fp"):
-        raise HTTPException(status_code=422, detail="verdict must be tp or fp")
-    if not db.get_finding(fid, org_id=scope.org_id):
-        raise HTTPException(status_code=404, detail="no such finding")
-    db.set_finding(fid, verdict=body.verdict)
-    return {"ok": True}
 
 
 # --- team board (step 2): role-scoped kanban columns built from task stages ---
@@ -334,3 +325,21 @@ def task_detail(tid: str, user: dict = Depends(require_team), scope: Scope = Dep
     t = _staff_task(tid, scope)
     return {"task": {k: t.get(k) for k in _DETAIL_KEYS}, "can_audit": workflow.can_audit(t, user["username"]),
             "has_report": t["stage"] in audit_api.AUDIT_STAGES}
+
+
+@app.post("/api/findings/{fid}/verdict")
+def set_finding_verdict(fid: str, body: VerdictBody, user: dict = Depends(require_team),
+                        scope: Scope = Depends(deps.scope)):
+    if body.verdict not in ("tp", "fp"):
+        raise HTTPException(status_code=422, detail="verdict must be tp or fp")
+    f = db.get_finding_with_task(fid, org_id=scope.org_id)
+    if not f:
+        raise HTTPException(status_code=404, detail="no such finding")
+    task = db.get_proposal(f["task_id"], org_id=None) if f.get("task_id") else None   # None for a direct staff scan
+    if task:
+        audit_api.require_owner(task, user)             # a task's report changes on its audit page, at Completed
+    db.set_finding(fid, verdict=body.verdict)
+    if task:
+        db.add_audit(task["id"], task["org_id"], user["username"], "verdict", fid,
+                     {"verdict": body.verdict, "name": f["name"][:120]})
+    return {"ok": True}

@@ -16,7 +16,7 @@ import redis_store  # noqa: E402
 import tokens  # noqa: E402
 import workflow  # noqa: E402
 from _fakeredis import FakeRedis  # noqa: E402
-from conftest import make_client, window  # noqa: E402
+from conftest import make_client, ready_pdf, window  # noqa: E402
 
 PW = "Passw0rd!x"
 UTC = dt.UTC
@@ -206,6 +206,7 @@ def test_review_chain_approve_path_and_wrong_role():
     tid = _task(stage="completed", assignee="rizky")
     with pytest.raises(workflow.Forbidden):
         workflow.transition(tid, "review_lead_pentester", "budi", org_id=None)      # not the assignee
+    ready_pdf(tid)                                                             # Submit needs a current PDF
     workflow.transition(tid, "review_lead_pentester", "rizky", org_id=None)
     with pytest.raises(workflow.Forbidden):
         workflow.transition(tid, "review_lead_cyber", "sari", org_id=None)        # governance does not own this stage
@@ -488,3 +489,21 @@ def test_less_than_a_minute_left_is_422():
 def test_extreme_or_garbage_times_are_422(value):
     with pytest.raises(workflow.Invalid):
         workflow.parse_utc(value, "scheduled_at")
+
+
+def test_submit_is_refused_without_a_current_pdf():
+    tid = _task(stage="completed", assignee="rizky")
+    with pytest.raises(workflow.Conflict, match="PDF"):
+        workflow.transition(tid, "review_lead_pentester", "rizky", org_id=None)
+    assert _get(tid)["stage"] == "completed" and _events(tid) == []
+    ready_pdf(tid)
+    assert workflow.transition(tid, "review_lead_pentester", "rizky", org_id=None)["stage"] == "review_lead_pentester"
+
+
+def test_can_audit_is_assignee_or_lead_at_completed_only():
+    t = _get(_task(stage="completed", assignee="rizky"))
+    assert workflow.can_audit(t, "rizky") and workflow.can_audit(t, "dewi")
+    assert not any(workflow.can_audit(t, who) for who in ("budi", "sari", "agus", "hendra", "alice", "nobody"))
+    for stage in ("scan", "review_lead_pentester", "review_manager", "delivered"):
+        assert not workflow.can_audit({**t, "stage": stage}, "rizky"), stage
+    assert not hasattr(workflow, "can_edit_report")
