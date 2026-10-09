@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
-import { Download, Upload, Activity, SlidersHorizontal, KeyRound } from 'lucide-react'
-import { api, ApiError, download, team, upload, type BoardCard, type TaskAction, type TaskDetail, type TaskEvent } from '@/api'
-import { useAuth } from '@/auth'
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Activity, SlidersHorizontal } from 'lucide-react'
+import { api, ApiError, team, type BoardCard, type TaskAction, type TaskDetail, type TaskEvent } from '@/api'
 import { Button } from '@/components/ui/button'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
 import { ScanProgress } from '@/components/ScanProgress'
@@ -12,7 +12,7 @@ import { toast } from '@/lib/toast'
 export const KIND_LABEL: Record<string, string> = {
   claim: 'Claim', decline: 'Decline', start: 'Start now', schedule: 'Schedule', unschedule: 'Cancel schedule',
   suspend: 'Suspend', resume: 'Resume now', close: 'Close as expired', submit: 'Submit for review',
-  approve: 'Approve', send_back: 'Send back', deliver: 'Approve and deliver', generate_report: 'Generate report',
+  approve: 'Approve', send_back: 'Send back', deliver: 'Approve and deliver',
 }
 export const STAGE_LABEL: Record<string, string> = {
   task: 'Task', 'scan/pending': 'Scan pending', 'scan/scheduled': 'Scheduled', 'scan/in_progress': 'Scanning',
@@ -22,12 +22,13 @@ export const STAGE_LABEL: Record<string, string> = {
 }
 // Moves that cannot be taken back take two taps (the first arms the button and says so).
 const CONSEQUENTIAL = new Set(['decline', 'approve', 'send_back', 'deliver', 'close', 'suspend'])
+const HAS_REPORT = new Set(['completed', 'review_lead_pentester', 'review_lead_cyber', 'review_governance', 'review_manager', 'delivering', 'delivered'])
 const key = (stage: string, s: string | null) => (stage === 'scan' && s ? `scan/${s}` : stage)
 const ta = 'w-full resize-none rounded-input border border-rule bg-panel px-3.5 py-3 text-[13px] text-ink placeholder:text-ink-muted outline-none focus:border-accent'
 const field = 'mt-1 min-h-[44px] w-full rounded-input border border-rule bg-panel px-3 text-[13px] text-ink outline-none focus:border-accent'
 
 export function TaskDrawer({ card, open, onOpenChange, onMoved }: { card: BoardCard | null; open: boolean; onOpenChange: (v: boolean) => void; onMoved: () => void }) {
-  const { user } = useAuth()
+  const navigate = useNavigate()
   const [detail, setDetail] = useState<TaskDetail | null>(null)
   const [events, setEvents] = useState<TaskEvent[]>([])
   const [comment, setComment] = useState('')
@@ -37,10 +38,6 @@ export function TaskDrawer({ card, open, onOpenChange, onMoved }: { card: BoardC
   const [optsOpen, setOptsOpen] = useState(false)
   const [armed, setArmed] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [gen, setGen] = useState(false)
-  const [templates, setTemplates] = useState<string[]>([])
-  const [tpl, setTpl] = useState('')
-  const fileRef = useRef<HTMLInputElement>(null)
 
   const reload = () => {
     if (!card) return
@@ -48,17 +45,13 @@ export function TaskDrawer({ card, open, onOpenChange, onMoved }: { card: BoardC
     team.events(card.id).then(setEvents).catch(() => setEvents([]))
   }
   useEffect(() => { setComment(''); setOpts(undefined); setArmed(null); setDetail(null); setEvents([]); reload() }, [card?.id])   // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { api.pget('/api/templates').then(setTemplates).catch(() => {}) }, [])
   useEffect(() => { if (!armed) return; const t = setTimeout(() => setArmed(null), 8000); return () => clearTimeout(t) }, [armed])
 
   if (!card) return null
-  const all = card.actions
-  const actions = all.filter((a) => a.kind !== 'generate_report')   // transition-free: has its own button
-  const canGenerate = all.some((a) => a.kind === 'generate_report' && a.allowed)
+  const actions = card.actions
   const needsComment = actions.some((a) => a.comment && a.allowed)
   const needsSchedule = actions.some((a) => a.kind === 'schedule' && a.allowed)
   const canStart = actions.some((a) => (a.kind === 'start' || a.kind === 'resume') && a.allowed)
-  const review = card.stage === 'completed' || card.stage.startsWith('review_')
 
   const reasonFor = (a: TaskAction): string | null => {
     if (!a.allowed) return a.why
@@ -90,25 +83,6 @@ export function TaskDrawer({ card, open, onOpenChange, onMoved }: { card: BoardC
       setBusy(false); onMoved()
     }
   }
-  const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0]; e.target.value = ''
-    if (!f || !detail?.report_id) return
-    try { await upload(api.privateBase, `/api/pipeline/reports/${detail.report_id}/version?note=${encodeURIComponent('Uploaded ' + f.name)}`, f); toast('New version uploaded.'); reload() } catch {}
-  }
-  const regenerate = async () => {
-    if (!tpl || !detail?.report_id) return
-    try { await api.ppost(`/api/pipeline/reports/${detail.report_id}/template`, { template: tpl }); toast(`Regenerated as ${tpl}.`); reload() } catch {}
-  }
-  const generate = async () => {
-    setGen(true)
-    try { await api.ppost(`/api/tasks/${card.id}/report`); toast('Report generated.'); reload(); onMoved() }
-    catch (e) { if (!(e instanceof ApiError)) toast('Could not generate the report.') }   // api.ts toasts server reasons
-    finally { setGen(false) }
-  }
-  const reissue = async () => {
-    if (!detail?.report_id) return
-    try { await api.ppost(`/api/pipeline/reports/${detail.report_id}/reissue-password`); toast(`New view-once password issued for ${card.client}.`) } catch {}
-  }
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -130,41 +104,11 @@ export function TaskDrawer({ card, open, onOpenChange, onMoved }: { card: BoardC
           {card.scanState === 'in_progress' && card.jobId && (
             <section className="rounded-input border border-rule bg-panel p-4"><ScanProgress jobId={card.jobId} base={api.privateBase} /></section>
           )}
-          {canGenerate && (
+          {HAS_REPORT.has(card.stage) && (
             <section className="rounded-input border border-rule bg-panel p-4">
-              <p className="mb-3 text-[13px] text-ink">This task has no report yet (it may have failed to generate).</p>
-              <Button variant="outline" onClick={generate} disabled={gen} className="min-h-[44px]">{gen ? 'Generating…' : 'Generate report'}</Button>
+              <p className="mb-3 text-[13px] text-ink">{card.stage === 'completed' ? 'Audit the findings, build the PDF and edit the wording on the audit page. Submit for review needs a current PDF.' : 'The report and its PDF are read-only at this stage. Send the task back to change them.'}</p>
+              <Button variant="outline" className="min-h-[44px]" onClick={() => navigate(`/team/audit/${card.id}`)}>{card.stage === 'completed' ? 'Open audit page' : 'View report'}</Button>
             </section>
-          )}
-          {review && detail?.report_id && (
-            <section>
-              <div className="mb-2.5 flex items-center justify-between">
-                <h4 className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">Versions</h4>
-                {detail.can_edit_report && <>
-                <input ref={fileRef} type="file" accept=".docx" aria-label="Upload a new report version" className="hidden" onChange={onPickFile} />
-                <button onClick={() => fileRef.current?.click()} className="flex min-h-[44px] items-center gap-1.5 text-[12.5px] font-semibold text-accent-ink"><Upload size={14} /> Upload new</button>
-                </>}
-              </div>
-              {detail.can_edit_report && <div className="mb-3 flex items-center gap-2">
-                <select value={tpl} onChange={(e) => setTpl(e.target.value)} aria-label="Report template" className="min-h-[44px] min-w-0 flex-1 rounded-input border border-rule bg-panel px-3 text-[13px] text-ink">
-                  <option value="">Regenerate as template…</option>
-                  {templates.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-                <Button variant="outline" onClick={regenerate} disabled={!tpl} className="min-h-[44px]">Regenerate</Button>
-              </div>}
-              <ul className="space-y-2">
-                {detail.versions.map((v) => (
-                  <li key={v.version_no} className="flex items-center gap-3 rounded-input border border-rule bg-panel p-3">
-                    <span className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-card text-[12px] font-bold text-ink">v{v.version_no}</span>
-                    <div className="min-w-0 flex-1"><div className="truncate text-[13px] font-medium text-ink">{v.note}</div><div className="text-[12px] text-ink-muted">{v.editor} · {localTime(v.created_at.replace(' ', 'T') + 'Z')}</div></div>
-                    <button onClick={() => download(api.privateBase, `/api/pipeline/reports/${detail.report_id}/versions/${v.version_no}/download`, `${detail.report_id}_v${v.version_no}.docx`)} aria-label={`Download version ${v.version_no}`} className="grid h-11 w-11 flex-none place-items-center rounded-full text-ink-muted hover:bg-card hover:text-ink"><Download size={16} /></button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-          {card.stage === 'delivered' && user?.role === 'governance' && detail?.report_id && (
-            <button onClick={reissue} className="flex min-h-[44px] items-center gap-2 text-[13px] font-semibold text-accent-ink"><KeyRound size={15} /> Re-issue the view-once password</button>
           )}
           <section>
             <h4 className="mb-2.5 text-[12px] font-semibold uppercase tracking-wide text-ink-muted">History</h4>

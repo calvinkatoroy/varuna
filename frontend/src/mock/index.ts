@@ -7,6 +7,7 @@
 // and refetches - a real gap the static-fixture-only version had.
 import * as fx from './fixtures'
 import { findingsRoute } from './findings'
+import { auditRoute } from './audit'
 import type { ClientTask } from '@/api'
 
 let boardState = structuredClone(fx.taskBoard)
@@ -133,7 +134,6 @@ export async function mockRequest(method: string, path: string, body?: any): Pro
     if (r !== undefined) return r
   }
   if (m === 'POST' && path.startsWith('/api/password-reset/')) return { ok: true }
-  if (m === 'GET' && path === '/api/templates') return ['Full Technical', 'Formal Handover', 'Executive Summary', 'Raw Findings']
   if (path.startsWith('/api/findings')) {
     const r = findingsRoute(m, path, body, currentUser.role !== 'client')
     if (r !== undefined) return r
@@ -145,6 +145,10 @@ export async function mockRequest(method: string, path: string, body?: any): Pro
       scheduled_at: null, not_before: body.not_before, not_after: body.not_after }
     tasksState = [t, ...tasksState]
     return t
+  }
+  if (/^\/api\/tasks\/[^/]+\/(audit|report|ai|findings)(\/|$)/.test(path)) {
+    const r = auditRoute(m, path, body)
+    if (r !== undefined) return r
   }
   const taskEvents = m === 'GET' && path.match(/^\/api\/tasks\/([^/]+)\/events$/)
   if (taskEvents) {

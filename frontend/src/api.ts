@@ -213,7 +213,7 @@ export type TaskDetail = {
   task: { id: string; target: string; path: string; port: number | null; notes: string; scan_mode: string; not_before: string; not_after: string
     max_minutes: number | null; scheduled_at: string | null; assignee: string | null; suspend_reason: string | null
     decline_cause: string | null; stage: string; scan_state: string | null; version: number; job_id: string | null }
-  report_id: string | null; can_edit_report: boolean; versions: { version_no: number; editor: string; note: string; created_at: string }[]
+  can_audit: boolean; has_report: boolean
 }
 export type MoveBody = { to: string; version: number; comment?: string; scheduled_at?: string; max_minutes?: number; opts?: Record<string, unknown> }
 export const team = {
@@ -275,37 +275,6 @@ export function streamEvents(base: string, path: string, onMessage: (data: any) 
     }
   })()
   return () => controller.abort()
-}
-
-// Multipart upload (a reviewer's edited .docx). Same failure handling as req(): a 401 ends the
-// session, other errors surface the server's message.
-export async function upload(base: string, path: string, file: File): Promise<any> {
-  if (isMock()) return { ok: true }
-  if (!token) throw new ApiError(401, '', true)
-  try {
-    const fd = new FormData()
-    fd.append('file', file)
-    const res = await fetch(base + path, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
-    if (res.status === 401) {
-      setToken(null)
-      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
-      throw new ApiError(401, SESSION_ENDED)
-    }
-    if (!res.ok) {
-      let detail = res.statusText
-      try { detail = (await res.json()).detail || detail } catch {}
-      if (detail === 'password_change_required') {
-        window.dispatchEvent(new Event(PASSWORD_CHANGE_EVENT))
-        throw new ApiError(res.status, 'Choose a new password to continue.', true)
-      }
-      throw new ApiError(res.status, detail)
-    }
-    return res.json()
-  } catch (e) {
-    if (e instanceof ApiError && e.silent) throw e
-    toast(e instanceof ApiError ? e.message : 'Network error - check your connection.')
-    throw e
-  }
 }
 
 export async function download(base: string, path: string, filename: string) {

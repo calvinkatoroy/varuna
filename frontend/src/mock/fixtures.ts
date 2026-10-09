@@ -76,7 +76,7 @@ export const taskBoard = [
     card('k2', 'scan', 'scheduled', 'PT Samudera Logistik', 'https://tracking.samudera.co.id:8443', 'Starts 2026-10-09T02:00:00+00:00', [act('scan/pending', 'unschedule')]),
     card('k3', 'scan', 'suspended', 'PT Nusantara Pelabuhan', 'https://kapal.nusantara.co.id', 'agent offline', [act('scan/in_progress', 'resume'), act('scan/scheduled', 'schedule'), act('expired', 'close', true)]),
   ] },
-  { id: 'completed', title: 'Completed', accent: 'high', cards: [card('k4', 'completed', null, 'PT Sinar Cargo', 'https://sinarcargo.co.id', 'Scan finished, ready to submit', [act('review_lead_pentester', 'submit')])] },
+  { id: 'completed', title: 'Completed', accent: 'high', cards: [card('t1', 'completed', null, 'PT Samudera Logistik', 'https://portal.samudera.co.id', 'Scan finished, ready to audit', [act('review_lead_pentester', 'submit')])] },
   { id: 'review_lead_pentester', title: 'Lead Pentester review', accent: 'crit', cards: [card('k5', 'review_lead_pentester', null, 'PT Samudera Logistik', 'https://portal.samudera.co.id/app', 'v2 · riyan', [act('review_lead_cyber', 'approve'), act('completed', 'send_back', true)])] },
   { id: 'review_lead_cyber', title: 'Lead Cyber review', accent: 'med', cards: [] },
   { id: 'review_governance', title: 'Governance review', accent: 'med', cards: [] },
@@ -89,7 +89,7 @@ export const taskDetail = (id: string) => ({
   task: { id, target: 'https://portal.samudera.co.id', path: '/app', port: null, notes: 'Akun uji: demo/demo', scan_mode: 'cloud',
     not_before: '2026-10-08T01:00:00Z', not_after: '2026-10-12T10:00:00Z', max_minutes: 240, scheduled_at: null,
     assignee: 'dimas', suspend_reason: null, decline_cause: null, stage: 'review_lead_pentester', scan_state: null, version: 1, job_id: null },
-  report_id: 'rep-' + id, can_edit_report: true, versions: [{ version_no: 1, editor: 'system', note: 'auto-generated v1', created_at: '2026-10-08 09:12:00' }],
+  can_audit: true, has_report: true,
 })
 
 // System administrator console (VITE_MOCK=1): organizations and every account, Indonesian sample data.
