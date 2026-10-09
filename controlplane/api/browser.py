@@ -11,6 +11,7 @@ input, full reports) is a separate app bound to the Tailscale interface (NFR-24)
 """
 from __future__ import annotations
 
+import base64
 import asyncio
 import json
 import os
@@ -24,7 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "report"))
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv()  # repo-root .env, for host-run dev (REDIS_URL, JWT_SECRET, ...)
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response  # noqa: E402
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, StreamingResponse  # noqa: E402
 from pydantic import BaseModel, Field, StrictInt  # noqa: E402
@@ -433,8 +434,80 @@ def list_reports(user: dict = Depends(current_user), scope: tenancy.Scope = Depe
 
 # --- client findings (v2): flat, tenancy-filtered, confirmed (tp) findings across all of a
 # client's own engagements - what ClientFindings.tsx shows. ---
+def _cursor_encode(offset: int) -> str:
+    return base64.urlsafe_b64encode(f"o{offset}".encode()).decode().rstrip("=")
+
+
+def _cursor_decode(cursor: str) -> int:
+    try:
+        raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode("ascii")
+        if raw[:1] == "o" and raw[1:].isascii() and raw[1:].isdigit():
+            return int(raw[1:])
+    except ValueError:   # bad base64 and bad ascii are both ValueErrors
+        pass
+    raise HTTPException(status_code=422, detail="bad cursor")
+
+
+def targets_view(user: dict, scope: tenancy.Scope) -> list[dict]:
+    """Accordion rows: one per target (task) with findings. Clients: own organization, confirmed (tp) only."""
+    is_team = models.is_team(user["role"])
+    names = {o["id"]: o["name"] for o in db.list_orgs()} if is_team else {}
+    out = []
+    for r in db.finding_targets(org_id=scope.org_id, tp_only=not is_team):
+        org = r.pop("org_id")
+        if is_team:
+            r["org_name"] = names.get(org, "Internal")
+        else:
+            r.pop("fp")
+        out.append(r)
+    return out
+
+
+def page_view(task_id: str, limit: int, cursor: str | None, upto: str | None, severity: str | None,
+              user: dict, scope: tenancy.Scope) -> dict:
+    if cursor and upto:
+        raise HTTPException(status_code=422, detail="use either cursor or upto")
+    sev = severity.strip().lower() if severity else None
+    if sev and sev not in models.SEVERITY_ORDER:
+        raise HTTPException(status_code=422, detail="unknown severity")
+    start = _cursor_decode(cursor) if cursor else 0
+    res = db.list_finding_page(task_id, org_id=scope.org_id, tp_only=not models.is_team(user["role"]),
+                               severity=sev, limit=limit, offset=start, upto=upto)
+    if res is None:
+        raise HTTPException(status_code=404, detail="no such target")
+    items, total = res
+    end = start + len(items)
+    return {"items": items, "next_cursor": _cursor_encode(end) if end < total else None, "total": total}
+
+
+def one_view(fid: str, user: dict, scope: tenancy.Scope) -> dict:
+    is_team = models.is_team(user["role"])
+    f = db.get_finding_with_task(fid, org_id=scope.org_id)
+    if not f or (not is_team and f["verdict"] != "tp"):
+        raise HTTPException(status_code=404, detail="no such finding")
+    if is_team:
+        f["org_name"] = (db.get_org(f["org_id"]) or {}).get("name", "Internal")
+    return f
+
+
+def findings_list(task_id: str | None, limit: int, cursor: str | None, upto: str | None, severity: str | None,
+                  user: dict, scope: tenancy.Scope):
+    """Shared by both planes. Without `task_id` this is the old flat list; with it, one target's page."""
+    if task_id is None:
+        if cursor or upto or severity:
+            raise HTTPException(status_code=422, detail="task_id is required with paging parameters")
+        return flat_findings(user, scope)
+    return page_view(task_id, limit, cursor, upto, severity, user, scope)
+
+
 @app.get("/api/findings")
-def list_findings(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+def list_findings(task_id: str | None = None, limit: int = Query(100, ge=1, le=200), cursor: str | None = None,
+                  upto: str | None = None, severity: str | None = None,
+                  user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    return findings_list(task_id, limit, cursor, upto, severity, user, scope)
+
+
+def flat_findings(user: dict, scope: tenancy.Scope):
     is_team = models.is_team(user["role"])
     rows = db.list_findings(org_id=scope.org_id)
     # Clients only ever see confirmed (tp) findings; the team also triages false positives
@@ -447,6 +520,16 @@ def list_findings(user: dict = Depends(current_user), scope: tenancy.Scope = Dep
 
 class FindingStatusBody(BaseModel):
     status: str   # "open" | "fixed"
+
+
+@app.get("/api/findings/targets")
+def findings_targets(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    return targets_view(user, scope)
+
+
+@app.get("/api/findings/id/{fid}")
+def finding_one(fid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    return one_view(fid, user, scope)
 
 
 @app.post("/api/findings/{fid}/status")

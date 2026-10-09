@@ -196,6 +196,8 @@ def init_db(conn: sqlite3.Connection) -> None:
     if first_stage:   # rows from before the workflow existed are closed, never claimable
         conn.execute("UPDATE proposals SET stage='expired' WHERE not_after IS NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_proposals_stage ON proposals(stage, scan_state)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_proposals_job ON proposals(job_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_findings_org ON findings(org_id)")
     for col, ddl in (("org_id", "TEXT"), ("display_name", "TEXT"), ("phone", "TEXT"),
                      ("token_version", "INTEGER NOT NULL DEFAULT 0"),
                      ("must_change_password", "INTEGER NOT NULL DEFAULT 0")):
@@ -626,6 +628,82 @@ def list_findings(*, org_id: Optional[str]) -> list[dict]:
         q += " WHERE " + " AND ".join(where)
     q += " ORDER BY created_at DESC"
     return [dict(r) for r in get_conn().execute(q, args).fetchall()]
+
+
+# --- findings by target (step 3). A finding belongs to the task whose job produced it; a job nobody
+# requested (a pentester's direct scan) is its own target, keyed by the job id. ---
+_SEVS = ("critical", "high", "medium", "low")
+_SEV_RANK = ("CASE LOWER(f.severity) WHEN 'critical' THEN 0 WHEN 'high' THEN 1 "
+             "WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END")
+_FROM = "FROM findings f LEFT JOIN proposals p ON p.job_id = f.job_id"
+_TARGET = "COALESCE(p.id, f.job_id)"
+_LIST_COLS = "f.id, f.name, f.severity, f.host, f.url, f.tool, f.cve, f.cwe, f.verdict, f.status"
+
+
+def _finding_where(org_id: Optional[str], tp_only: bool, args: list) -> list:
+    where = []
+    if org_id is not None:
+        where.append("f.org_id=?"); args.append(org_id)
+    if tp_only:
+        where.append("f.verdict='tp'")
+    return where
+
+
+def finding_targets(*, org_id: Optional[str], tp_only: bool) -> list[dict]:
+    """One row per target the viewer has findings for, newest scan first. `info` is whatever is not one of
+    the four named severities, so the counts always add up to `total`."""
+    args: list = []
+    where = _finding_where(org_id, tp_only, args)
+    sums = ", ".join(f"SUM(LOWER(f.severity)='{s}') AS {s}" for s in _SEVS)
+    q = (f"SELECT {_TARGET} AS task_id, COALESCE(p.target, MIN(f.host)) AS target, MIN(f.org_id) AS org_id, "
+         f"COUNT(*) AS total, SUM(f.status='fixed') AS fixed, SUM(f.verdict='fp') AS fp, "
+         f"MAX(f.created_at) AS scanned_at, {sums} {_FROM}"
+         + (" WHERE " + " AND ".join(where) if where else "")
+         + f" GROUP BY {_TARGET} ORDER BY scanned_at DESC, task_id")
+    out = []
+    for r in get_conn().execute(q, args).fetchall():
+        d = dict(r)
+        counts = {s: d.pop(s) or 0 for s in _SEVS}
+        counts["info"] = d["total"] - sum(counts.values())
+        out.append({**d, "fixed": d["fixed"] or 0, "fp": d["fp"] or 0, "counts": counts})
+    return out
+
+
+def list_finding_page(task_id: str, *, org_id: Optional[str], tp_only: bool, severity: Optional[str] = None,
+                      limit: int = 100, offset: int = 0, upto: Optional[str] = None) -> Optional[tuple[list[dict], int]]:
+    """(rows, total) for one target, most severe first (severity rank, name, id). None when the target has no
+    findings in this viewer's view, or `upto` is not one of them. `upto` ignores `offset` and returns every row
+    from the start through the end of the page that holds that finding."""
+    conn = get_conn()
+    args: list = [task_id]
+    base = f"{_FROM} WHERE {_TARGET}=?"
+    for w in _finding_where(org_id, tp_only, args):
+        base += f" AND {w}"
+    if not conn.execute(f"SELECT 1 {base} LIMIT 1", args).fetchone():
+        return None
+    if severity == "info":
+        base += " AND LOWER(f.severity) NOT IN ('critical','high','medium','low')"
+    elif severity:
+        base += " AND LOWER(f.severity)=?"; args.append(severity)
+    order = f" ORDER BY {_SEV_RANK}, f.name, f.id"
+    total = conn.execute(f"SELECT COUNT(*) AS c {base}", args).fetchone()["c"]
+    if upto is not None:
+        ids = [r["id"] for r in conn.execute(f"SELECT f.id {base}{order}", args)]
+        if upto not in ids:
+            return None
+        offset, limit = 0, (ids.index(upto) // limit + 1) * limit
+    rows = conn.execute(f"SELECT {_LIST_COLS}, {_TARGET} AS task_id {base}{order} LIMIT ? OFFSET ?",
+                        [*args, limit, offset]).fetchall()
+    return [dict(r) for r in rows], total
+
+
+def get_finding_with_task(fid: str, *, org_id: Optional[str]) -> Optional[dict]:
+    q, args = f"SELECT f.*, {_TARGET} AS task_id {_FROM} WHERE f.id=?", [fid]
+    if org_id is not None:
+        q += " AND f.org_id=?"; args.append(org_id)
+    row = get_conn().execute(q, args).fetchone()
+    return dict(row) if row else None
+
 
 
 def set_finding(fid: str, **fields) -> None:

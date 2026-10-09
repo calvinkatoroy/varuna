@@ -203,3 +203,25 @@ def test_staff_scan_list_covers_every_org(api, tmp_path):
     staff = {j["id"] for j in api.get("/api/scans", api.login("staff1", PW)).json()}
     assert staff == {a["job_id"], b["job_id"], "jobS"}
     assert [j["id"] for j in api.get("/api/scans", api.login("alpha", PW)).json()] == [a["job_id"]]
+
+
+def test_findings_by_target_are_org_scoped(api, priv, tmp_path):
+    a, b = _seed_two_orgs(tmp_path)
+    alpha = api.login("alpha", PW)
+    assert [t["task_id"] for t in api.get("/api/findings/targets", alpha).json()] == [a["pid"]]
+    own = api.get(f"/api/findings?task_id={a['pid']}", alpha).json()
+    assert [f["id"] for f in own["items"]] == [a["fid"]] and own["total"] == 1
+    for url in (f"/api/findings?task_id={b['pid']}", f"/api/findings?task_id={b['job_id']}",
+                f"/api/findings?task_id={a['pid']}&upto={b['fid']}", f"/api/findings/id/{b['fid']}"):
+        r = api.get(url, alpha)
+        assert r.status_code == 404, url
+        assert "beta" not in r.text.lower() and b["fid"] not in r.text
+    auth.create_account("staff1", PW, "pentester")
+    staff = priv.login("staff1", PW)
+    assert {t["task_id"] for t in priv.get("/api/findings/targets", staff).json()} == {a["pid"], b["pid"]}
+    assert priv.get(f"/api/findings/id/{b['fid']}", staff).status_code == 200
+    auth.create_account("root", PW, "sysadmin")
+    root = priv.login("root", PW)
+    for path in ("/api/findings/targets", f"/api/findings?task_id={a['pid']}", f"/api/findings/id/{a['fid']}"):
+        assert priv.get(path, root).status_code == 403, path
+    _org_b_untouched(b)

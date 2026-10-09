@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "report"))
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv()  # repo-root .env, for host-run dev (REDIS_URL, JWT_SECRET, ...)
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Response, UploadFile  # noqa: E402
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Response, UploadFile  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
@@ -192,8 +192,21 @@ async def scan_events(job_id: str, user: dict = Depends(require_team), scope: Sc
 
 
 @app.get("/api/findings")
-def list_findings(user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
-    return browser.list_findings(user, scope)
+def list_findings(task_id: str | None = None, limit: int = Query(100, ge=1, le=200), cursor: str | None = None,
+                  upto: str | None = None, severity: str | None = None,
+                  user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    return browser.findings_list(task_id, limit, cursor, upto, severity, user, scope)
+
+
+# Declared before `/api/findings/{job_id}` below, or "targets" would be taken for a job id.
+@app.get("/api/findings/targets")
+def findings_targets(user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    return browser.targets_view(user, scope)
+
+
+@app.get("/api/findings/id/{fid}")
+def finding_one(fid: str, user: dict = Depends(require_team), scope: Scope = Depends(deps.scope)):
+    return browser.one_view(fid, user, scope)
 
 
 @app.post("/api/findings/{fid}/status")
