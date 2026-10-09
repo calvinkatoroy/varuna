@@ -37,9 +37,11 @@ export default function ClientFindings() {
   const wasRunning = useRef(0)
   useEffect(() => {   // follow a quick scan while it runs, then pick up its findings a moment after it ends
     if (!running.length) {
-      if (wasRunning.current) setTimeout(reload, 4000)
+      if (!wasRunning.current) return
       wasRunning.current = 0
-      return
+      let n = 0   // ponytail: the findings land a few seconds after the job ends; look for them for ~30 s
+      const t = setInterval(() => { reload(); if (++n >= 6) clearInterval(t) }, 5000)
+      return () => clearInterval(t)
     }
     wasRunning.current = running.length
     const t = setInterval(reloadJobs, 5000)
