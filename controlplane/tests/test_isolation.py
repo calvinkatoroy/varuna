@@ -25,7 +25,7 @@ PW = "Passw0rd!x"
 # One body that satisfies every action model (status/reject/verdict/template), so a refusal comes from
 # the tenancy check and not from body validation. Nothing in it names org B.
 BODY = {"status": "fixed", "reason": "x", "verdict": "fp", "template": "Full Technical",
-        "to": "declined", "version": 0, "comment": "x"}
+        "to": "declined", "version": 0, "comment": "x", "base_version": 0, "name": "x", "severity": "low"}
 
 
 def _seed_org(name, user, host, job_id, reports_dir):
@@ -160,6 +160,8 @@ def test_staff_sees_both_orgs(priv, tmp_path, role):
     assert clients == {"PT Alpha", "PT Beta"}
     for x in (a, b):
         assert priv.get(f"/api/tasks/{x['pid']}/detail", tok).status_code == 200
+        assert priv.get(f"/api/tasks/{x['pid']}/audit", tok).status_code == 200
+        assert priv.get(f"/api/tasks/{x['pid']}/report/content", tok).status_code == 200
 
 
 def test_sysadmin_has_no_tenant_access(api, priv, tmp_path):
@@ -171,7 +173,9 @@ def test_sysadmin_has_no_tenant_access(api, priv, tmp_path):
     # the private plane refuses a sysadmin's token on its tenant GET routes too
     for path in ("/api/findings", "/api/board", "/api/reports/all",
                  f"/api/findings/{b['job_id']}", f"/api/tasks/{a['pid']}/detail",
-                 f"/api/scans/{b['job_id']}/events"):
+                 f"/api/scans/{b['job_id']}/events",
+                 f"/api/tasks/{a['pid']}/audit", f"/api/tasks/{a['pid']}/report/content",
+                 f"/api/tasks/{a['pid']}/audit/trail"):
         assert priv.get(path, tok).status_code == 403, path
 
 
@@ -242,3 +246,20 @@ def test_audit_routes_are_staff_only_and_org_scoped(api, priv, tmp_path):
             assert r.status_code == 403 and "role required" in r.text, (method, url, r.status_code)
     assert priv.post(f"/api/findings/{b['fid']}/verdict", tok, {"verdict": "fp"}).status_code == 403
     assert db.get_finding(b["fid"], org_id=b["org"])["verdict"] == "tp"
+
+
+def test_a_client_gets_nothing_of_the_audit_surface(api, priv, tmp_path):
+    a, b = _seed_two_orgs(tmp_path)
+    tok = api.login("alpha", PW)      # a client token tried on the private plane
+    own = a["pid"]
+    for method, path in (("GET", f"/api/tasks/{own}/audit"), ("GET", f"/api/tasks/{own}/report/content"),
+                         ("GET", f"/api/tasks/{own}/audit/trail"), ("GET", f"/api/tasks/{own}/report/password"),
+                         ("POST", f"/api/tasks/{own}/report/generate"), ("POST", f"/api/tasks/{own}/report/restore"),
+                         ("POST", f"/api/tasks/{own}/findings/manual"),
+                         ("POST", f"/api/tasks/{own}/findings/{a['fid']}/edit"),
+                         ("GET", f"/api/tasks/{own}/report/pdfs/{a['jid']}/download")):
+        r = priv.request(method, path, tok, json=BODY if method == "POST" else None)
+        assert r.status_code == 403, (method, path, r.status_code)
+    assert api.get(f"/api/tasks/{own}/audit", tok).status_code == 404          # the public plane has no such route
+    assert api.get(f"/api/reports/{b['rid']}/password", tok).status_code == 404     # and the password route is org-scoped
+    _org_b_untouched(b)

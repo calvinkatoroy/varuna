@@ -39,7 +39,7 @@ export const trend = [
 ]
 
 export const latestReport = {
-  engagement: 'acme.io, Standard VA', delivered: 'Jun 18, 2026', templates: 4, findings: 39, signed: true,
+  engagement: 'acme.io, Standard VA', delivered: 'Jun 18, 2026', filename: 'PT_Samudera_Logistik_acme_io_Pentest_Report_1.pdf', findings: 39, signed: true,
 }
 
 export const cockpit = { me, engagements, posture, trend, latestReport }

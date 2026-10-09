@@ -146,12 +146,12 @@ export default function ClientCockpit() {
             <section className="glass-card liquid flex min-w-0 flex-col overflow-hidden rounded-bento p-5">
               {d.latestReport ? (
                 <>
-                  <TileHead title="Latest Report" sub={`${d.latestReport.findings} findings · governance signed`} to="/reports" />
+                  <TileHead title="Latest Report" sub={`${d.latestReport.findings} findings · reviewed and delivered`} to="/reports" />
                   <div className="mb-5 mt-1 flex flex-col">
-                    {[['Engagement', bare(d.latestReport.engagement)], ['Delivered', when(d.latestReport.delivered)], ['Templates', `${d.latestReport.templates} available`]].map(([l, v], i) => (
+                    {[['Engagement', bare(d.latestReport.engagement)], ['Delivered', when(d.latestReport.delivered)], ['File', d.latestReport.filename || 'Protected PDF']].map(([l, v], i) => (
                       <div key={l} className={`flex items-center justify-between gap-3 py-[9px] ${i ? 'border-t border-rule' : ''}`}>
                         <span className="text-[13px] text-ink-muted">{l}</span>
-                        <b className="text-[13.5px] font-semibold text-ink">{v}</b>
+                        <b className="min-w-0 truncate text-[13.5px] font-semibold text-ink" title={v}>{v}</b>
                       </div>
                     ))}
                   </div>

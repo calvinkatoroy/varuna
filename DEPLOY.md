@@ -171,7 +171,8 @@ private API prints which team accounts still lack two-factor at startup. Clients
 docker compose exec api-public python /app/controlplane/backup_db.py           # SQLite -> /data/backups (keeps 14)
 docker compose cp api-public:/dbdata/backups ./backups                          # copy off the host
 ```
-Also back up the reports volume (`report_output`, generated `.docx` versions and delivered PDFs).
+Also back up the reports volume (`report_output`: every generated PDF, `pdf-<id>.pdf`; `backup-host.ps1` copies `/data/reports` with the database snapshot)
+and keep `VARUNA_SECRET_KEY` (in `.env`, which the backup does not copy) with it: without the key the stored PDF passwords cannot be read.
 Schedule the first command daily (Windows Task Scheduler / cron) and copy the files off the machine.
 
 ### Notifications (optional)
@@ -180,9 +181,9 @@ messaged when a task arrives, a scheduled scan is suspended, or a task reaches a
 short ids are sent, never finding detail. Unset = off. Compose passes it to `api-agent` and `api-private`.
 
 ### After a scan finishes
-A task's scan reports back through the agent: `done` moves the task to Completed and the report v1 is
-generated automatically; `failed` suspends the task with the agent's error. Scans started directly by the team
-(advanced scan) have no task; generate their documents with `POST /api/reports/generate {job_id, template}`.
+A task's scan reports back through the agent: `done` moves the task to Completed and the report content v1 is
+built automatically (no document yet: the pentester generates the PDF on the audit page); `failed` suspends the task with the agent's error. Scans started directly by the team
+(advanced scan) have no task and no audit page; generate their documents with `POST /api/reports/generate {job_id, template}`.
 Templates: Full Technical, Formal Handover, Executive Summary, Raw Findings (plus the older
 OWASP Web App and ILCS Internal layouts).
 
@@ -209,13 +210,28 @@ Known limits: the agent has no cancel, so a scan that is paused and then closed 
 until the agent restarts. Cloud scans need DNS and an online cloud scanner at the moment of start; a hostname that
 does not resolve refuses the start.
 
+### Audit page and PDF report
+A finished scan is audited at `/team/audit/<task id>` (stage Completed; opened from the task drawer). The assignee or a lead
+pentester marks findings, edits them, adds findings found by hand and presses Generate. The PDF is built in the background by the
+private API (one at a time, LibreOffice, already in the image, up to 180 s), named `{Client}_{Target}_Pentest_Report_{N}.pdf`, and
+encrypted with AES-256. Each task report has ONE password, created with its first PDF and never changed; the client reads it in
+Reports whenever needed. Submit for review is refused without a current PDF; the manager's approval only publishes the latest
+current PDF, so delivery does not wait for LibreOffice.
+
+| Env | Default | Meaning |
+|---|---|---|
+| `VARUNA_SECRET_KEY` | derived from `JWT_SECRET` | seals the stored PDF passwords; identical on `api-public` and `api-private`; rotate via `VARUNA_SECRET_KEY_OLD` |
+| `VARUNA_PDF_PER_10MIN` | `5` | PDF generations per pentester per 10 minutes |
+
+Upgrade: the schema adds its tables and `reports.task_id` on first start (old reports are linked to their tasks); `cryptography` is a
+new dependency (rebuild the image). Passwords of reports delivered before this step are plaintext in the database and keep working.
+The AI editing chat is planned and not part of this release; the `ai_turns` table exists as schema only.
+
 ### Advanced scan options (team only; clients can never set these)
 The advanced-scan drawer sends a flat options object that the server validates and clamps
 (`controlplane/common/scanopts.py`: unknown keys dropped, ranges enforced). SQLMap level above 2,
 risk above 1, `--dump` and `--os-shell` are refused unless the caller is the lead pentester and
-has opted in to aggressive mode (safe-profile lock). Reviewers can also upload an edited .docx
-as the next report version and regenerate a report in another template from the review drawer;
-the system administrator manages accounts at `/team/sysadmin`.
+has opted in to aggressive mode (safe-profile lock). The system administrator manages accounts at `/team/sysadmin`.
 `opts.deep` adds CVE/vuln Nuclei templates (slow); `opts.rate` overrides the Nuclei rate;
 `opts.auth` logs in first for an authenticated scan:
 `{login_url, username, password, username_field, password_field, json, token_path}`. The login URL

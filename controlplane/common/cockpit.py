@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import db
 import redis_store
+import reportdoc
 import workflow
 
 GRADE_BANDS = (  # (min_critical, min_high) -> grade, checked in order
@@ -96,7 +97,7 @@ def build_cockpit(username: str, org_id: str) -> dict:
         latest_report = {
             "engagement": (rp or {}).get("target", latest["job_id"]),
             "delivered": latest["updated_at"],
-            "templates": 1,
+            "filename": reportdoc.safe_filename(db.pdf_filename_for_stored(latest["delivered_pdf"] or "")),
             "findings": len(db.get_findings(latest["job_id"])),
             "signed": True,
         }

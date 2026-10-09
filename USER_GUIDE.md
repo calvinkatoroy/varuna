@@ -44,9 +44,9 @@ Prefer PowerShell? Open "I'd rather use PowerShell" on the same screen for the o
 
 ### Open a delivered report
 1. In **Reports** choose **Download protected PDF**.
-2. Choose **Show password**. The password is shown **once**: copy it straight away and keep it
-   separate from the file.
-3. Lost it? Ask governance to re-issue a new password.
+   The file is named like `YourCompany_Target_Pentest_Report_1.pdf`.
+2. Choose **Show password** and copy it. The password does not change for a report, so you can show it again
+   whenever you open the file. Keep it separate from the file.
 
 ### Forgot your password
 On the log in screen choose **Forgot your password?**, enter your registration email and follow the link
@@ -68,7 +68,7 @@ Sign in on the private address (`/team`), which needs the team network (Tailscal
 | Pentester | Claims tasks, starts or schedules scans, suspends and resumes, submits the finished scan for review, runs advanced scans |
 | Lead pentester | Everything a pentester does on any task, then the first review (approve or send back); only role that may enable aggressive scan options |
 | Lead cybersecurity | Second review |
-| Governance | Third review, re-issues report passwords |
+| Governance | Third review |
 | Manager | Final review; approving delivers the protected PDF to the client |
 
 ### The board
@@ -82,15 +82,22 @@ Open a card to act. Buttons you cannot use say why. Moves that cannot be undone 
    both with optional scan options. **Suspend** needs a reason; **Resume** continues it. A scheduled scan whose
    agent is offline for 15 minutes is suspended automatically; nothing retries silently after that. A scan
    that fails is suspended with the error. A suspended task whose time limit ended can only be closed (expired).
-3. **Completed.** Edit the report (download, change, **Upload new**, or regenerate in another template; every
-   version is kept), then **Submit for review**. If a task has no report (generation failed), use
-   **Generate report** in its panel.
-4. **Reviews.** Each reviewer **Approves** (next review) or **Sends back** (previous step, comment required;
-   the first review sends back to Completed). Only that stage's role edits the report there.
-   The manager's approval converts the latest version to a password-protected PDF and delivers it.
+3. **Completed: the audit page.** Open the card and choose **Open audit page**. The assignee (or a lead pentester):
+   - marks each finding true or false positive (a false positive stays out of the report), changes its severity, impact or
+     remediation, and adds findings found by hand with **Add finding**;
+   - reads the **Report preview**, which always shows the current findings and keeps every version (**Versions**, **Restore**);
+   - presses **Generate the PDF** once. It is built in the background (about a minute) and the button stays off until it is done;
+     a corrected PDF gets the next number (`..._Pentest_Report_2.pdf`). The PDF password is shown on the page.
 
-If the client lost the password, governance uses **Re-issue password**. It is shown once to governance,
-who passes it to the client by a different channel than the file.
+   **Submit for review** works only while the latest PDF matches the report: change something and generate again first.
+   Everything done on the page is listed under **Audit trail**. Reviewers open the same page read-only. The AI editing chat is
+   planned and not part of this release.
+4. **Reviews.** Each reviewer **Approves** (next review) or **Sends back** (previous step, comment required;
+   the first review sends back to Completed, where the report can be changed again). Reviewers do not edit.
+   The manager's approval delivers the latest PDF to the client.
+
+The PDF password belongs to the report and never changes. The client sees it in **Reports**; if you hand the PDF over yourself,
+send the password by a different channel than the file.
 
 ### Findings
 **Findings** groups raw findings by client target. Open a target, then mark each finding as true or false positive and open or fixed before the
@@ -112,7 +119,7 @@ them.
   an email, change a role, disable or enable an account, reset a password (a new temporary password is shown once
   and must be changed at the next sign in) and reset two-factor. At least one active administrator must remain.
   The administrator does not scan or review.
-- Required before real use: a long random `JWT_SECRET`, `VARUNA_REQUIRE_MFA=1`, a public domain through
+- Required before real use: a long random `JWT_SECRET`, a `VARUNA_SECRET_KEY` backed up with the database (it seals the PDF passwords), `VARUNA_REQUIRE_MFA=1`, a public domain through
   the Cloudflare tunnel, SMTP settings if you want email resets, the daily backup task
   (`backup-host.ps1 -Register`).
 - Team plane stays on Tailscale only. Do not publish port 8010.
