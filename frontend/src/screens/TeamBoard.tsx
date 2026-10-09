@@ -12,6 +12,7 @@ import { SwipeRail, type RailHandle } from '@/components/SwipeRail'
 import { ErrorRetry } from '@/components/ErrorRetry'
 import { useApiData } from '@/lib/useApiData'
 import { FEEDS } from '@/lib/feeds'
+import { useAuth } from '@/auth'
 import { toast } from '@/lib/toast'
 import { localTime } from '@/lib/format'
 
@@ -34,6 +35,8 @@ const sevChip = (n: number, cls: string, letter: string) =>
 const ctrl = 'grid h-11 w-11 place-items-center rounded-full bg-white/[.16] text-[#F2F5EF] transition-colors hover:bg-white/25'
 
 export default function TeamBoard() {
+  const { user } = useAuth()
+  const canScan = user?.role === 'pentester' || user?.role === 'lead_pentester'
   const { data: cols, error, reload: refetchBoard } = useApiData<BoardColumn[]>(FEEDS.board.load, FEEDS.board.key)
   const railRef = useRef<RailHandle>(null)
   // Progressive disclosure: a busy stage can hold hundreds of cards. Show the newest few and let
@@ -92,9 +95,9 @@ export default function TeamBoard() {
     <>
       <ShellTitle size="band" title="Task board" kicker={<><Lock size={13} /> Private plane · Tailscale · Security team</>} />
       <ShellActions>
-        <button onClick={() => setScanOpen(true)} aria-label="New scan" className="flex h-11 min-w-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-pill bg-[#F4F6F1] px-3 text-[13px] font-semibold text-[#12140F] transition-opacity hover:opacity-90 sm:px-4">
+        {canScan && <button onClick={() => setScanOpen(true)} aria-label="New scan" className="flex h-11 min-w-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-pill bg-[#F4F6F1] px-3 text-[13px] font-semibold text-[#12140F] transition-opacity hover:opacity-90 sm:px-4">
           <Plus size={16} /> <span className="hidden sm:inline">New scan</span>
-        </button>
+        </button>}
           <DropdownMenu>
             <DropdownMenuTrigger className="flex h-11 items-center gap-2 whitespace-nowrap rounded-pill bg-white/[.16] px-4 text-[13px] font-medium text-[#F2F5EF]">
               <Filter size={15} /> {client ?? 'All clients'} <ChevronDown size={14} />

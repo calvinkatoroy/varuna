@@ -261,8 +261,8 @@ def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
     # Direct submit is the security team's advanced path only.
     if models.is_client(user["role"]):
         raise HTTPException(status_code=403, detail="clients create a task; a pentester starts the scan")
-    if not models.is_team(user["role"]):   # sysadmin and any other non-team role: no scanning at all
-        raise HTTPException(status_code=403, detail="your role cannot start scans")
+    if user["role"] not in (models.ROLE_PENTESTER, models.ROLE_LEAD):   # reviewers, sysadmin and others: no scanning
+        raise HTTPException(status_code=403, detail="only pentesters can start scans")
     # Standard is locked to the full safe-profile stack; Pro chooses (defaults to full).
     tools = FULL_STACK if models.is_client(user["role"]) else (body.tools or FULL_STACK)
     if any(t not in FULL_STACK for t in tools):

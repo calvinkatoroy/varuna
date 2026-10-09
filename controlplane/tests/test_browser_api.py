@@ -195,6 +195,13 @@ def test_client_cannot_direct_submit_scan():
     assert client.post("/api/scans", headers=H, json={"target": LOCAL}).status_code == 403
 
 
+def test_reviewers_cannot_direct_submit_scan():
+    reset()
+    for role in ("governance", "lead_cyber", "manager"):
+        H = _token(f"u-{role}", role)
+        assert client.post("/api/scans", headers=H, json={"target": LOCAL}).status_code == 403
+
+
 def test_team_can_direct_submit_scan():
     reset()
     H = _token("staff", "pentester")
