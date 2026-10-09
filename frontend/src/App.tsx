@@ -12,6 +12,8 @@ import ResetPassword from './screens/ResetPassword'
 import { TwoFactor } from './components/TwoFactor'
 import { ChangePassword } from './components/ChangePassword'
 import { ClientShell } from './components/ClientShell'
+import { TeamShell } from './components/TeamShell'
+import { AdminShell } from './components/AdminShell'
 import { api } from './api'
 import TeamBoard from './screens/TeamBoard'
 import FindingsReview from './screens/FindingsReview'
@@ -108,9 +110,13 @@ export default function App() {
             <Route path="/reports" element={<ClientReports />} />
           </Route>
           <Route path="/proposals" element={<Navigate to="/tasks" replace />} />
-          <Route path="/team" element={<RoleRoute><TeamBoard /></RoleRoute>} />
+          <Route element={<RoleRoute><TeamShell /></RoleRoute>}>
+            <Route path="/team" element={<TeamBoard />} />
+          </Route>
           <Route path="/team/findings" element={<RoleRoute><FindingsReview /></RoleRoute>} />
-          <Route path="/team/sysadmin" element={<RoleRoute sysadmin><SysAdmin /></RoleRoute>} />
+          <Route element={<RoleRoute sysadmin><AdminShell /></RoleRoute>}>
+            <Route path="/team/sysadmin" element={<SysAdmin />} />
+          </Route>
           <Route path="/profile" element={<SignedInRoute why="Your profile is part of your account."><Profile /></SignedInRoute>} />
           <Route path="/confirm-email" element={<SignedInRoute why="Confirming a new email address needs you signed in as yourself."><ConfirmEmail /></SignedInRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />

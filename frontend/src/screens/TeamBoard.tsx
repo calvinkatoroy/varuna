@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { Bell, Filter, Lock, FileText, Activity, Plus, ChevronDown, Pause } from 'lucide-react'
-import { api, team, type BoardCard, type BoardColumn } from '@/api'
-import { ThemeToggle } from '@/components/ThemeToggle'
-import { TeamAccount } from '@/components/TeamAccount'
-import { BrandMark } from '@/components/BrandMark'
+import { api, type BoardCard, type BoardColumn } from '@/api'
+import { ShellActions, ShellTitle } from '@/components/ShellSlots'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuSeparator,
@@ -14,7 +11,7 @@ import { TaskDrawer, STAGE_LABEL } from './TaskDrawer'
 import { SwipeRail, type RailHandle } from '@/components/SwipeRail'
 import { ErrorRetry } from '@/components/ErrorRetry'
 import { useApiData } from '@/lib/useApiData'
-import { revealTiles } from '@/lib/motion'
+import { FEEDS } from '@/lib/feeds'
 import { toast } from '@/lib/toast'
 import { localTime } from '@/lib/format'
 
@@ -32,12 +29,12 @@ const CARD_LIMIT = 8
 const sevChip = (n: number, cls: string, letter: string) =>
   n > 0 ? <span className={`rounded-md px-1.5 py-0.5 text-[12px] font-bold ${cls}`}>{n}{letter}</span> : null
 
-// No backdrop-filter: this header packs 6 controls in one row, and stacking that many blurred
+// No backdrop-filter: the shell header packs several controls in one row, and stacking that many blurred
 // regions this close together triggers a real Chromium compositor bleed (see ClientTopbar).
 const ctrl = 'grid h-11 w-11 place-items-center rounded-full bg-white/[.16] text-[#F2F5EF] transition-colors hover:bg-white/25'
 
 export default function TeamBoard() {
-  const { data: cols, error, reload: refetchBoard } = useApiData<BoardColumn[]>(() => team.board())
+  const { data: cols, error, reload: refetchBoard } = useApiData<BoardColumn[]>(FEEDS.board.load, FEEDS.board.key)
   const railRef = useRef<RailHandle>(null)
   // Progressive disclosure: a busy stage can hold hundreds of cards. Show the newest few and let
   // the reviewer ask for the rest, instead of an endless scroll (and a heavy page on a phone).
@@ -49,10 +46,6 @@ export default function TeamBoard() {
   // The open card always comes from the latest board, so its version and actions are never stale.
   const sel = useMemo<BoardCard | null>(() => (selId ? cols?.flatMap((c) => c.cards).find((k) => k.id === selId) ?? null : null), [cols, selId])
 
-  // Reveal only on first load / filter change: keying on `cols` replayed the fade-in (a visible
-  // blank flash of the whole board) after every move and on every 8s poll.
-  const loaded = !!cols
-  useEffect(() => { if (loaded) revealTiles('.pcard') }, [loaded, client])
   // Passive live-update: nothing else pushes scan progress or stage changes to this page. Only
   // polls while something is actually in motion; stops once everything is delivered or closed.
   useEffect(() => {
@@ -96,30 +89,12 @@ export default function TeamBoard() {
   }
 
   return (
-    <div className="mx-auto max-w-[1500px] p-[clamp(10px,2vw,28px)]">
-      <a href="#main" className="sr-only rounded-pill bg-cta-bg px-4 py-2 text-[13px] font-semibold text-cta-fg focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[70] focus:px-5 focus:py-3 focus:shadow-lg">Skip to content</a>
-      {/* team header band */}
-      <header
-        className="relative flex flex-wrap items-center gap-4 overflow-hidden rounded-bento-lg px-[clamp(18px,2.4vw,30px)] py-5 text-[#F2F5EF]"
-        style={{ background: 'radial-gradient(120% 140% at 88% -20%, rgba(34,211,197,.22), transparent 46%), linear-gradient(158deg,#0B5FA5 0%,#0A2A43 55%,#060F18 100%)' }}
-      >
-        <div className="flex items-center gap-2.5 text-[20px] font-bold tracking-[-0.02em]">
-          <BrandMark size={32} />
-          Varuna
-        </div>
-        <div className="hidden h-6 w-px bg-white/15 sm:block" />
-        <div className="flex items-center gap-1 rounded-pill bg-white/[.16] p-1">
-          <span aria-current="page" className="rounded-pill bg-[#F4F6F1] px-4 py-3 text-[13px] font-semibold text-[#12140F] md:px-3.5 md:py-1.5">Board</span>
-          <Link to="/team/findings" className="rounded-pill px-4 py-3 text-[13px] font-medium text-[#F2F5EF]/70 md:px-3.5 md:py-1.5">Findings</Link>
-        </div>
-        <div>
-          <div className="flex items-center gap-2 text-[12.5px] text-[#F2F5EF]/70"><Lock size={13} /> Private plane · Tailscale · Security team</div>
-          <h1 className="text-[22px] font-bold tracking-[-0.02em]">Task board</h1>
-        </div>
-        <div className="ml-auto flex max-w-full flex-wrap items-center gap-2.5">
-          <button onClick={() => setScanOpen(true)} aria-label="New scan" className="flex h-11 min-w-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-pill bg-[#F4F6F1] px-3 text-[13px] font-semibold text-[#12140F] transition-opacity hover:opacity-90 sm:px-4">
-            <Plus size={16} /> <span className="hidden sm:inline">New scan</span>
-          </button>
+    <>
+      <ShellTitle size="band" title="Task board" kicker={<><Lock size={13} /> Private plane · Tailscale · Security team</>} />
+      <ShellActions>
+        <button onClick={() => setScanOpen(true)} aria-label="New scan" className="flex h-11 min-w-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-pill bg-[#F4F6F1] px-3 text-[13px] font-semibold text-[#12140F] transition-opacity hover:opacity-90 sm:px-4">
+          <Plus size={16} /> <span className="hidden sm:inline">New scan</span>
+        </button>
           <DropdownMenu>
             <DropdownMenuTrigger className="flex h-11 items-center gap-2 whitespace-nowrap rounded-pill bg-white/[.16] px-4 text-[13px] font-medium text-[#F2F5EF]">
               <Filter size={15} /> {client ?? 'All clients'} <ChevronDown size={14} />
@@ -130,7 +105,6 @@ export default function TeamBoard() {
               {clients.map((cl) => <DropdownMenuItem key={cl} onClick={() => setClient(cl)}>{cl}</DropdownMenuItem>)}
             </DropdownMenuContent>
           </DropdownMenu>
-          <ThemeToggle className={`${ctrl} hidden md:grid`} />
           <DropdownMenu>
             <DropdownMenuTrigger aria-label="Notifications" className={`relative ${ctrl}`}>
               <Bell size={18} />
@@ -147,11 +121,8 @@ export default function TeamBoard() {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-          <TeamAccount />
-        </div>
-      </header>
+      </ShellActions>
 
-      <main id="main" tabIndex={-1} className="focus:outline-none">
       {/* kanban */}
       {error ? (
         <ErrorRetry message={error} onRetry={refetchBoard} />
@@ -188,8 +159,8 @@ export default function TeamBoard() {
                 <span className="ml-auto rounded-pill bg-card px-2 py-0.5 text-[12px] font-semibold text-ink-muted">{col.cards.length}</span>
               </div>
               <div className="flex flex-col gap-2.5">
-                {col.cards.slice(0, more[col.id] ? col.cards.length : CARD_LIMIT).map((c, idx) => (
-                  <button key={c.id} onClick={() => setSelId(c.id)} style={idx < CARD_LIMIT ? { opacity: 0 } : undefined} className="pcard glass-card liquid min-h-[44px] rounded-bento p-3.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                {col.cards.slice(0, more[col.id] ? col.cards.length : CARD_LIMIT).map((c) => (
+                  <button key={c.id} onClick={() => setSelId(c.id)} className="glass-card liquid min-h-[44px] rounded-bento p-3.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
                     <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                       <span className="truncate text-[13.5px] font-semibold text-ink">{c.client}</span>
                       <span className="flex flex-none items-center gap-1">
@@ -230,8 +201,6 @@ export default function TeamBoard() {
 
       <TaskDrawer card={sel} open={!!selId} onOpenChange={(v) => !v && setSelId(null)} onMoved={refetchBoard} />
       <AdvancedScanDrawer open={scanOpen} onOpenChange={setScanOpen} onLaunch={launchScan} />
-      </main>
-
-    </div>
+    </>
   )
 }

@@ -8,8 +8,6 @@ import { toast } from '@/lib/toast'
 import { useApiData } from '@/lib/useApiData'
 import { ROLE_LABEL, STAFF_ROLES, roleLabel, type Role } from '@/lib/roles'
 import { Button } from '@/components/ui/button'
-import { BrandMark } from '@/components/BrandMark'
-import { TeamAccount } from '@/components/TeamAccount'
 import { ErrorRetry } from '@/components/ErrorRetry'
 
 const field = 'min-h-[44px] w-full rounded-input border border-rule bg-panel px-3 py-2.5 text-[14px] text-ink outline-none focus:border-accent'
@@ -326,31 +324,22 @@ export default function SysAdmin() {
   const error = orgs.error || accounts.error
 
   return (
-    <div className="mx-auto max-w-[1100px] p-[clamp(10px,2vw,28px)]">
-      <a href="#main" className="sr-only rounded-pill bg-cta-bg px-4 py-2 text-[13px] font-semibold text-cta-fg focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[70] focus:px-5 focus:py-3 focus:shadow-lg">Skip to content</a>
-      <header className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-bento-lg bg-card px-5 py-3.5 sm:px-6">
-        <span className="flex items-center gap-2.5 text-[18px] font-bold tracking-[-0.02em] text-ink"><BrandMark size={28} /> <span className="hidden sm:inline">Varuna</span></span>
-        <h1 className="text-[18px] font-bold text-ink">Administration</h1>
-        <div className="ml-auto"><TeamAccount /></div>
-      </header>
-
-      <main id="main" tabIndex={-1} className="focus:outline-none">
-        {error ? <ErrorRetry message={error} onRetry={reload} /> : (
-          <Tabs.Root defaultValue="orgs">
-            <Tabs.List aria-label="Administration" className="mb-4 inline-flex gap-1 rounded-pill bg-panel p-1">
-              <Tabs.Trigger value="orgs" className={tab}><Building2 size={15} /> Organizations</Tabs.Trigger>
-              <Tabs.Trigger value="accounts" className={tab}><Users size={15} /> Accounts</Tabs.Trigger>
-            </Tabs.List>
-            <Tabs.Content value="orgs" className="focus:outline-none">
-              <Organizations orgs={orgs.data} accounts={accounts.data ?? []} reload={reload} />
-            </Tabs.Content>
-            <Tabs.Content value="accounts" className="focus:outline-none">
-              <Accounts orgs={orgs.data ?? []} accounts={accounts.data} reload={reload} onTemp={setTemp} />
-            </Tabs.Content>
-          </Tabs.Root>
-        )}
-      </main>
+    <>
+      {error ? <ErrorRetry message={error} onRetry={reload} /> : (
+        <Tabs.Root defaultValue="orgs">
+          <Tabs.List aria-label="Administration" className="mb-4 inline-flex gap-1 rounded-pill bg-panel p-1">
+            <Tabs.Trigger value="orgs" className={tab}><Building2 size={15} /> Organizations</Tabs.Trigger>
+            <Tabs.Trigger value="accounts" className={tab}><Users size={15} /> Accounts</Tabs.Trigger>
+          </Tabs.List>
+          <Tabs.Content value="orgs" className="focus:outline-none">
+            <Organizations orgs={orgs.data} accounts={accounts.data ?? []} reload={reload} />
+          </Tabs.Content>
+          <Tabs.Content value="accounts" className="focus:outline-none">
+            <Accounts orgs={orgs.data ?? []} accounts={accounts.data} reload={reload} onTemp={setTemp} />
+          </Tabs.Content>
+        </Tabs.Root>
+      )}
       <TempPasswordDialog shown={temp} onClose={() => setTemp(null)} />
-    </div>
+    </>
   )
 }
