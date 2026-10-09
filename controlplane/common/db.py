@@ -725,7 +725,7 @@ def finding_targets(*, org_id: Optional[str], tp_only: bool) -> list[dict]:
     sums = ", ".join(f"SUM(LOWER(f.severity)='{s}') AS {s}" for s in _SEVS)
     q = (f"SELECT {_TARGET} AS task_id, COALESCE(p.target, MIN(f.host)) AS target, MIN(f.org_id) AS org_id, "
          f"COUNT(*) AS total, SUM(f.status='fixed') AS fixed, SUM(f.verdict='fp') AS fp, "
-         f"MAX(f.created_at) AS scanned_at, MAX(f.quick) AS quick, {sums} {_FROM}"
+         f"MAX(f.created_at) AS scanned_at, MAX(f.quick) AS quick, MIN(NULLIF(f.url, '')) AS any_url, {sums} {_FROM}"
          + (" WHERE " + " AND ".join(where) if where else "")
          + f" GROUP BY {_TARGET} ORDER BY scanned_at DESC, task_id")
     out = []
@@ -733,8 +733,10 @@ def finding_targets(*, org_id: Optional[str], tp_only: bool) -> list[dict]:
         d = dict(r)
         counts = {s: d.pop(s) or 0 for s in _SEVS}
         counts["info"] = d["total"] - sum(counts.values())
-        out.append({**d, "fixed": d["fixed"] or 0, "fp": d["fp"] or 0, "counts": counts,
-                    "quick": bool(d.pop("quick"))})
+        quick, url = bool(d.pop("quick")), d.pop("any_url") or ""
+        if quick and url.lower().startswith(("http://", "https://")):   # a quick scan has no task: name it by the scanned origin (with its port)
+            d["target"] = "/".join(url.split("/", 3)[:3])
+        out.append({**d, "fixed": d["fixed"] or 0, "fp": d["fp"] or 0, "counts": counts, "quick": quick})
     return out
 
 

@@ -108,6 +108,7 @@ def test_findings_belong_to_the_client_only():
     assert not [r for r in db.list_reports(org_id=None) if r["job_id"] == jid]      # no report is ever built
     own = pub.get("/api/findings/targets", headers=Ha).json()
     assert len(own) == 1 and own[0]["quick"] is True and own[0]["total"] == 1
+    assert own[0]["target"] == "http://10.0.0.5"                                   # named by what was scanned, port kept
     fid = db.get_findings(jid)[0]["id"]
     assert pub.get(f"/api/findings/id/{fid}", headers=Ha).status_code == 200
     assert pub.get("/api/findings/targets", headers=Hb).json() == []               # another organization: nothing
