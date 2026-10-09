@@ -77,3 +77,26 @@ def enrich_all(findings: list[dict]) -> list[dict]:
 def enrich_missing(findings: list[dict]) -> list[dict]:
     """Enrich only findings that lack enrichment (e.g. a newly added manual finding)."""
     return [f if f.get("impact") else enrich(f) for f in findings]
+
+
+class OllamaError(Exception):
+    """The local model could not be reached or answered badly. The message is a type name, never a payload."""
+
+
+CHAT_TIMEOUT = int(os.environ.get("OLLAMA_CHAT_TIMEOUT") or "180")
+
+
+def generate_json(system: str, prompt: str, timeout: int | None = None) -> str:
+    """One JSON-mode completion for the report assistant (same host, model and temperature as enrichment).
+    `num_predict` bounds the answer so a runaway model cannot hold the worker."""
+    try:
+        resp = httpx.post(
+            f"{OLLAMA_URL}/api/generate",
+            json={"model": OLLAMA_MODEL, "system": system, "prompt": prompt, "stream": False, "format": "json",
+                  "options": {"temperature": 0.2, "num_predict": 1500}},
+            timeout=timeout or CHAT_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return resp.json()["response"]
+    except Exception as e:
+        raise OllamaError(type(e).__name__) from e
