@@ -2,6 +2,7 @@
 conversion (up to 180 s) runs on a one-thread pool, serialised by pdf_deliver's lock anyway."""
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
@@ -21,6 +22,7 @@ import reportdoc  # noqa: E402
 import reportrender  # noqa: E402
 import store as report_store  # noqa: E402
 
+log = logging.getLogger("varuna.pdfjobs")
 GEN_LIMIT = int(os.environ.get("VARUNA_PDF_PER_10MIN") or "5")
 POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="varuna-pdf")
 _VIEW = ("id", "n", "status", "filename", "content_version", "error", "requested_by", "created_at", "updated_at")
@@ -104,6 +106,7 @@ def run_job(jid: str) -> None:
         else:
             audit.log("pdf_generated", actor=job["requested_by"], task=task["id"], n=row["n"])
     except Exception as e:   # never raises into the pool; the previous PDF is untouched
+        log.exception("PDF job %s for task %s failed", jid, job["task_id"])   # full traceback stays on the server
         if stored:
             _discard(stored)
         db.set_pdf_state(jid, "failed", _public_error(e))

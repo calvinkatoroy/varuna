@@ -773,12 +773,27 @@ def wipe_findings() -> int:
     return n
 
 
+STEP4_TABLES = ("report_versions", "report_content", "report_pdfs", "task_audit", "ai_turns")
+
+
+def wipe_report_data() -> dict:
+    """Offboarding: the report content, PDF jobs, audit trail, AI turns and old review versions (their files are
+    deleted by store.wipe_all). Tasks, report rows and accounts stay."""
+    conn = get_conn()
+    counts = {}
+    for t in STEP4_TABLES:
+        counts[t] = conn.execute(f"SELECT COUNT(*) AS c FROM {t}").fetchone()["c"]
+        conn.execute(f"DELETE FROM {t}")
+    conn.commit()
+    return counts
+
+
 def wipe_tenancy() -> dict:
     """Full reset for `wipe_data.py --all`: accounts, orgs and everything that hangs off them
     (proposals, reports + versions, reset/email-change tokens). Findings are wiped separately."""
     conn = get_conn()
     counts = {}
-    for t in ("accounts", "orgs", "proposals", "task_events", "reports", "report_versions", "reset_tokens", "email_changes", "report_content", "report_pdfs", "task_audit", "ai_turns"):
+    for t in ("accounts", "orgs", "proposals", "task_events", "reports", "reset_tokens", "email_changes"):
         counts[t] = conn.execute(f"SELECT COUNT(*) AS c FROM {t}").fetchone()["c"]
         conn.execute(f"DELETE FROM {t}")
     conn.commit()
@@ -1084,14 +1099,28 @@ def set_report_password_if_empty(rid: str, sealed: str) -> bool:
     return cur.rowcount == 1
 
 
-def insert_manual_finding(task: dict, f: dict) -> str:
-    """A hand-entered finding of the task's latest scan: random id (never merged with a scanner finding), confirmed (tp)."""
+_TASK_COMPLETED = "EXISTS (SELECT 1 FROM proposals WHERE id=? AND stage='completed')"
+
+
+def set_finding_if_completed(fid: str, task_id: str, **fields) -> bool:
+    """set_finding, but only while the task is still Completed: the check and the write are one statement, so a
+    submit that lands in between wins. False = the stage moved, nothing was written."""
+    conn = get_conn()
+    cur = conn.execute(f"UPDATE findings SET {', '.join(k + '=?' for k in fields)} WHERE id=? AND {_TASK_COMPLETED}",
+                       [*fields.values(), fid, task_id])
+    conn.commit()
+    return cur.rowcount == 1
+
+
+def insert_manual_finding(task: dict, f: dict) -> Optional[str]:
+    """A hand-entered finding of the task's latest scan: random id (never merged with a scanner finding), confirmed (tp).
+    Only while the task is Completed (checked in the same statement); None = the stage moved, nothing was written."""
     import uuid
     fid = "m" + uuid.uuid4().hex[:15]
     cols = ("name", "severity", "host", "url", "description", "evidence", "remediation", "impact")
     conn = get_conn()
-    conn.execute("INSERT INTO findings (id, job_id, owner, org_id, tool, verdict, status, " + ", ".join(cols) + ") "
-                 "VALUES (?,?,?,?,'manual','tp','open'," + ",".join("?" * len(cols)) + ")",
-                 (fid, task["job_id"], task["submitter"], task["org_id"], *(f.get(c, "") for c in cols)))
+    cur = conn.execute("INSERT INTO findings (id, job_id, owner, org_id, tool, verdict, status, " + ", ".join(cols) + ") "
+                       "SELECT ?,?,?,?,'manual','tp','open'," + ",".join("?" * len(cols)) + f" WHERE {_TASK_COMPLETED}",
+                       (fid, task["job_id"], task["submitter"], task["org_id"], *(f.get(c, "") for c in cols), task["id"]))
     conn.commit()
-    return fid
+    return fid if cur.rowcount == 1 else None

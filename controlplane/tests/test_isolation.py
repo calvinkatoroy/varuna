@@ -224,7 +224,9 @@ def test_findings_by_target_are_org_scoped(api, priv, tmp_path):
 
 
 NEW_ROUTES = (("GET", "/audit"), ("GET", "/audit/trail"), ("GET", "/report/content"), ("POST", "/report/restore"),
-              ("POST", "/findings/manual"), ("POST", "/findings/{fid}/edit"))
+              ("POST", "/findings/manual"), ("POST", "/findings/{fid}/edit"),
+              ("POST", "/report/generate"), ("GET", "/report/jobs/{jid}"), ("GET", "/report/pdfs/{jid}/download"),
+              ("GET", "/report/password"))
 
 
 def test_audit_routes_are_staff_only_and_org_scoped(api, priv, tmp_path):
@@ -235,7 +237,7 @@ def test_audit_routes_are_staff_only_and_org_scoped(api, priv, tmp_path):
     tok = api.login("alpha", PW)
     for who in (a, b):                                              # a client token: 403 even for its OWN task
         for method, tail in NEW_ROUTES:
-            url = f"/api/tasks/{who['pid']}" + tail.replace("{fid}", who["fid"])
+            url = f"/api/tasks/{who['pid']}" + tail.replace("{fid}", who["fid"]).replace("{jid}", who["jid"])
             r = priv.request(method, url, tok, json={**BODY, "name": "x", "severity": "low", "base_version": 1})
             assert r.status_code == 403 and "role required" in r.text, (method, url, r.status_code)
     assert priv.post(f"/api/findings/{b['fid']}/verdict", tok, {"verdict": "fp"}).status_code == 403

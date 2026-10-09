@@ -108,6 +108,7 @@ def wipe_all() -> dict:
     log. Accounts and agent bindings are intentionally NOT touched (remove separately)."""
     counts = redis_store.wipe_scan_data()
     counts["findings"] = db.wipe_findings()
+    counts.update(db.wipe_report_data())
     redis_store.wipe_audit()
     r = redis_store.get_redis()
     for key in list(r.scan_iter(match="reports:*")):

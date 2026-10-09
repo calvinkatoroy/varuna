@@ -33,6 +33,9 @@ AUDIT_STAGES = frozenset({"completed", "review_lead_pentester", "review_lead_cyb
                           "review_manager", workflow.DELIVERING, "delivered"})
 
 
+STAGE_MOVED = "The task moved on while you were editing. Send it back to change the report."
+
+
 def _task(tid: str, scope: Scope) -> dict:
     t = db.get_proposal(tid, org_id=scope.org_id)
     if not t:
@@ -193,7 +196,8 @@ def edit_finding(tid: str, fid: str, body: EditBody, user: dict = Depends(requir
             changes[key] = textsafe.plain_lines(value).strip()
     if not changes:
         raise HTTPException(status_code=422, detail="nothing to change")
-    db.set_finding(fid, **changes)
+    if not db.set_finding_if_completed(fid, t["id"], **changes):
+        raise HTTPException(status_code=409, detail=STAGE_MOVED)
     db.add_audit(t["id"], t["org_id"], user["username"], "finding_edit", fid,
                  {"before": {k: str(f.get(k) or "")[:200] for k in changes}, "after": {k: v[:200] for k, v in changes.items()}})
     return {"ok": True}
@@ -225,5 +229,7 @@ def add_manual(tid: str, body: ManualBody, user: dict = Depends(require_team), s
     for key in ("description", "evidence", "remediation", "impact"):
         fields[key] = textsafe.plain_lines(getattr(body, key)).strip()
     fid = db.insert_manual_finding(t, fields)
+    if fid is None:
+        raise HTTPException(status_code=409, detail=STAGE_MOVED)
     db.add_audit(t["id"], t["org_id"], user["username"], "manual_add", fid, {"name": name[:120], "severity": fields["severity"]})
     return {"id": fid}

@@ -344,8 +344,11 @@ def set_finding_verdict(fid: str, body: VerdictBody, user: dict = Depends(requir
     task = db.get_proposal(f["task_id"], org_id=None) if f.get("task_id") else None   # None for a direct staff scan
     if task:
         audit_api.require_owner(task, user)             # a task's report changes on its audit page, at Completed
-    db.set_finding(fid, verdict=body.verdict)
-    if task:
+    if not task:
+        db.set_finding(fid, verdict=body.verdict)
+    else:
+        if not db.set_finding_if_completed(fid, task["id"], verdict=body.verdict):
+            raise HTTPException(status_code=409, detail=audit_api.STAGE_MOVED)
         db.add_audit(task["id"], task["org_id"], user["username"], "verdict", fid,
                      {"verdict": body.verdict, "name": f["name"][:120]})
     return {"ok": True}

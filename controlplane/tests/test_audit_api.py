@@ -83,7 +83,8 @@ def test_manual_finding_validation_and_roles(priv, monkeypatch, tmp_path):
 def test_a_repeated_scan_upload_does_not_erase_manual_findings():
     org = db.create_org("PT A")
     db.save_findings("j1", "alice", org, [{"name": "A", "severity": "low", "host": "h"}])
-    t = {"job_id": "j1", "submitter": "alice", "org_id": org}
+    tid = db.create_proposal({"submitter": "alice", "org_id": org, "target": "http://t", "stage": "completed", "job_id": "j1"})
+    t = db.get_proposal(tid, org_id=None)
     fid = db.insert_manual_finding(t, {"name": "Manual", "severity": "high", "host": "h"})
     db.save_findings("j1", "alice", org, [{"name": "B", "severity": "low", "host": "h"}])
     assert {f["name"] for f in db.get_findings("j1")} == {"B", "Manual"}

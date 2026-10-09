@@ -13,16 +13,34 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
 import detailed  # noqa: E402
 import generator  # noqa: E402
 import models  # noqa: E402
+import textsafe  # noqa: E402
 
 _PREVIEW_KEYS = ("id", "_id", "name", "severity", "host", "url", "impact", "remediation", "description",
                  "cve", "cwe", "tool", "verdict", "evidence")
 _NONE = "No findings were identified within the automated scope of this assessment."
 
 
+_MULTILINE = frozenset({"evidence", "description", "impact", "remediation", "notes", "text"})
+
+
+def _scrub(v, key: str = ""):
+    """Everything a person or a scanner wrote, at render time: control, zero-width and bidi characters out (line
+    breaks kept where the text is multi-line), then the XML-invalid characters and the length limits. Evidence keeps
+    its markup: it is only ever placed in the document as literal text."""
+    if isinstance(v, str):
+        v = textsafe.plain_lines(v) if key in _MULTILINE else textsafe.strip_controls(v)
+        return generator._clean_text(v, 4000 if key == "text" else generator._LIMITS.get(key, 2000))
+    if isinstance(v, dict):
+        return {k: _scrub(x, k) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_scrub(x, key) for x in v]
+    return v
+
+
 def _ctx(task: dict, org_name: str) -> dict:
     window = f"{generator._when(task.get('not_before'))} to {generator._when(task.get('not_after'))} UTC" \
         if task.get("not_after") else ""
-    return generator._clean_value({
+    return _scrub({
         "client": org_name, "test_window": window, "path": task.get("path"),
         "port": str(task["port"]) if task.get("port") else "", "notes": task.get("notes"),
         "scan_mode": {"local": "Local (agent on the client's network)", "cloud": "Cloud (public target)"}.get(
@@ -35,7 +53,8 @@ def _sev(f: dict) -> str:
 
 
 def resolve(content: dict, task: dict, org_name: str, findings: list[dict]) -> list[dict]:
-    live = detailed.ordered([f for f in generator._clean_value(findings) if (f.get("verdict") or "tp") != "fp"])
+    org_name, target = _scrub(org_name), _scrub(task["target"])
+    live = detailed.ordered([f for f in _scrub(findings) if (f.get("verdict") or "tp") != "fp"])
     overrides: dict = {}
     for sec in content["sections"]:
         for b in sec["blocks"]:
@@ -44,7 +63,7 @@ def resolve(content: dict, task: dict, org_name: str, findings: list[dict]) -> l
     merged = []
     for f in live:
         o = overrides.get(f["id"]) or {}
-        merged.append({**f, **{k: generator._clean_text(v, 4000) for k, v in o.items()
+        merged.append({**f, **{k: _scrub(v, k) for k, v in o.items()
                                if k in ("impact", "remediation") and isinstance(v, str)}})
     counts = detailed.counts_of(merged)
     ctx = _ctx(task, org_name)
@@ -54,13 +73,13 @@ def resolve(content: dict, task: dict, org_name: str, findings: list[dict]) -> l
         for b in sec["blocks"]:
             t = b["type"]
             if t in ("paragraph", "bullet"):
-                items.append({"kind": t, "text": generator._clean_text(b.get("text", ""), 4000)})
+                items.append({"kind": t, "text": _scrub(b.get("text", ""), "text")})
             elif t == "cover":
-                items.append({"kind": "cover", "client": org_name, "target": task["target"], "ref": task["id"]})
+                items.append({"kind": "cover", "client": org_name, "target": target, "ref": task["id"]})
             elif t == "severity_table":
                 items.append({"kind": "counts", "counts": counts, "risk": detailed.overall_risk(counts)})
             elif t == "scope_table":
-                rows = [("Target", task["target"]), ("Path", ctx.get("path")), ("Port", ctx.get("port")),
+                rows = [("Target", target), ("Path", ctx.get("path")), ("Port", ctx.get("port")),
                         ("Scan mode", ctx.get("scan_mode")), ("Test window", ctx.get("test_window")),
                         ("Client notes", ctx.get("notes")),
                         ("Testing approach", "Automated, non-destructive (safe profile)"),
@@ -89,7 +108,7 @@ def resolve(content: dict, task: dict, org_name: str, findings: list[dict]) -> l
                                            for f in merged], "sev_col": 3, "widths": [3.0, 2.2, 3.8, 2.0, 5.5]})
             elif t == "finding_overrides":
                 items.extend({"kind": "finding", "f": f} for f in merged)
-        out.append({"id": sec["id"], "title": sec["title"], "items": items})
+        out.append({"id": sec["id"], "title": _scrub(sec["title"]), "items": items})
     return out
 
 
