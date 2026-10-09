@@ -545,7 +545,7 @@ def _delivered_report_view(r: dict) -> dict:
     p = db.get_proposal_by_job(r["job_id"])
     return {
         "id": r["id"], "engagement": (p or {}).get("target", r["job_id"]),
-        "delivered": r["updated_at"], "findings": len(db.get_findings(r["job_id"])),
+        "delivered": r["updated_at"], "findings": sum(f["verdict"] == "tp" for f in db.get_findings(r["job_id"])),
         "templates": [r["template"]], "signed": True,
         "filename": reportdoc.safe_filename(db.pdf_filename_for_stored(r["delivered_pdf"] or "")),
     }
