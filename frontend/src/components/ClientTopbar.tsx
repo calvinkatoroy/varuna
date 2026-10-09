@@ -1,41 +1,42 @@
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Bell, CheckCircle2, FileText, KeyRound, LogOut, Moon, XCircle } from 'lucide-react'
-import { api } from '@/api'
+import { Bell, CheckCircle2, FileText, KeyRound, LogOut, Moon, UserRound, XCircle } from 'lucide-react'
+import type { ClientTask } from '@/api'
 import { useAuth } from '@/auth'
 import { ThemeToggle } from './ThemeToggle'
 import { ClientNav } from './ClientNav'
 import { BrandMark } from './BrandMark'
 import { ChangePassword } from './ChangePassword'
+import { FEEDS } from '@/lib/feeds'
+import { useApiData } from '@/lib/useApiData'
 import { useScrollThreshold } from '@/lib/useScrollThreshold'
 import { toggleTheme } from '@/lib/theme'
+import { roleLabel } from '@/lib/roles'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu'
 
 // Solid bg-card (no backdrop-filter): stacking many blurred/glassed regions this close
-// together (nav pill + these 3 + AgentStatus + New Proposal, all in one row) triggers a real
+// together (nav pill + these 3 + AgentStatus + New task, all in one row) triggers a real
 // Chromium compositor limitation where adjacent backdrop-filter regions bleed into each
 // other's rendering - not fixable by tuning, only by not having that many at once.
 const ctrl = 'relative grid h-11 w-11 flex-none place-items-center rounded-full border border-rule bg-card text-ink shadow-[0_4px_14px_rgba(0,0,0,.16)] transition-colors hover:bg-panel'
 
-// Derived from the actual proposals list (not a couple of hardcoded demo lines), so it reflects
-// whatever really happened last: a delivered report, a rejection with its reason, or a proposal
-// that cleared into review. No push/real-time layer here (this is the mock) - it's read fresh
-// whenever the menu is opened, same as everything else in the prototype.
-function useNotifications() {
-  const [items, setItems] = useState<{ icon: React.ReactNode; text: string; when: string }[]>([])
-  useEffect(() => {
-    api.get('/api/proposals').then((rows: any[]) => {
-      const list: { icon: React.ReactNode; text: string; when: string }[] = []
-      const delivered = rows.find((p) => p.status === 'delivered')
-      if (delivered) list.push({ icon: <FileText size={15} />, text: `Report delivered for ${delivered.target}`, when: delivered.when })
-      const rejected = rows.find((p) => p.status === 'rejected')
-      if (rejected) list.push({ icon: <XCircle size={15} className="text-crit" />, text: `Proposal rejected: ${rejected.target}`, when: rejected.when })
-      const inReview = rows.find((p) => p.status === 'in_review')
-      if (inReview) list.push({ icon: <CheckCircle2 size={15} />, text: `Approved, now in review: ${inReview.target}`, when: inReview.when })
-      setItems(list)
-    }).catch(() => {})
-  }, [])
-  return items
+type Note = { icon: React.ReactNode; text: string; when: string }
+
+// Derived from the real tasks list: a delivered report, a declined task, a scan that got scheduled. The shell
+// is mounted once, so it reads the shared cached tasks feed (one request, and it follows every newer answer
+// from the Tasks page poll) instead of fetching on every page.
+function useNotifications(): Note[] {
+  const { data: rows } = useApiData<ClientTask[]>(FEEDS.tasks.load, FEEDS.tasks.key)
+  return useMemo(() => {
+    const list: Note[] = []
+    const delivered = rows?.find((t) => t.status === 'delivered')
+    if (delivered) list.push({ icon: <FileText size={15} />, text: `Report delivered for ${delivered.target}`, when: delivered.when })
+    const declined = rows?.find((t) => t.status === 'declined')
+    if (declined) list.push({ icon: <XCircle size={15} className="text-crit" />, text: `Task declined: ${declined.target}`, when: declined.when })
+    const scheduled = rows?.find((t) => t.status === 'scheduled')
+    if (scheduled) list.push({ icon: <CheckCircle2 size={15} />, text: `Scan scheduled: ${scheduled.target}`, when: scheduled.when })
+    return list
+  }, [rows])
 }
 
 function Notifications() {
@@ -64,11 +65,9 @@ function Notifications() {
 }
 
 function Account() {
-  const { logout } = useAuth()
-  const [me, setMe] = useState<{ username: string; role: string } | null>(null)
+  const { user: me, logout } = useAuth()
   const [pw, setPw] = useState(false)
   const notes = useNotifications()
-  useEffect(() => { api.get('/api/me').then(setMe).catch(() => {}) }, [])
   const initials = (me?.username ?? 'AC').slice(0, 2).toUpperCase()
   const signOut = () => { logout(); localStorage.removeItem('varuna-activated'); location.assign('/') }
   return (
@@ -80,8 +79,8 @@ function Account() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <div className="px-3 py-2">
-          <div className="text-[14px] font-semibold text-ink">{me?.username ?? 'acme'}</div>
-          <div className="text-[12px] capitalize text-ink-muted">{me?.role ?? 'client'}</div>
+          <div className="text-[14px] font-semibold text-ink">{me?.username ?? ''}</div>
+          <div className="text-[12px] text-ink-muted">{roleLabel(me?.role ?? 'client')}</div>
         </div>
         <DropdownMenuSeparator />
         {/* Phone only: the bell and theme buttons fold into this menu so the header stays quiet. */}
@@ -97,6 +96,7 @@ function Account() {
           <DropdownMenuItem onClick={toggleTheme}><Moon size={15} /> Switch light / dark</DropdownMenuItem>
           <DropdownMenuSeparator />
         </div>
+        <DropdownMenuItem asChild><Link to="/profile"><UserRound size={15} /> Profile</Link></DropdownMenuItem>
         <DropdownMenuItem onClick={() => setPw(true)}><KeyRound size={15} /> Change password</DropdownMenuItem>
         <DropdownMenuItem onClick={signOut} className="text-crit"><LogOut size={15} /> Sign out</DropdownMenuItem>
       </DropdownMenuContent>
@@ -105,11 +105,9 @@ function Account() {
   )
 }
 
-// The client header: brand + centered nav + working controls. Shared by the cockpit hero and
-// the sub-page shell so every page has the same, functional top bar. The brand fades out fast on
-// scroll (it doesn't need to survive into the shrunk state); the nav pill and every control use
-// a plain frosted-glass material and stay opaque throughout - they're what's left once the hero
-// has fully shrunk.
+// The client header: brand + centered nav + working controls. Mounted once inside ClientShell. The brand fades
+// out fast on scroll (it doesn't need to survive into the shrunk state); the nav pill and every control stay
+// opaque throughout - they're what's left once the hero has fully shrunk.
 export function ClientTopbar() {
   const brandFade = useScrollThreshold<HTMLAnchorElement>(50, 'is-faded')
   return (

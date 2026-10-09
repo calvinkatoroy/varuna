@@ -28,7 +28,11 @@ from pydantic import BaseModel, Field  # noqa: E402
 
 import redis_store  # noqa: E402
 import tokens  # noqa: E402
+import dispatch  # noqa: E402
 import ingest  # noqa: E402
+import db  # noqa: E402
+import models  # noqa: E402
+import workflow  # noqa: E402
 
 app = FastAPI(title="Varuna Agent API")
 
@@ -51,12 +55,14 @@ def current_agent(authorization: str = Header(default="")) -> str:
     username = tokens.verify_agent_token(token)
     if not username:
         raise HTTPException(status_code=401, detail="invalid or revoked agent token")
+    if not tokens.agent_allowed(username):
+        raise HTTPException(status_code=401, detail="account or organization disabled")
     return username
 
 
 def _owned_job_or_403(job_id: str, username: str) -> dict:
     job = redis_store.get_job(job_id)
-    if not tokens.owns_job(username, job):
+    if not tokens.owns_job(username, job) or dispatch._org_mismatch({**job, "executor": username}):
         # 404-shaped as 403: don't distinguish "not yours" from "gone" to a caller.
         raise HTTPException(status_code=403, detail="job not owned by this agent")
     return job
@@ -81,6 +87,8 @@ def enroll(body: EnrollBody):
     username = tokens.consume_enrollment_token(body.enrollment_token)
     if not username:
         raise HTTPException(status_code=401, detail="invalid or expired enrollment token")
+    if not tokens.agent_allowed(username):
+        raise HTTPException(status_code=401, detail="account or organization disabled")
     token = tokens.issue_agent_token(username)
     return {"token": token, "username": username}
 
@@ -105,7 +113,23 @@ def update_status(job_id: str, body: StatusBody, username: str = Depends(current
     if body.error is not None:
         job["error"] = body.error
     redis_store.set_job(job)
+    if body.status in (models.STATUS_DONE, models.STATUS_FAILED):
+        _job_finished(job)
     return {"ok": True}
+
+
+def _job_finished(job: dict) -> None:
+    """A task's scan ended: done -> completed, failed -> suspended with the agent's error. Staff direct
+    scans have no task. A task already moved (suspended by hand, repeat report) is left as it is."""
+    t = db.get_proposal_by_job(job["id"])
+    if not t:
+        return
+    done = job["status"] == models.STATUS_DONE
+    try:
+        workflow.transition(t["id"], "completed" if done else "scan/suspended", workflow.SYSTEM, org_id=None,
+                            comment=None if done else (job.get("error") or "scan failed"))
+    except workflow.WorkflowError as e:
+        print(f"NOTE: task {t['id']} not moved after job {job['id']} ended: {e}", flush=True)
 
 
 @app.post("/agent/jobs/{job_id}/findings")

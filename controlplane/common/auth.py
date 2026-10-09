@@ -8,6 +8,8 @@ AND per-source-IP with a temporary lockout (NFR-25), this is not optional harden
 """
 from __future__ import annotations
 
+import os
+
 import db
 import redis_store
 import totp
@@ -41,7 +43,7 @@ class LockedOut(AuthError):
 
 def hash_password(password: str) -> str:
     import bcrypt
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(int(os.environ.get("BCRYPT_ROUNDS") or "12"))).decode()
 
 
 def check_password(password: str, hashed: str) -> bool:
@@ -52,12 +54,16 @@ def check_password(password: str, hashed: str) -> bool:
         return False
 
 
-def create_account(username: str, password: str, role: str) -> Account:
+def create_account(username: str, password: str, role: str, org_id: str | None = None) -> Account:
     """Provision an account (REQ-69: no self-registration; a Pro user calls this)."""
+    if ":" in username:
+        raise ValueError("username cannot contain ':'")
     if role not in ROLES:
         raise ValueError(f"invalid role: {role}")
+    if (role == "client") != bool(org_id):
+        raise ValueError("clients need an organization; staff must not have one")
     acct = Account(username=username, password_hash=hash_password(password), role=role)
-    db.upsert_account(acct.username, acct.password_hash, acct.role)
+    db.upsert_account(acct.username, acct.password_hash, acct.role, org_id=org_id)
     return acct
 
 
@@ -67,10 +73,6 @@ def _clean_email(email: str) -> str:
     if email and (len(email) > 254 or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email)):
         raise AuthError("that email address doesn't look right")
     return email
-
-
-def set_email(username: str, email: str) -> None:
-    db.set_account(username, email=_clean_email(email) or None)
 
 
 RESET_TTL = 1800        # a reset link works for 30 minutes
@@ -108,34 +110,8 @@ def finish_reset(token: str, new: str) -> None:
     name = db.claim_reset_token(hashlib.sha256((token or "").encode()).hexdigest(), int(time.time()))
     if not name:
         raise AuthError("this reset link is invalid or has expired")
-    db.set_account(name, password_hash=hash_password(new))
+    db.set_account(name, password_hash=hash_password(new), must_change_password=0)
     redis_store.get_redis().delete(redis_store.login_fail_key(name))   # they may be locked out from guessing
-
-
-def register_client(username: str, password: str, email: str = "") -> Account:
-    """Self-service registration. Always client-role and low-privilege: an account grants
-    nothing until a proposal is approved (v2). Team roles are seeded, never self-registered."""
-    import re
-    from models import ROLE_CLIENT
-    username = (username or "").strip()
-    if not username or not password:
-        raise AuthError("username and password required")
-    if not re.fullmatch(r"[A-Za-z0-9._-]{3,32}", username):
-        raise AuthError("username must be 3-32 letters, digits, dot, dash or underscore")
-    if len(password) < 8:
-        raise AuthError("password must be at least 8 characters")
-    if len(password.encode()) > 72:   # bcrypt hard limit; refuse rather than truncate/crash
-        raise AuthError("password must be at most 72 bytes")
-    email = _clean_email(email)
-    if username.lower() == "varuna-cloud" or username.lower().startswith("varuna-"):   # reserved for system agents
-        raise UsernameTaken("username already taken")
-    if db.get_account_ci(username):
-        raise UsernameTaken("username already taken")
-    acct = Account(username=username, password_hash=hash_password(password), role=ROLE_CLIENT)
-    db.upsert_account(acct.username, acct.password_hash, acct.role)
-    if email:
-        db.set_account(username, email=email)
-    return acct
 
 
 def _record_fail(username: str, ip: str) -> None:
@@ -197,7 +173,9 @@ def authenticate(username: str, password: str, ip: str, otp: str | None = None) 
 def mfa_begin(username: str) -> str:
     """Start (or restart) enrolment: store a fresh secret, NOT yet enforced until confirmed."""
     secret = totp.new_secret()
-    db.set_account(username, totp_secret=secret, totp_enabled=0, totp_last_step=0)
+    # Only touch totp_enabled when restarting an enrolled account: writing it bumps token_version and ends sessions.
+    reset = {} if not (db.get_account(username) or {}).get("totp_enabled") else {"totp_enabled": 0}
+    db.set_account(username, totp_secret=secret, totp_last_step=0, **reset)
     return secret
 
 
@@ -237,8 +215,10 @@ def change_password(username: str, current: str, new: str) -> None:
     acct = db.get_account(username)
     if not acct or not check_password(current, acct["password_hash"]):
         raise BadCredentials("current password is incorrect")
+    if check_password(new, acct["password_hash"]):
+        raise AuthError("the new password must differ from the current one")
     _check_new_password(new)
-    db.set_account(username, password_hash=hash_password(new))
+    db.set_account(username, password_hash=hash_password(new), must_change_password=0)
 
 
 def admin_reset_password(username: str, new: str) -> None:

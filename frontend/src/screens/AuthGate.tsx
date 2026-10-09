@@ -2,15 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import anime from 'animejs'
 import { Check, Clock, Terminal, Copy, ArrowRight, ShieldCheck, Download } from 'lucide-react'
 import { useAuth } from '@/auth'
-import { api, download } from '@/api'
+import { api, download, tasks, type ClientTask } from '@/api'
 import { isMock } from '@/mock'
 import { Button } from '@/components/ui/button'
-import { ProposalForm } from '@/components/ProposalForm'
+import { TaskForm } from '@/components/TaskForm'
+import { isClaimed } from '@/lib/workflow'
 import { BrandMark } from '@/components/BrandMark'
 
-// /api/proposals speaks the client vocabulary: anything past pending/rejected was approved.
-const isApproved = (x: { status: string }) => x.status !== 'pending' && x.status !== 'rejected'
+// /api/tasks speaks the client vocabulary: a pentester has taken a task once it is past 'waiting'.
 const isCloud = (x: { scan_mode?: string }) => x.scan_mode === 'cloud'
+const claimed = (ts: ClientTask[]) => ts.filter((t) => isClaimed(t.status))
+const lastDecline = (ts: ClientTask[]) => ts.find((t) => t.status === 'declined')
 
 type Step = 'auth' | 'proposal' | 'pending' | 'install'
 const oneLiner = (host: string, token: string) =>
@@ -21,7 +23,7 @@ const field =
 const label = 'mb-1.5 block text-[12.5px] font-medium text-ink-muted'
 
 function Stepper({ step }: { step: Step }) {
-  const steps = ['Account', 'Proposal', 'Approval', 'Agent']
+  const steps = ['Account', 'Task', 'Accepted', 'Agent']
   const idx = { auth: 0, proposal: 1, pending: 2, install: 3 }[step]
   return (
     <div className="mb-6 flex items-center gap-2">
@@ -45,16 +47,15 @@ function Stepper({ step }: { step: Step }) {
 }
 
 export function AuthGate({ onActivate }: { onActivate: (username: string) => void }) {
-  const { login, register, user } = useAuth()
+  const { login, user } = useAuth()
   const [step, setStep] = useState<Step>('auth')
-  const [mode, setMode] = useState<'login' | 'register'>('register')
   const [u, setU] = useState('')
   const [email, setEmail] = useState('')
   const [forgot, setForgot] = useState<'' | 'form' | 'sent'>('')
   const [p, setP] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
-  // Set when every proposal so far was rejected: the client must see why, and can try again.
+  // Set when every task so far was declined: the client must see why, and can try again.
   const [notice, setNotice] = useState('')
   const [copied, setCopied] = useState(false)
   const [enrollToken, setEnrollToken] = useState('')
@@ -65,7 +66,10 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
   // fetched once we actually reach the install step.
   useEffect(() => {
     if (step !== 'install') return
-    api.post('/api/agent/install-token').then((r) => setEnrollToken(r.enrollment_token)).catch(() => {})
+    api.post('/api/agent/install-token').then((r) => setEnrollToken(r.enrollment_token)).catch((e: any) => {
+      // 403 = no pentester has accepted a task yet; say so instead of leaving a blank command.
+      setErr(e?.status === 403 ? 'Your agent can be installed after a pentester claims one of YOUR tasks (a colleague task does not count).' : (e?.message || 'Could not prepare the installer.'))
+    })
   }, [step])
 
   const copyOneLiner = async () => {
@@ -98,36 +102,36 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
 
   // Where a returning user actually is in onboarding, decided by the server, not assumed.
   async function resumeFlow(username: string) {
-    const props: { status: string; reason?: string; scan_mode?: string }[] = await api.get('/api/proposals')
-    if (!props.length) return setStep('proposal')
-    if (!props.some(isApproved) && !props.some((x) => x.status === 'pending')) {
-      const last = props.find((x) => x.status === 'rejected')
-      setNotice(`Your last proposal was not approved${last?.reason ? `: ${last.reason}` : '.'} Fix what they asked for and submit a new one.`)
+    const ts = await tasks.list()
+    if (!ts.length) return setStep('proposal')
+    if (!claimed(ts).length && !ts.some((t) => t.status === 'waiting')) {
+      const last = lastDecline(ts)
+      setNotice(`Your last task was not taken${last?.reason ? `: ${last.reason}` : '.'} Fix what they asked for and send a new one.`)
       return setStep('proposal')
     }
-    if (!props.some(isApproved)) return setStep('pending')
-    if (props.filter(isApproved).every(isCloud)) return onActivate(username)   // Varuna runs the scan: no agent to install
+    if (!claimed(ts).length) return setStep('pending')
+    if (claimed(ts).every(isCloud)) return onActivate(username)   // Varuna runs the scan: no agent to install
     const agent = await api.get('/api/agent')
     if (agent.registered) onActivate(username)
     else setStep('install')
   }
 
   // Already signed in (page reloaded, tab reopened mid-onboarding): pick up where they left off
-  // instead of showing the Register form to someone who has an account.
+  // instead of showing the login form to someone who has an account.
   useEffect(() => {
-    if (user?.role === 'client' && step === 'auth' && !isMock()) resumeFlow(user.username).catch(() => {})
+    if (user?.role === 'client' && !user.must_change_password && step === 'auth' && !isMock()) resumeFlow(user.username).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.username])
+  }, [user?.username, user?.must_change_password])
 
-  // Waiting on the lead pentester: check for approval instead of trusting a button.
+  // Waiting for a pentester: check for it instead of trusting a button.
   useEffect(() => {
     if (step !== 'pending' || isMock()) return
     const t = setInterval(() => {
-      api.get('/api/proposals').then((ps: { status: string; reason?: string; scan_mode?: string }[]) => {
-        if (ps.some(isApproved)) return ps.filter(isApproved).every(isCloud) ? onActivate(user?.username || u) : setStep('install')
-        if (ps.length && !ps.some((x) => x.status === 'pending')) {   // decided against: show why, allow a retry
-          const last = ps.find((x) => x.status === 'rejected')
-          setNotice(`Your proposal was not approved${last?.reason ? `: ${last.reason}` : '.'} Fix what they asked for and submit a new one.`)
+      tasks.list().then((ts) => {
+        if (claimed(ts).length) return claimed(ts).every(isCloud) ? onActivate(user?.username || u) : setStep('install')
+        if (ts.length && !ts.some((x) => x.status === 'waiting')) {
+          const last = lastDecline(ts)
+          setNotice(`Your task was not taken${last?.reason ? `: ${last.reason}` : '.'} Fix what they asked for and send a new one.`)
           setStep('proposal')
         }
       }).catch(() => {})
@@ -149,13 +153,9 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
     setErr('')
     setBusy(true)
     try {
-      if (mode === 'login') {
-        await login(u, p)
-        await resumeFlow(u)
-      } else {
-        await register(u, p, email.trim())
-        setStep('proposal')
-      }
+      const me = await login(u, p)
+      // A temporary password: the forced change dialog (App) comes first; onboarding resumes after it.
+      if (!me.must_change_password) await resumeFlow(me.username)
     } catch (e: any) {
       setErr(e.message || 'failed')
     } finally {
@@ -178,19 +178,6 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
 
         {step === 'auth' && (
           <>
-            <div className="mb-5 flex gap-1 rounded-pill bg-panel p-1">
-              {(['register', 'login'] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  className={`min-h-[44px] flex-1 rounded-pill py-2 text-[13.5px] font-semibold capitalize transition-colors ${
-                    mode === m ? 'bg-card text-ink shadow-sm' : 'text-ink-muted'
-                  }`}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
             {forgot ? (
               <form
                 className="space-y-4"
@@ -201,10 +188,10 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
                 }}
               >
                 {forgot === 'sent' ? (
-                  <p role="status" className="text-[13px] leading-relaxed text-ink-muted">If that address is registered, a reset link is on its way. It works for 30 minutes. Check your spam folder if it does not arrive.</p>
+                  <p role="status" className="text-[13px] leading-relaxed text-ink-muted">If that address belongs to an account, a reset link is on its way. It works for 30 minutes. Check your spam folder if it does not arrive.</p>
                 ) : (
                   <>
-                    <p className="text-[13px] leading-relaxed text-ink-muted">Enter the email you registered with and we will send a reset link. No email on file? Ask your lead pentester.</p>
+                    <p className="text-[13px] leading-relaxed text-ink-muted">Enter the email on your account and we will send a reset link. No email on file? Ask your administrator.</p>
                     <div>
                       <label htmlFor="auth-4" className={label}>Email</label>
                       <input id="auth-4" className={field} type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
@@ -224,24 +211,12 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
                 <label htmlFor="auth-2" className={label}>Password</label>
                 <input id="auth-2" className={field} type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="••••••••" required />
               </div>
-              {mode === 'register' && (
-                <div>
-                  <label htmlFor="auth-3" className={label}>Email <span className="font-normal">(optional, only to reset a forgotten password)</span></label>
-                  <input id="auth-3" className={field} type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" />
-                </div>
-              )}
               {err && <div className="text-[12.5px] text-crit">{err}</div>}
               <Button type="submit" size="lg" className="w-full" disabled={busy}>
-                {mode === 'register' ? 'Create account' : 'Log in'} <ArrowRight size={16} />
+                Log in <ArrowRight size={16} />
               </Button>
-              {mode === 'login' && (
-                <button type="button" onClick={() => setForgot('form')} className="block min-h-[44px] w-full text-center text-[13px] font-semibold text-accent-ink">Forgot your password?</button>
-              )}
-              <p className="text-center text-[12px] leading-relaxed text-ink-muted">
-                {mode === 'register'
-                  ? 'Registering grants access only. The dashboard unlocks once a proposal is approved.'
-                  : 'Welcome back.'}
-              </p>
+              <button type="button" onClick={() => setForgot('form')} className="block min-h-[44px] w-full text-center text-[13px] font-semibold text-accent-ink">Forgot your password?</button>
+              <p className="text-center text-[12px] leading-relaxed text-ink-muted">Accounts are created by your administrator.</p>
             </form>
             )}
           </>
@@ -250,17 +225,11 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
         {step === 'proposal' && (
           <>
             <Stepper step={step} />
-            <h2 className="text-[19px] font-bold tracking-[-0.02em] text-ink">Submit a scan proposal</h2>
+            <h2 className="text-[19px] font-bold tracking-[-0.02em] text-ink">Send a scan task</h2>
             {notice && <p role="status" className="mb-2 mt-2 rounded-input border border-crit-bg bg-crit-bg p-3 text-[13px] leading-relaxed text-crit">{notice}</p>}
-            <p className="mb-4 mt-1 text-[13px] text-ink-muted">Your lead pentester verifies this before any scan runs.</p>
+            <p className="mb-4 mt-1 text-[13px] text-ink-muted">A pentester plans the scan inside your time limit.</p>
             <div className="max-h-[58vh] overflow-y-auto pr-1">
-              <ProposalForm
-                submitLabel="Submit for approval"
-                onSubmit={async (payload) => {
-                  await api.post('/api/proposals', payload)
-                  setStep('pending')
-                }}
-              />
+              <TaskForm submitLabel="Send task" onSubmit={async (t) => { await tasks.create(t); setStep('pending') }} />
             </div>
           </>
         )}
@@ -271,18 +240,18 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
             <div className="mb-4 flex items-center gap-3">
               <span className="grid h-11 w-11 flex-none place-items-center rounded-full bg-accent-soft text-accent-ink"><Clock size={20} /></span>
               <div>
-                <h2 className="text-[18px] font-bold tracking-[-0.02em] text-ink">Awaiting approval</h2>
-                <p className="text-[12.5px] text-ink-muted">Your lead pentester is reviewing the proposal.</p>
+                <h2 className="text-[18px] font-bold tracking-[-0.02em] text-ink">Waiting for a pentester</h2>
+                <p className="text-[12.5px] text-ink-muted">A pentester will accept your task shortly.</p>
               </div>
             </div>
             <ul className="mb-6 space-y-2.5">
-              <li className="flex items-center gap-2.5 text-[13px] text-ink"><Check size={16} className="text-low" /> Account created</li>
-              <li className="flex items-center gap-2.5 text-[13px] text-ink"><Check size={16} className="text-low" /> Proposal submitted</li>
-              <li className="flex items-center gap-2.5 text-[13px] text-ink-muted"><Clock size={16} className="text-accent-ink" /> Pending lead-pentester approval…</li>
+              <li className="flex items-center gap-2.5 text-[13px] text-ink"><Check size={16} className="text-low" /> Signed in</li>
+              <li className="flex items-center gap-2.5 text-[13px] text-ink"><Check size={16} className="text-low" /> Task sent</li>
+              <li className="flex items-center gap-2.5 text-[13px] text-ink-muted"><Clock size={16} className="text-accent-ink" /> Waiting for a pentester…</li>
             </ul>
             {isMock() && (
               <Button variant="outline" size="lg" className="w-full border-dashed" onClick={() => setStep('install')}>
-                Demo · simulate lead approval <ArrowRight size={16} />
+                Demo · simulate acceptance <ArrowRight size={16} />
               </Button>
             )}
           </>
@@ -294,7 +263,7 @@ export function AuthGate({ onActivate }: { onActivate: (username: string) => voi
             <div className="mb-4 flex items-center gap-3">
               <span className="grid h-11 w-11 flex-none place-items-center rounded-full bg-low-bg text-low"><ShieldCheck size={20} /></span>
               <div>
-                <h2 className="text-[18px] font-bold tracking-[-0.02em] text-ink">Approved. Install your agent</h2>
+                <h2 className="text-[18px] font-bold tracking-[-0.02em] text-ink">Accepted. Install your agent</h2>
                 <p className="text-[12.5px] text-ink-muted">One small program on your Windows computer runs the scan. No admin rights needed.</p>
               </div>
             </div>

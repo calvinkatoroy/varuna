@@ -28,6 +28,12 @@ def _capture(monkeypatch):
     monkeypatch.setattr(mailer, "send", lambda to, subject, body: SENT.append((to, body)) or True)
 
 
+def _client(name, email=""):
+    auth.create_account(name, "oldpass11", "client", org_id=db.create_org("org-" + name))
+    if email:
+        db.set_account(name, email=email)
+
+
 def _token(body: str) -> str:
     return body.split("token=")[1].split()[0]
 
@@ -41,7 +47,7 @@ def _wait_mail(n=1):
 
 def test_reset_roundtrip_is_single_use_and_unlocks_login(monkeypatch):
     _capture(monkeypatch)
-    assert pub.post("/api/register", json={"username": "rst1", "password": "oldpass11", "email": "Rst1@Example.com"}).status_code == 200
+    _client("rst1", "Rst1@Example.com")
     assert pub.post("/api/password-reset/request", json={"email": "rst1@example.com"}).json() == {"ok": True}
     _wait_mail()
     assert len(SENT) == 1 and SENT[0][0] == "rst1@example.com"
@@ -65,7 +71,7 @@ def test_unknown_email_looks_identical_and_sends_nothing(monkeypatch):
 
 def test_expired_and_superseded_tokens_are_refused(monkeypatch):
     _capture(monkeypatch)
-    pub.post("/api/register", json={"username": "rst2", "password": "oldpass11", "email": "rst2@example.com"})
+    _client("rst2", "rst2@example.com")
     (name, old), = auth.start_reset("rst2@example.com", "ip")
     (name, new), = auth.start_reset("rst2@example.com", "ip")          # a newer request voids the older link
     assert pub.post("/api/password-reset/confirm", json={"token": old, "new": "brandnew22"}).status_code == 422
@@ -84,16 +90,29 @@ def test_team_accounts_never_reset_by_email(monkeypatch):
 
 def test_request_throttle_per_address(monkeypatch):
     _capture(monkeypatch)
-    pub.post("/api/register", json={"username": "rst3", "password": "oldpass11", "email": "rst3@example.com"})
+    _client("rst3", "rst3@example.com")
     got = [bool(auth.start_reset("rst3@example.com", f"ip{i}")) for i in range(auth.RESET_LIMIT + 3)]
     assert got == [True] * auth.RESET_LIMIT + [False] * 3
 
 
-def test_bad_email_at_register_is_refused_and_email_can_be_added_later(monkeypatch):
+def test_bad_email_is_refused_and_email_can_be_added_later(monkeypatch):
     _capture(monkeypatch)
-    assert pub.post("/api/register", json={"username": "rst4", "password": "oldpass11", "email": "not-an-email"}).status_code == 422
-    tok = pub.post("/api/register", json={"username": "rst4", "password": "oldpass11"}).json()["token"]
+    _client("rst4")
+    tok = pub.post("/api/login", json={"username": "rst4", "password": "oldpass11"}).json()["token"]
     H = {"Authorization": f"Bearer {tok}"}
-    assert pub.put("/api/email", json={"email": "bad"}, headers=H).status_code == 422
-    assert pub.put("/api/email", json={"email": "rst4@example.com"}, headers=H).status_code == 200
+    assert pub.post("/api/profile/email", json={"email": "bad"}, headers=H).status_code == 422
+    assert pub.post("/api/profile/email", json={"email": "rst4@example.com"}, headers=H).status_code == 200
+    assert db.get_account("rst4")["email"] in (None, "")   # only set once confirmed (see test_profile.py)
+    db.set_account("rst4", email="rst4@example.com")
     assert auth.start_reset("rst4@example.com", "ip")
+
+
+def test_reset_clears_must_change_password(monkeypatch):
+    _capture(monkeypatch)
+    _client("rst2", "Rst2@Example.com")
+    db.set_account("rst2", must_change_password=1)
+    pub.post("/api/password-reset/request", json={"email": "rst2@example.com"})
+    _wait_mail()
+    tok = _token(SENT[-1][1])
+    assert pub.post("/api/password-reset/confirm", json={"token": tok, "new": "brandnew22"}).status_code == 200
+    assert db.get_account("rst2")["must_change_password"] == 0

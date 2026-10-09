@@ -27,6 +27,17 @@ import browser  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 client = TestClient(browser.app)
+import private_api  # noqa: E402
+from conftest import start_task, window  # noqa: E402
+
+priv = TestClient(private_api.app)
+
+
+def _task_body(**over):
+    nb, na = window()
+    return {"target": "http://t.example", "not_before": nb, "not_after": na, **over}
+
+
 LOCAL, CLOUD = "http://10.0.0.5", "http://8.8.8.8"   # classify without DNS
 
 
@@ -34,12 +45,21 @@ def reset():
     redis_store._client = FakeRedis()
 
 
-def _token(username, role):
-    auth.create_account(username, "pw", role)
+def _token(username, role, org=None):
+    """Account + online agent + login. A client gets organization `org` (default: its own one)."""
+    oid = None
+    if role == "client":
+        org = org or "org-" + username
+        oid = next((o["id"] for o in db.list_orgs() if o["name"] == org), None) or db.create_org(org)
+    auth.create_account(username, "pw", role, org_id=oid)
     tokens.issue_agent_token(username)   # register an online agent
     r = client.post("/api/login", json={"username": username, "password": "pw"})
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['token']}"}
+
+
+def _org(username):
+    return db.get_account(username)["org_id"]
 
 
 def test_login_bad_credentials_rejected():
@@ -48,28 +68,11 @@ def test_login_bad_credentials_rejected():
     assert client.post("/api/login", json={"username": "bob", "password": "wrong"}).status_code == 401
 
 
-def test_register_then_login():
+def test_provisioned_client_can_login():
     reset()
-    r = client.post("/api/register", json={"username": "carol", "password": "pw123456"})
+    auth.create_account("carol", "pw123456", "client", org_id=db.create_org("org-carol"))
+    r = client.post("/api/login", json={"username": "carol", "password": "pw123456"})
     assert r.status_code == 200 and "token" in r.json(), r.text
-    # duplicate username is rejected
-    r2 = client.post("/api/register", json={"username": "carol", "password": "pw123456"})
-    assert r2.status_code == 409
-
-
-def test_legacy_report_download_tenancy():
-    """/api/reports/{fname}/download (the older, filename-addressed download used by the
-    legacy Executive-Summary generator) still enforces tenancy independent of /api/reports'
-    listing, which now sources from the v2 delivered-report pipeline (see the next test)."""
-    reset()
-    Ha = _token("alice", "client")
-    _token("bob", "client")
-    Ht = _token("riyan", "pentester")
-    fa = browser.report_store.save_report("alice", "job-a", "Executive Summary", b"A")["file"]
-    fb = browser.report_store.save_report("bob", "job-b", "Executive Summary", b"B")["file"]
-    assert client.get(f"/api/reports/{fb}/download", headers=Ha).status_code == 403
-    assert client.get(f"/api/reports/{fa}/download", headers=Ha).status_code == 200
-    assert client.get(f"/api/reports/{fa}/download", headers=Ht).status_code == 200
 
 
 def test_reports_list_is_v2_delivered_and_tenant_scoped():
@@ -77,12 +80,12 @@ def test_reports_list_is_v2_delivered_and_tenant_scoped():
     Ha = _token("alice", "client")
     _token("bob", "client")
     Ht = _token("riyan", "pentester")
-    ra_id = db.create_report(job_id="job-a", owner="alice")
+    ra_id = db.create_report("job-a", _org("alice"), "alice")
     db.set_report(ra_id, stage=models.REPORT_DELIVERED, delivered_pdf="a.pdf")
-    rb_id = db.create_report(job_id="job-b", owner="bob")
+    rb_id = db.create_report("job-b", _org("bob"), "bob")
     db.set_report(rb_id, stage=models.REPORT_DELIVERED, delivered_pdf="b.pdf")
     # a report still in review (not delivered yet) must not show up for anyone via this list
-    db.set_report(db.create_report(job_id="job-c", owner="alice"), stage=models.REPORT_LEAD)
+    db.set_report(db.create_report("job-c", _org("alice"), "alice"), stage=models.REPORT_DRAFT)
 
     ra = client.get("/api/reports", headers=Ha).json()
     assert {r["id"] for r in ra} == {ra_id}
@@ -90,92 +93,85 @@ def test_reports_list_is_v2_delivered_and_tenant_scoped():
     assert {r["id"] for r in rt} == {ra_id, rb_id}
 
 
-def test_client_proposal_requires_attestation():
+def test_client_task_requires_a_time_limit():
     reset()
     H = _token("alice", "client")
-    r = client.post("/api/proposals",
-                    json={"target": "http://t.example", "authorization_attested": False}, headers=H)
-    assert r.status_code == 422
+    assert client.post("/api/tasks", json={"target": "http://t.example"}, headers=H).status_code == 422
 
 
-def test_client_submits_and_proposals_are_scoped():
+def test_client_submits_and_tasks_are_scoped():
     reset()
     Ha = _token("alice", "client")
     Hb = _token("bob", "client")
+    Hc = _token("carol", "client", org="org-alice")   # alice's colleague: same organization
     Ht = _token("riyan", "pentester")
-    r = client.post("/api/proposals",
-                    json={"target": "http://t.example", "authorization_attested": True,
-                          "division": "IT", "purpose": "pre-release"}, headers=Ha)
-    assert r.status_code == 200 and r.json()["status"] == "pending", r.text
-    pid = r.json()["proposal_id"]
-    # /api/proposals reshapes for the client UI (see _client_proposal_view) and doesn't carry
-    # `submitter` - a fresh DB (reset() above) means alice's own list is just this one proposal,
-    # so id-scoping alone proves tenancy without needing that field.
-    assert [p["id"] for p in client.get("/api/proposals", headers=Ha).json()] == [pid]
-    assert any(p["id"] == pid for p in client.get("/api/proposals", headers=Ha).json())
-    assert not any(p["id"] == pid for p in client.get("/api/proposals", headers=Hb).json())
-    assert any(p["id"] == pid for p in client.get("/api/proposals", headers=Ht).json())
-    assert client.get(f"/api/proposals/{pid}", headers=Hb).status_code == 403
-    assert client.get(f"/api/proposals/{pid}", headers=Ha).status_code == 200
-    assert client.get(f"/api/proposals/{pid}", headers=Ht).status_code == 200
+    r = client.post("/api/tasks", json=_task_body(notes="pre-release"), headers=Ha)
+    assert r.status_code == 200 and r.json()["status"] == "waiting", r.text
+    tid = r.json()["id"]
+    assert [t["id"] for t in client.get("/api/tasks", headers=Ha).json()] == [tid]
+    assert not any(t["id"] == tid for t in client.get("/api/tasks", headers=Hb).json())
+    assert [t["id"] for t in client.get("/api/tasks", headers=Hc).json()] == [tid]   # org members share
+    assert client.get(f"/api/tasks/{tid}", headers=Hb).status_code == 404               # other org: as if missing
+    assert client.get(f"/api/tasks/{tid}", headers=Hc).status_code == 200
+    assert db.get_proposal(tid, org_id=None)["org_id"] == _org("alice")                  # from the account, not the body
+    board = priv.get("/api/board", headers=Ht).json()                                    # staff see it on the board
+    assert any(c["id"] == tid for col in board for c in col["cards"])
 
 
-def test_lead_approves_proposal_and_dispatches():
+def test_task_org_submitter_stage_come_from_the_account_not_the_body():
     reset()
-    Hc = _token("alice", "client")
-    Hlead = _token("riyan", "lead_pentester")
-    Hpen = _token("dodi", "pentester")
-    pid = client.post("/api/proposals",
-                      json={"target": CLOUD, "authorization_attested": True}, headers=Hc).json()["proposal_id"]
-    # only the lead may approve
-    assert client.post(f"/api/proposals/{pid}/approve", headers=Hpen).status_code == 403
-    r = client.post(f"/api/proposals/{pid}/approve", headers=Hlead)
+    Ha = _token("alice", "client")
+    _token("bob", "client")
+    r = client.post("/api/tasks", json=_task_body(org_id=_org("bob"), submitter="bob", stage="delivered"), headers=Ha)
     assert r.status_code == 200, r.text
-    jid = r.json()["job_id"]
-    assert r.json()["status"] == "approved" and jid
-    p = client.get(f"/api/proposals/{pid}", headers=Hlead).json()
-    assert p["status"] == "approved" and p["job_id"] == jid
-    assert redis_store.dequeue_job("alice") == jid   # queued for the client's agent
+    t = db.get_proposal(r.json()["id"], org_id=None)
+    assert (t["org_id"], t["submitter"], t["stage"]) == (_org("alice"), "alice", "task")
 
 
-def test_lead_rejects_proposal():
+def test_pentester_claims_and_starts_task_and_dispatches():
     reset()
     Hc = _token("alice", "client")
-    Hlead = _token("riyan", "lead_pentester")
-    pid = client.post("/api/proposals",
-                      json={"target": CLOUD, "authorization_attested": True}, headers=Hc).json()["proposal_id"]
-    r = client.post(f"/api/proposals/{pid}/reject", json={"reason": "out of scope"}, headers=Hlead)
-    assert r.status_code == 200 and r.json()["status"] == "rejected"
-    p = client.get(f"/api/proposals/{pid}", headers=Hlead).json()
-    assert p["status"] == "rejected" and p["reject_reason"] == "out of scope"
+    Hpen = _token("dodi", "pentester")
+    Hgov = _token("hani", "governance")
+    tid = client.post("/api/tasks", json=_task_body(target=CLOUD), headers=Hc).json()["id"]
+    move = lambda H, to: priv.post(f"/api/tasks/{tid}/transition", headers=H,
+                                   json={"to": to, "version": db.get_proposal(tid, org_id=None)["version"]})
+    assert move(Hgov, "scan/pending").status_code == 403                   # only pentesters claim
+    assert move(Hpen, "scan/pending").status_code == 200
+    r = move(Hpen, "scan/in_progress")                                     # alice's agent is online (_token)
+    assert r.status_code == 200, r.text
+    jid = db.get_proposal(tid, org_id=None)["job_id"]
+    assert redis_store.dequeue_job("alice") == jid                         # queued for the client's agent
 
 
-def test_client_proposals_list_uses_client_status_vocabulary():
-    """Regression: the list endpoint used to return the raw DB status (pending/approved/
-    rejected) straight through, which crashed the frontend the moment a proposal was approved
-    (it only knows pending/scanning/in_review/delivered/rejected). Every field the client UI
-    actually reads (status/when/reason/job_id) must be present with the right name/vocabulary."""
+def test_pentester_declines_task_with_a_cause():
     reset()
     Hc = _token("alice", "client")
-    Hlead = _token("riyan", "lead_pentester")
+    Hpen = _token("dodi", "pentester")
+    tid = client.post("/api/tasks", json=_task_body(), headers=Hc).json()["id"]
+    r = priv.post(f"/api/tasks/{tid}/transition", headers=Hpen, json={"to": "declined", "version": 0, "comment": "out of scope"})
+    assert r.status_code == 200 and r.json()["stage"] == "declined"
+    row = client.get("/api/tasks", headers=Hc).json()[0]
+    assert row["status"] == "declined" and row["reason"] == "out of scope"
 
-    pending_id = client.post("/api/proposals", json={"target": "http://a.example",
-                             "authorization_attested": True}, headers=Hc).json()["proposal_id"]
-    approved_id = client.post("/api/proposals", json={"target": CLOUD,
-                              "authorization_attested": True}, headers=Hc).json()["proposal_id"]
-    client.post(f"/api/proposals/{approved_id}/approve", headers=Hlead)
-    rejected_id = client.post("/api/proposals", json={"target": "http://b.example",
-                              "authorization_attested": True}, headers=Hc).json()["proposal_id"]
-    client.post(f"/api/proposals/{rejected_id}/reject", json={"reason": "not authorized"}, headers=Hlead)
 
-    rows = {p["id"]: p for p in client.get("/api/proposals", headers=Hc).json()}
-    assert rows[pending_id]["status"] == "pending"
-    assert rows[approved_id]["status"] == "scanning"   # approved, no report yet
-    assert rows[approved_id]["job_id"]
-    assert rows[rejected_id]["status"] == "rejected"
-    assert rows[rejected_id]["reason"] == "not authorized"
-    for p in rows.values():
-        assert "when" in p and "submitter" not in p
+def test_client_task_list_uses_client_status_vocabulary():
+    """Every field the client UI reads (status/when/reason/job_id) is present with the client vocabulary."""
+    reset()
+    Hc = _token("alice", "client")
+    _token("dodi", "pentester")
+    waiting = client.post("/api/tasks", json=_task_body(), headers=Hc).json()["id"]
+    scanning = client.post("/api/tasks", json=_task_body(target=CLOUD), headers=Hc).json()["id"]
+    start_task(scanning, "dodi")
+    declined = client.post("/api/tasks", json=_task_body(), headers=Hc).json()["id"]
+    import workflow
+    workflow.transition(declined, "declined", "dodi", org_id=None, comment="not authorized")
+    rows = {t["id"]: t for t in client.get("/api/tasks", headers=Hc).json()}
+    assert rows[waiting]["status"] == "waiting"
+    assert rows[scanning]["status"] == "scanning" and rows[scanning]["job_id"]
+    assert rows[declined]["status"] == "declined" and rows[declined]["reason"] == "not authorized"
+    for t in rows.values():
+        assert "when" in t and "submitter" not in t and "assignee" not in t
 
 
 def test_protected_endpoint_needs_token():
@@ -188,7 +184,7 @@ def test_me_returns_identity():
     reset()
     H = _token("calvin", "pentester")
     body = client.get("/api/me", headers=H).json()
-    assert body == {"username": "calvin", "role": "pentester"}
+    assert body == {"username": "calvin", "role": "pentester", "org_id": None, "must_change_password": False}
 
 
 def test_client_cannot_direct_submit_scan():
@@ -229,29 +225,7 @@ def test_agent_status_and_install_token():
     assert tok["enrollment_token"]
 
 
-def test_approvals_are_pro_only():
-    reset()
-    H_std = _token("staff", "client")
-    assert client.get("/api/approvals", headers=H_std).status_code == 403   # require_pro
-
-
-# (legacy /api/approvals flow removed: v2 replaces it with proposal approve/reject, tested above)
-
-
-def test_report_generate_and_download():
-    reset()
-    H = _token("staff", "client")
-    redis_store.set_job({"id": "jr", "target": "http://t.local", "submitter": "staff",
-                         "status": "done", "per_tool_status": {}})
-    db.save_findings("jr", "staff", [{"name": "X", "severity": "high", "host": "h",
-                                      "impact": "i", "remediation": "r"}])
-    meta = client.post("/api/scans/jr/report", headers=H).json()
-    assert meta["template"] == "Executive Summary"
-    dl = client.get(f"/api/reports/{meta['file']}/download", headers=H)
-    assert dl.status_code == 200 and dl.content[:2] == b"PK"
-    # /api/reports itself is a separate, v2-delivered-only listing now (see
-    # test_reports_list_is_v2_delivered_and_tenant_scoped) - this legacy generate/download
-    # path doesn't feed it, by design.
+# (legacy /api/approvals flow removed: tasks are claimed and started through /api/tasks/{id}/transition)
 
 
 if __name__ == "__main__":
@@ -262,26 +236,12 @@ if __name__ == "__main__":
     print("test_browser_api: all green")
 
 
-def test_client_delivered_pdf_and_view_once_password():
-    reset()
-    Ha = _token("alice", "client")
-    Hb = _token("bob", "client")
-    rid = db.create_report(job_id="j1", owner="alice")
-    db.set_report(rid, stage=models.REPORT_DELIVERED, delivered_pdf=f"{rid}.pdf",
-                  pdf_password="pw123", password_viewed=0)
-    browser.report_store.save_report_file(f"{rid}.pdf", b"%PDF-1.4 fake")
-    assert client.get(f"/api/reports/{rid}/delivered", headers=Hb).status_code == 403  # not owner
-    r = client.get(f"/api/reports/{rid}/delivered", headers=Ha)
-    assert r.status_code == 200 and r.content == b"%PDF-1.4 fake"
-    p = client.get(f"/api/reports/{rid}/password", headers=Ha)
-    assert p.status_code == 200 and p.json()["password"] == "pw123"
-    assert client.get(f"/api/reports/{rid}/password", headers=Ha).status_code == 403  # view-once
 
 
 def test_client_cannot_access_undelivered_report():
     reset()
     Ha = _token("alice", "client")
-    rid = db.create_report(job_id="j2", owner="alice")   # still at reporter stage
+    rid = db.create_report("j2", _org("alice"), "alice")   # still a draft
     assert client.get(f"/api/reports/{rid}/delivered", headers=Ha).status_code == 409
 
 
@@ -290,8 +250,7 @@ def test_cockpit_is_client_only_and_scoped():
     Ha = _token("alice", "client")
     Ht = _token("riyan", "pentester")
     assert client.get("/api/cockpit", headers=Ht).status_code == 403   # team has no cockpit
-    r = client.post("/api/proposals", headers=Ha,
-                    json={"target": "http://t.example", "authorization_attested": True})
+    r = client.post("/api/tasks", headers=Ha, json=_task_body())
     assert r.status_code == 200
     c = client.get("/api/cockpit", headers=Ha).json()
     assert c["me"]["username"] == "alice"
@@ -304,11 +263,11 @@ def test_client_findings_are_own_confirmed_only():
     Ha = _token("alice", "client")
     Hb = _token("bob", "client")
     Ht = _token("riyan", "pentester")
-    db.save_findings("ja", "alice", [
+    db.save_findings("ja", "alice", _org("alice"), [
         {"name": "SQLi", "severity": "critical", "host": "h"},
         {"name": "FalsePos", "severity": "low", "host": "h2"},
     ])
-    db.save_findings("jb", "bob", [{"name": "XSS", "severity": "high", "host": "h3"}])
+    db.save_findings("jb", "bob", _org("bob"), [{"name": "XSS", "severity": "high", "host": "h3"}])
     fp_id = next(f["id"] for f in db.get_findings("ja") if f["name"] == "FalsePos")
     db.set_finding(fp_id, verdict="fp")
 
@@ -317,10 +276,12 @@ def test_client_findings_are_own_confirmed_only():
 
     rt = client.get("/api/findings", headers=Ht).json()
     assert {f["name"] for f in rt} == {"SQLi", "FalsePos", "XSS"}   # team sees everything
+    assert {f["name"]: f["org_name"] for f in rt}["XSS"] == db.get_org(_org("bob"))["name"]   # the review filter keys on it
+    assert all("org_name" not in f for f in ra)
 
     sqli_id = ra[0]["id"]
     assert client.post(f"/api/findings/{sqli_id}/status", headers=Hb,
-                       json={"status": "fixed"}).status_code == 403   # bob doesn't own alice's finding
+                       json={"status": "fixed"}).status_code == 404   # another org's finding: as if missing
     assert client.post(f"/api/findings/{sqli_id}/status", headers=Ha,
                        json={"status": "fixed"}).status_code == 200
     assert db.get_findings("ja")[0]["status"] == "fixed"
@@ -341,8 +302,10 @@ def test_scan_events_tenancy():
     Ha = _token("alice", "client")
     Hb = _token("bob", "client")
     redis_store.set_job({"id": "je1", "target": "http://t", "submitter": "alice",
-                         "status": "done", "per_tool_status": {}})
-    assert client.get("/api/scans/je1/events", headers=Hb).status_code == 403
+                         "status": "done", "per_tool_status": {}, "org_id": _org("alice")})
+    assert client.get("/api/scans/je1/events", headers=Hb).status_code == 404   # other org: as if missing
+    assert client.get("/api/scans/je1", headers=Hb).status_code == 404
+    assert client.get("/api/scans/je1", headers=Ha).json()["status"] == "done"
     assert client.get("/api/scans/nope/events", headers=Ha).status_code == 404
     with client.stream("GET", "/api/scans/je1/events", headers=Ha) as r:
         assert r.status_code == 200
@@ -351,7 +314,7 @@ def test_scan_events_tenancy():
 def test_scan_events_closes_immediately_when_already_done():
     reset()
     H = _token("alice", "client")
-    redis_store.set_job({"id": "je2", "target": "http://t", "submitter": "alice",
+    redis_store.set_job({"id": "je2", "target": "http://t", "submitter": "alice", "org_id": _org("alice"),
                          "status": "done", "per_tool_status": {"katana": "done", "nuclei": "done"}})
     with client.stream("GET", "/api/scans/je2/events", headers=H) as r:
         frames = _sse_frames(r)
@@ -365,7 +328,7 @@ def test_scan_events_streams_progress_until_done():
     browser.SSE_POLL_INTERVAL = 0.05
     try:
         H = _token("alice", "client")
-        redis_store.set_job({"id": "je3", "target": "http://t", "submitter": "alice",
+        redis_store.set_job({"id": "je3", "target": "http://t", "submitter": "alice", "org_id": _org("alice"),
                              "status": "running", "per_tool_status": {"katana": "running"}})
 
         def flip():
@@ -386,3 +349,35 @@ def test_scan_events_streams_progress_until_done():
     assert frames[-1]["status"] == "done"
     assert frames[-1]["per_tool_status"] == {"katana": "done", "nuclei": "done"}
     assert len(frames) >= 3   # at least: initial, mid-transition, final
+
+
+def test_client_gets_the_pdf_with_its_strict_name_and_a_persistent_password():
+    reset()
+    import pdfpass
+    Ha, Hb = _token("alice", "client"), _token("bob", "client")
+    rid = db.create_report("j1", _org("alice"), "alice", stage=models.REPORT_DELIVERED)
+    db.set_report(rid, delivered_pdf="pdf-abc.pdf", pdf_password=pdfpass.seal("pw123"))
+    job, _ = db.claim_pdf("t1", _org("alice"), 1, "rizky")
+    db.finish_pdf(job["id"], "t1", "dg", "pdf-abc.pdf", lambda n: "PT_A_x_Pentest_Report_1.pdf")
+    browser.report_store.save_report_file("pdf-abc.pdf", b"%PDF-1.4 fake")
+    assert client.get(f"/api/reports/{rid}/delivered", headers=Hb).status_code == 404   # other org
+    assert client.get(f"/api/reports/{rid}/password", headers=Hb).status_code == 404
+    r = client.get(f"/api/reports/{rid}/delivered", headers=Ha)
+    assert r.status_code == 200 and r.content == b"%PDF-1.4 fake"
+    assert r.headers["content-disposition"] == ("attachment; filename=\"PT_A_x_Pentest_Report_1.pdf\"; "
+                                                "filename*=UTF-8''PT_A_x_Pentest_Report_1.pdf")
+    for _ in range(3):                                   # no view-once any more: the same answer every time
+        p = client.get(f"/api/reports/{rid}/password", headers=Ha)
+        assert p.status_code == 200 and p.json() == {"password": "pw123"} and p.headers["cache-control"] == "no-store"
+    assert client.get("/api/reports", headers=Ha).json()[0]["filename"] == "PT_A_x_Pentest_Report_1.pdf"
+
+
+def test_password_needs_delivery_and_old_plaintext_values_still_read():
+    reset()
+    Ha = _token("alice", "client")
+    rid = db.create_report("j9", _org("alice"), "alice")          # still a draft
+    db.set_report(rid, pdf_password="legacy-plain")
+    assert client.get(f"/api/reports/{rid}/password", headers=Ha).status_code == 409
+    db.set_report(rid, stage=models.REPORT_DELIVERED, delivered_pdf="x.pdf")
+    assert client.get(f"/api/reports/{rid}/password", headers=Ha).json()["password"] == "legacy-plain"
+    assert client.get("/api/reports", headers=Ha).json()[0]["filename"] == "Pentest_Report.pdf"   # no job row: safe fallback

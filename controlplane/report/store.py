@@ -16,7 +16,7 @@ import db  # noqa: E402
 import redis_store  # noqa: E402
 
 REPORTS_DIR = os.environ.get("REPORTS_DIR", "report_output")
-RETENTION_DAYS = int(os.environ.get("REPORT_RETENTION_DAYS", "7"))   # NFR-28
+RETENTION_DAYS = int(os.environ.get("REPORT_RETENTION_DAYS") or "7")   # NFR-28
 
 
 GLOBAL_KEY = "reports:_all"   # Pro full archive across all users (REQ-50a)
@@ -26,12 +26,13 @@ def _index_key(user: str) -> str:
     return f"reports:{user}"
 
 
-def save_report(user: str, job_id: str, template: str, data: bytes) -> dict:
+def save_report(user: str, job_id: str, template: str, data: bytes, *, org_id: str | None) -> dict:
+    """`user` is the author (audit); `org_id` is the job's organization and decides who may download."""
     os.makedirs(REPORTS_DIR, exist_ok=True)
     fname = f"{job_id}_{template.replace(' ', '_')}.docx"
     with open(os.path.join(REPORTS_DIR, fname), "wb") as f:
         f.write(data)
-    meta = {"user": user, "job_id": job_id, "template": template, "file": fname,
+    meta = {"user": user, "org_id": org_id, "job_id": job_id, "template": template, "file": fname,
             "ts": datetime.datetime.now(datetime.UTC).isoformat()}
     r = redis_store.get_redis()
     r.rpush(_index_key(user), json.dumps(meta))
@@ -57,11 +58,11 @@ def save_report_file(fname: str, data: bytes) -> None:
         f.write(data)
 
 
-def owner_of(fname: str) -> str | None:
-    """Owner (username) of a report file, from the global index; None if unknown (v2 tenancy)."""
+def org_of(fname: str) -> str | None:
+    """Organization of a report file, from the global index; None if unknown or org-less (tenancy)."""
     for m in list_all_reports():
         if m.get("file") == fname:
-            return m.get("user")
+            return m.get("org_id")
     return None
 
 
@@ -107,6 +108,7 @@ def wipe_all() -> dict:
     log. Accounts and agent bindings are intentionally NOT touched (remove separately)."""
     counts = redis_store.wipe_scan_data()
     counts["findings"] = db.wipe_findings()
+    counts.update(db.wipe_report_data())
     redis_store.wipe_audit()
     r = redis_store.get_redis()
     for key in list(r.scan_iter(match="reports:*")):

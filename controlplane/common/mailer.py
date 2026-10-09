@@ -26,7 +26,7 @@ def send(to: str, subject: str, body: str) -> bool:
     msg.set_content(body)
     mode = os.environ.get("SMTP_SECURITY", "starttls").lower()
     try:
-        port = int(os.environ.get("SMTP_PORT", "465" if mode == "ssl" else "587"))
+        port = int(os.environ.get("SMTP_PORT") or ("465" if mode == "ssl" else "587"))
         with (smtplib.SMTP_SSL(host, port, timeout=10) if mode == "ssl" else smtplib.SMTP(host, port, timeout=10)) as s:
             if mode == "starttls":
                 s.starttls()

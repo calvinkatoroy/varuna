@@ -18,6 +18,7 @@ from _fakeredis import FakeRedis  # noqa: E402
 redis_store._client = FakeRedis()
 
 import auth  # noqa: E402
+import db  # noqa: E402
 import browser  # noqa: E402
 import jwt_auth  # noqa: E402
 import nuclei  # noqa: E402
@@ -61,7 +62,7 @@ def test_aggressive_and_destructive_switches_are_lead_only_and_need_opt_in():
 
 def test_api_enforces_it_and_clients_still_cannot_scan():
     def hdr(u, role):
-        auth.create_account(u, "password1", role)
+        auth.create_account(u, "password1", role, org_id=db.create_org("org-" + u) if role == "client" else None)
         return {"Authorization": "Bearer " + jwt_auth.login(u, "password1", "ip")}
     body = lambda **o: {"target": "http://10.0.0.5", "tools": ["nuclei"], "opts": o}
     Hp = hdr("pen1", PEN)

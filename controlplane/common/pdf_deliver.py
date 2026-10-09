@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import os
 import pathlib
+import secrets
 import subprocess
 import tempfile
 import threading
@@ -42,13 +43,16 @@ CONVERT = _soffice_convert
 
 
 def encrypt_pdf(pdf_bytes: bytes, password: str) -> bytes:
-    """Encrypt a PDF with a user+owner password (read-only for the recipient)."""
+    """AES-256. `password` is the USER password the recipient types. The owner password is random and discarded, so
+    the recipient cannot lift the print-only permissions (the old code used one string for both)."""
     from pypdf import PdfReader, PdfWriter
+    from pypdf.constants import UserAccessPermissions
     reader = PdfReader(io.BytesIO(pdf_bytes))
     writer = PdfWriter()
     for page in reader.pages:
         writer.add_page(page)
-    writer.encrypt(user_password=password, owner_password=password)
+    writer.encrypt(user_password=password, owner_password=secrets.token_urlsafe(24),
+                   permissions_flag=UserAccessPermissions.PRINT, algorithm="AES-256")
     buf = io.BytesIO()
     writer.write(buf)
     return buf.getvalue()

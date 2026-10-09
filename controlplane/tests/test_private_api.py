@@ -6,6 +6,8 @@ the manual-finding + report pipeline. Offline, FakeRedis-backed, Ollama falls ba
 import os
 import sys
 
+import pytest
+
 HERE = os.path.dirname(__file__)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "common"))
@@ -18,6 +20,7 @@ from _fakeredis import FakeRedis  # noqa: E402
 redis_store._client = FakeRedis()
 
 import auth  # noqa: E402
+import db  # noqa: E402
 import jwt_auth  # noqa: E402
 import ollama  # noqa: E402
 import private_api  # noqa: E402
@@ -52,7 +55,7 @@ def _pro_header(username="ihsan"):
 
 
 def _std_header(username="staff"):
-    auth.create_account(username, "pw", "client")
+    auth.create_account(username, "pw", "client", org_id=db.create_org("org-" + username))
     return {"Authorization": f"Bearer {jwt_auth.login(username, 'pw', 'ip')}"}
 
 
@@ -61,17 +64,6 @@ def test_findings_pro_only():
     assert client.get("/api/findings/j1", headers=_std_header()).status_code == 403
 
 
-def test_manual_finding_then_review():
-    reset()
-    H = _pro_header()
-    redis_store.set_job({"id": "j1", "target": "http://t", "submitter": "ihsan",
-                         "status": "done", "per_tool_status": {}})
-    r = client.post("/api/findings/j1/manual", headers=H, json={
-        "name": "IDOR", "severity": "high", "host": "http://t",
-        "url": "http://t/x", "description": "d", "evidence": "e"})
-    assert r.status_code == 200 and r.json()[0]["tool"] == "manual"
-    review = client.get("/api/findings/j1", headers=H).json()
-    assert review[0]["name"] == "IDOR"
 
 
 def test_full_report_templates_and_archive():
@@ -79,7 +71,7 @@ def test_full_report_templates_and_archive():
     H = _pro_header()
     redis_store.set_job({"id": "j2", "target": "http://t", "submitter": "ihsan",
                          "status": "done", "per_tool_status": {}})
-    _db.save_findings("j2", "ihsan", [{"name": "SQLi", "severity": "critical", "host": "h",
+    _db.save_findings("j2", "ihsan", "", [{"name": "SQLi", "severity": "critical", "host": "h",
                                        "cve": "CVE-1", "evidence": "x", "owasp": "A03:2021-Injection"}])
     for template in ("Full Technical", "OWASP Web App", "ILCS Internal"):
         r = client.post("/api/reports/generate", headers=H, json={"job_id": "j2", "template": template})
@@ -88,12 +80,6 @@ def test_full_report_templates_and_archive():
     assert len(archive) == 3
 
 
-def test_manual_missing_job_404():
-    reset()
-    H = _pro_header()
-    r = client.post("/api/findings/none/manual", headers=H,
-                    json={"name": "x", "severity": "low", "host": "h"})
-    assert r.status_code == 404
 
 
 if __name__ == "__main__":
@@ -112,42 +98,32 @@ DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.docu
 
 
 def _hdr(username, role):
-    auth.create_account(username, "pw", role)
+    auth.create_account(username, "pw", role, org_id=db.create_org("org-" + username) if role == "client" else None)
     return {"Authorization": f"Bearer {jwt_auth.login(username, 'pw', 'ip')}"}
 
 
-def test_review_pipeline_forward_and_versions():
-    reset()
-    Hrep = _hdr("aisah", "reporter")
-    Hlead = _hdr("riyan", "lead_pentester")
-    Hpen = _hdr("dodi", "pentester")
-    rid = _db.create_report(job_id="j1", owner="alice", template="Full Technical")
-    # reporter uploads a new version
-    r = client.post(f"/api/pipeline/reports/{rid}/version",
-                    files={"file": ("edit.docx", EDITED, DOCX_MIME)}, headers=Hrep)
-    assert r.status_code == 200 and r.json()["version_no"] == 1, r.text
-    # a pentester does not own the reporter stage -> cannot forward
-    assert client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hpen).status_code == 403
-    # reporter forwards -> lead
-    assert client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hrep).json()["stage"] \
-        == models.REPORT_LEAD
-    # lead uploads a version and forwards -> governance
-    client.post(f"/api/pipeline/reports/{rid}/version",
-                files={"file": ("lead.docx", LEAD_V, DOCX_MIME)}, headers=Hlead)
-    assert client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hlead).json()["stage"] \
-        == models.REPORT_GOVERNANCE
-    # lead sees all versions (history kept)
-    versions = client.get(f"/api/pipeline/reports/{rid}/versions", headers=Hlead).json()
-    assert [v["version_no"] for v in versions] == [1, 2]
-    assert client.get(f"/api/pipeline/reports/{rid}/versions/1/download", headers=Hlead).content == EDITED
+def _review_task(stage, job_id, assignee="aisah"):
+    org = _db.create_org("PT " + job_id)
+    tid = _db.create_proposal({"submitter": "alice", "target": "http://t", "org_id": org, "stage": stage,
+                               "job_id": job_id, "assignee": assignee})
+    rid = _db.create_report(job_id, org, "alice", template="Full Technical")
+    return tid, rid
 
 
-def test_review_pipeline_sendback():
+def _move(H, tid, to, **body):
+    return client.post(f"/api/tasks/{tid}/transition", headers=H,
+                       json={"to": to, "version": _db.get_proposal(tid, org_id=None)["version"], **body})
+
+
+
+
+def test_review_pipeline_sendback_needs_a_comment():
     reset()
     Hgov = _hdr("hani", "governance")
-    rid = _db.create_report(job_id="j2", owner="bob", stage=models.REPORT_GOVERNANCE)
-    r = client.post(f"/api/pipeline/reports/{rid}/sendback", headers=Hgov)
-    assert r.status_code == 200 and r.json()["stage"] == models.REPORT_LEAD
+    tid, _ = _review_task("review_governance", "j2")
+    assert _move(Hgov, tid, "review_lead_cyber").status_code == 422
+    r = _move(Hgov, tid, "review_lead_cyber", comment="severity of XSS looks too high")
+    assert r.status_code == 200 and r.json()["stage"] == "review_lead_cyber"
 
 
 # --- v2 protected-PDF delivery (fake the docx->pdf converter; keep real pypdf encryption) ---
@@ -165,117 +141,141 @@ def _fake_convert(_docx):
 pdf_deliver.CONVERT = _fake_convert
 
 
-def test_governance_forward_delivers_protected_pdf():
-    reset()
-    Hgov = _hdr("hani", "governance")
-    rid = _db.create_report(job_id="j3", owner="carol", stage=models.REPORT_GOVERNANCE)
-    client.post(f"/api/pipeline/reports/{rid}/version",
-                files={"file": ("final.docx", FINAL, DOCX_MIME)}, headers=Hgov)
-    r = client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hgov)
-    assert r.status_code == 200 and r.json()["stage"] == models.REPORT_DELIVERED, r.text
-    rep = _db.get_report(rid)
-    assert rep["delivered_pdf"] and rep["pdf_password"] and rep["password_viewed"] is False
-    data = report_store.read_report(rep["delivered_pdf"])
-    assert _PdfReader(_io.BytesIO(data)).is_encrypted
 
 
-def test_governance_reissue_password():
-    reset()
-    Hgov = _hdr("hani", "governance")
-    Hrep = _hdr("aisah", "reporter")
-    rid = _db.create_report(job_id="j4", owner="dan", stage=models.REPORT_GOVERNANCE)
-    client.post(f"/api/pipeline/reports/{rid}/version",
-                files={"file": ("f.docx", FINAL, DOCX_MIME)}, headers=Hgov)
-    client.post(f"/api/pipeline/reports/{rid}/forward", headers=Hgov)   # -> delivered
-    _db.set_report(rid, password_viewed=1)                              # client already viewed
-    assert client.post(f"/api/pipeline/reports/{rid}/reissue-password", headers=Hrep).status_code == 403
-    r = client.post(f"/api/pipeline/reports/{rid}/reissue-password", headers=Hgov)
-    assert r.status_code == 200 and r.json()["password"]
-    assert _db.get_report(rid)["password_viewed"] is False
 
 
-def test_pipeline_create_generates_v1_owned_by_client():
-    reset()
-    H = _hdr("dodi", "pentester")
-    redis_store.set_job({"id": "jc", "target": "http://t", "submitter": "alice",
-                         "status": "done", "per_tool_status": {}})
-    _db.save_findings("jc", "alice", [{"name": "X", "severity": "high", "host": "h"}])
-    r = client.post("/api/pipeline/reports", json={"job_id": "jc", "template": "Full Technical"}, headers=H)
-    assert r.status_code == 200 and r.json()["stage"] == models.REPORT_REPORTER, r.text
-    rid = r.json()["report_id"]
-    assert len(client.get(f"/api/pipeline/reports/{rid}/versions", headers=H).json()) == 1
-    assert _db.get_report(rid)["owner"] == "alice"
 
 
 # --- v2 board/detail/verdict views ---
 def test_board_requires_team():
     reset()
     Hc = _hdr("alice", "client")
-    assert client.get("/api/pipeline/board", headers=Hc).status_code == 403
+    assert client.get("/api/board", headers=Hc).status_code == 403
 
 
 def test_board_shape_and_stages():
     reset()
     H = _hdr("riyan", "lead_pentester")
-    pid = _db.create_proposal({"submitter": "alice", "target": "http://t", "mode": "standard"})
-    r = client.get("/api/pipeline/board", headers=H).json()
-    ids = [c["id"] for c in r]
-    assert ids == ["pending", "scanning", "in_review_reporter", "in_review_lead",
-                   "in_review_governance", "delivered", "rejected"]
-    pending = next(c for c in r if c["id"] == "pending")["cards"]
-    assert pending[0]["id"] == pid and pending[0]["client"] == "alice"
+    org = _db.create_org("PT Alice")
+    from conftest import window
+    nb, na = window()
+    pid = _db.create_proposal({"submitter": "alice", "target": "http://t", "org_id": org, "not_before": nb, "not_after": na})
+    r = client.get("/api/board", headers=H).json()
+    assert [c["id"] for c in r] == ["task", "scan", "completed", "review_lead_pentester", "review_lead_cyber",
+                                    "review_governance", "review_manager", "delivered", "closed"]
+    card = next(c for c in r if c["id"] == "task")["cards"][0]
+    assert card["id"] == pid and card["client"] == "PT Alice" and card["version"] == 0   # the org, not the submitter
+    assert {a["kind"] for a in card["actions"]} == {"claim", "decline"}
 
-    _db.update_proposal(pid, status="approved", job_id="j-scan")
+    running = _db.create_proposal({"submitter": "alice", "target": "http://t", "org_id": org, "stage": "scan",
+                                   "scan_state": "in_progress", "job_id": "j-scan", "not_before": nb, "not_after": na})
     redis_store.set_job({"id": "j-scan", "submitter": "alice", "status": "running", "per_tool_status": {}})
-    scanning = next(c for c in client.get("/api/pipeline/board", headers=H).json()
-                    if c["id"] == "scanning")["cards"]
-    assert scanning[0]["jobId"] == "j-scan" and scanning[0]["suspended"] is False
+    scan = next(c for c in client.get("/api/board", headers=H).json() if c["id"] == "scan")["cards"]
+    assert next(c for c in scan if c["id"] == running)["jobId"] == "j-scan"
 
 
-def test_detail_for_proposal_and_report():
+
+
+def test_suspend_resume_requires_team_owner_and_reason_and_flags_job():
     reset()
-    H = _hdr("riyan", "lead_pentester")
-    pid = _db.create_proposal({"submitter": "alice", "target": "http://t", "mode": "standard",
-                               "purpose": "Compliance", "division": "IT",
-                               "authorization_attested": True})
-    d = client.get(f"/api/pipeline/detail/{pid}", headers=H).json()
-    assert d["proposal"]["purpose"] == "Compliance" and d["proposal"]["authorized"] is True
-    assert "versions" not in d
-
-    rid = _db.create_report(job_id="jd", owner="alice")
-    _db.add_report_version(rid, filename="f.docx", editor="aisah", note="v1")
-    _db.update_proposal(pid, job_id="jd")
-    d2 = client.get(f"/api/pipeline/detail/{rid}", headers=H).json()
-    assert d2["proposal"]["purpose"] == "Compliance"
-    assert len(d2["versions"]) == 1 and d2["versions"][0]["editor"] == "aisah"
-
-    assert client.get("/api/pipeline/detail/nope", headers=H).status_code == 404
-
-
-def test_suspend_resume_requires_team_and_flags_job():
-    reset()
+    from conftest import window
+    import tokens
     Ht = _hdr("riyan", "lead_pentester")
     Hc = _hdr("alice", "client")
-    redis_store.set_job({"id": "js", "target": "http://t", "submitter": "alice",
-                         "status": "running", "per_tool_status": {}})
-
-    assert client.post("/api/pipeline/scans/js/suspend", headers=Hc).status_code == 403
-    assert client.post("/api/pipeline/scans/nope/suspend", headers=Ht).status_code == 404
-
-    r = client.post("/api/pipeline/scans/js/suspend", headers=Ht)
-    assert r.status_code == 200 and redis_store.is_suspended("js") is True
-
-    r = client.post("/api/pipeline/scans/js/resume", headers=Ht)
-    assert r.status_code == 200 and redis_store.is_suspended("js") is False
+    nb, na = window()
+    pid = _db.create_proposal({"submitter": "alice", "target": "http://8.8.8.8", "scan_mode": "cloud",
+                               "org_id": _db.get_account("alice")["org_id"], "stage": "scan", "scan_state": "in_progress",
+                               "job_id": "js", "assignee": "riyan", "not_before": nb, "not_after": na})
+    redis_store.set_job({"id": "js", "target": "http://t", "submitter": "alice", "status": "running", "per_tool_status": {}})
+    move = lambda H, to, **b: client.post(f"/api/tasks/{pid}/transition", headers=H,
+                                          json={"to": to, "version": _db.get_proposal(pid, org_id=None)["version"], **b})
+    assert move(Hc, "scan/suspended", comment="x").status_code == 403
+    assert move(Ht, "scan/suspended", comment="  ").status_code == 422
+    assert move(Ht, "scan/suspended", comment="client maintenance").status_code == 200
+    assert redis_store.is_suspended("js") is True
+    tokens.issue_agent_token("varuna-cloud")
+    assert move(Ht, "scan/in_progress").status_code == 200 and redis_store.is_suspended("js") is False
 
 
 def test_finding_verdict_requires_team_and_updates():
     reset()
-    Ht = _hdr("aisah", "reporter")
+    Ht = _hdr("aisah", "pentester")
     Hc = _hdr("alice", "client")
-    _db.save_findings("jf", "alice", [{"name": "X", "severity": "low", "host": "h"}])
+    _db.save_findings("jf", "alice", _db.get_account("alice")["org_id"], [{"name": "X", "severity": "low", "host": "h"}])
     fid = _db.get_findings("jf")[0]["id"]
     assert client.post(f"/api/findings/{fid}/verdict", json={"verdict": "fp"},
                        headers=Hc).status_code == 403
     r = client.post(f"/api/findings/{fid}/verdict", json={"verdict": "fp"}, headers=Ht)
     assert r.status_code == 200 and _db.get_findings("jf")[0]["verdict"] == "fp"
+
+
+
+def test_manager_approval_publishes_the_latest_current_pdf():
+    reset()
+    from conftest import ready_pdf
+    Hgov, Hman = _hdr("hani", "governance"), _hdr("bayu", "manager")
+    tid, rid = _review_task("review_manager", "j3")
+    stored = _db.get_pdf(ready_pdf(tid))["stored_name"]
+    report_store.save_report_file(stored, b"%PDF-1.4 x")
+    assert _move(Hgov, tid, "delivered").status_code == 403
+    r = _move(Hman, tid, "delivered")
+    assert r.status_code == 200 and r.json()["stage"] == "delivered", r.text
+    rep = _db.get_report(rid, org_id=None)
+    assert rep["stage"] == models.REPORT_DELIVERED and rep["delivered_pdf"] == stored
+
+
+def test_delivery_refuses_a_missing_or_out_of_date_pdf():
+    reset()
+    from conftest import ready_pdf
+    Hman = _hdr("bayu2", "manager")
+    tid, _ = _review_task("review_manager", "j5")
+    r = _move(Hman, tid, "delivered")
+    assert r.status_code == 409 and "no PDF" in r.json()["detail"]
+    _db.save_findings("j5", "alice", _db.get_proposal(tid, org_id=None)["org_id"],
+                      [{"name": "X", "severity": "high", "host": "h"}])
+    ready_pdf(tid)
+    _db.set_finding(_db.get_findings("j5")[0]["id"], verdict="fp")              # the report changed after its PDF
+    r = _move(Hman, tid, "delivered")
+    assert r.status_code == 409 and "changed" in r.json()["detail"]
+    assert _db.get_proposal(tid, org_id=None)["stage"] == "review_manager"      # not stuck in `delivering`
+
+
+def test_detail_says_whether_the_viewer_may_audit():
+    reset()
+    H, Hrev = _hdr("riyan", "lead_pentester"), _hdr("hani2", "governance")
+    org = _db.create_org("PT Alice")
+    pid = _db.create_proposal({"submitter": "alice", "target": "http://t", "org_id": org, "notes": "Compliance",
+                               "stage": "completed", "job_id": "jd", "assignee": "aisah"})
+    d = client.get(f"/api/tasks/{pid}/detail", headers=H).json()
+    assert d["task"]["notes"] == "Compliance" and d["can_audit"] is True and d["has_report"] is True
+    assert "versions" not in d and "report_id" not in d
+    assert client.get(f"/api/tasks/{pid}/detail", headers=Hrev).json()["can_audit"] is False
+    assert client.get("/api/tasks/nope/detail", headers=H).status_code == 404
+
+
+def test_finished_task_scan_starts_the_report_with_content_v1():
+    reset()
+    import ingest
+    org = _db.create_org("PT Alice")
+    job = {"id": "jc", "target": "http://t", "submitter": "alice", "status": "done", "per_tool_status": {}, "org_id": org}
+    redis_store.set_job(job)
+    tid = _db.create_proposal({"submitter": "alice", "target": "http://t", "org_id": org, "stage": "completed", "job_id": "jc"})
+    _db.save_findings("jc", "alice", org, [{"name": "X", "severity": "high", "host": "h"}])
+    rid = ingest.start_review(job)
+    rep = _db.get_report(rid, org_id=org)
+    assert rep["owner"] == "alice" and rep["org_id"] == org and rep["stage"] == models.REPORT_DRAFT and rep["task_id"] == tid
+    assert _db.latest_content(tid)["version"] == 1
+    assert ingest.start_review(job) == rid and len(_db.list_content_versions(tid)) == 1     # repeating changes nothing
+    with pytest.raises(ValueError):
+        ingest.start_review({"id": "no-task-job"})
+
+
+def test_removed_word_upload_routes_are_gone():
+    reset()
+    H = _hdr("riyan3", "lead_pentester")
+    for method, path in (("get", "/api/pipeline/reports"), ("get", "/api/templates"),
+                         ("post", "/api/pipeline/reports/x/version"), ("post", "/api/pipeline/reports/x/template"),
+                         ("post", "/api/pipeline/reports/x/reissue-password"), ("post", "/api/tasks/x/report"),
+                         ("post", "/api/findings/j/manual")):
+        assert getattr(client, method)(path, headers=H).status_code in (404, 405), path

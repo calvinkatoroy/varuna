@@ -34,6 +34,9 @@ def reset():
 
 
 def _enroll(username):
+    import auth
+    if not db.get_account(username):
+        auth.create_account(username, "Passw0rd!x", "pentester")
     et = tokens.generate_enrollment_token(username)
     r = client.post("/agent/enroll", json={"enrollment_token": et})
     assert r.status_code == 200, r.text
@@ -77,6 +80,7 @@ def test_revoked_token_rejected():
 
 def test_enrollment_token_is_one_time():
     reset()
+    _client_acct("carol")
     et = tokens.generate_enrollment_token("carol")
     assert client.post("/agent/enroll", json={"enrollment_token": et}).status_code == 200
     assert client.post("/agent/enroll", json={"enrollment_token": et}).status_code == 401
@@ -89,6 +93,20 @@ def test_cross_job_ownership_rejected():
     assert client.post("/agent/jobs/ajob/status", headers=H, json={"status": "done"}).status_code == 403
     assert client.post("/agent/jobs/ajob/findings", headers=H, json={"raw": {}}).status_code == 403
     assert client.get("/agent/jobs/ajob/suspended", headers=H).status_code == 403
+
+
+def test_agent_of_another_org_cannot_touch_a_job_even_with_the_same_username():
+    reset()
+    oa, ob = db.create_org("A"), db.create_org("B")
+    import auth
+    auth.create_account("dup", "pw", "client", org_id=oa)   # the account now in org A, same name as B's old one
+    redis_store.set_job({"id": "bjob", "submitter": "dup", "org_id": ob, "status": "queued", "per_tool_status": {}})
+    H = _enroll("dup")
+    assert client.post("/agent/jobs/bjob/status", headers=H, json={"status": "done"}).status_code == 403
+    assert client.post("/agent/jobs/bjob/findings", headers=H, json={"raw": {}}).status_code == 403
+    assert client.get("/agent/jobs/bjob/suspended", headers=H).status_code == 403
+    redis_store.set_job({"id": "ajob2", "submitter": "dup", "org_id": oa, "status": "queued", "per_tool_status": {}})
+    assert client.post("/agent/jobs/ajob2/status", headers=H, json={"status": "running"}).status_code == 200
 
 
 def test_suspended_checkin():
@@ -140,3 +158,87 @@ if __name__ == "__main__":
             fn()
             print(f"{name} OK")
     print("test_agent_api: all green")
+
+
+# --- disabled accounts / organizations lose their agents ---
+def _client_acct(name, org="Org Z"):
+    import auth
+    oid = next((o["id"] for o in db.list_orgs() if o["name"] == org), None) or db.create_org(org)
+    auth.create_account(name, "Passw0rd!x", "client", org_id=oid)
+    return oid
+
+
+def test_disabled_user_cannot_enroll_or_poll_and_can_after_reenable():
+    reset()
+    _client_acct("zed")
+    H = _enroll("zed")
+    assert client.get("/agent/poll", headers=H).status_code == 200
+    db.set_account("zed", disabled=1)
+    assert client.get("/agent/poll", headers=H).status_code == 401
+    et = tokens.generate_enrollment_token("zed")
+    assert client.post("/agent/enroll", json={"enrollment_token": et}).status_code == 401
+    db.set_account("zed", disabled=0)
+    H2 = _enroll("zed")
+    assert client.get("/agent/poll", headers=H2).status_code == 200
+
+
+def test_disabled_org_agent_refused_and_enrol_works_after_reenable():
+    reset()
+    oid = _client_acct("yan")
+    H = _enroll("yan")
+    db.set_org_status(oid, "disabled")
+    assert client.get("/agent/poll", headers=H).status_code == 401
+    et = tokens.generate_enrollment_token("yan")
+    assert client.post("/agent/enroll", json={"enrollment_token": et}).status_code == 401
+    db.set_org_status(oid, "active")
+    assert client.get("/agent/poll", headers=H).status_code == 200
+
+
+def test_cloud_agent_needs_no_account():
+    reset()
+    et = tokens.generate_enrollment_token("varuna-cloud")
+    r = client.post("/agent/enroll", json={"enrollment_token": et})
+    assert r.status_code == 200
+    H = {"Authorization": f"Bearer {r.json()['token']}"}
+    assert client.get("/agent/poll", headers=H).status_code == 200
+
+
+def test_org_disable_and_account_disable_via_sysadmin(priv):
+    reset()
+    import auth
+    auth.create_account("root", "Passw0rd!x", "sysadmin")
+    oid = _client_acct("xia")
+    H = _enroll("xia")
+    redis_store.set_job({"id": "qj", "submitter": "xia", "org_id": oid, "status": "queued", "per_tool_status": {}})
+    redis_store.enqueue_job("xia", "qj")
+    redis_store.add_org_job(oid, "qj")
+    tok = priv.login("root", "Passw0rd!x")
+    assert priv.post(f"/api/sysadmin/orgs/{oid}/disable", tok).status_code == 200
+    assert redis_store.get_job("qj") is None and redis_store.list_org_jobs(oid) == []
+    assert redis_store.dequeue_job("xia") is None
+    assert client.get("/agent/poll", headers=H).status_code == 401
+    priv.post(f"/api/sysadmin/orgs/{oid}/enable", tok)
+    H2 = _enroll("xia")
+    assert client.get("/agent/poll", headers=H2).status_code == 200
+    assert priv.post("/api/sysadmin/accounts/xia/disable", tok).status_code == 200
+    assert redis_store.get_agent("xia") is None   # agent binding revoked outright
+    assert client.get("/agent/poll", headers=H2).status_code == 401
+
+
+def test_job_done_completes_the_task_and_failed_suspends_it():
+    import workflow
+    from conftest import make_client, start_task, window
+    reset()
+    org = make_client("alice", "PT A")
+    nb, na = window()
+    tids = [db.create_proposal({"submitter": "alice", "org_id": org, "target": "http://8.8.8.8",
+                                "scan_mode": "cloud", "not_before": nb, "not_after": na}) for _ in range(2)]
+    jobs = [start_task(t) for t in tids]
+    H = _enroll("varuna-cloud")
+    assert client.post(f"/agent/jobs/{jobs[0]}/status", headers=H, json={"status": "done"}).status_code == 200
+    assert db.get_proposal(tids[0], org_id=None)["stage"] == "completed"
+    assert client.post(f"/agent/jobs/{jobs[0]}/status", headers=H, json={"status": "done"}).status_code == 200  # repeat: ignored
+    client.post(f"/agent/jobs/{jobs[1]}/status", headers=H, json={"status": "failed", "error": "target refused connection"})
+    t = db.get_proposal(tids[1], org_id=None)
+    assert (t["scan_state"], t["suspend_reason"]) == ("suspended", "target refused connection")
+    assert db.list_task_events(tids[1])[-1]["actor"] == workflow.SYSTEM

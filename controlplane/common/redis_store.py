@@ -14,7 +14,7 @@ import json
 import os
 from typing import Optional
 
-SCAN_TTL_SECONDS = int(os.environ.get("SCAN_TTL_SECONDS", "86400"))
+SCAN_TTL_SECONDS = int(os.environ.get("SCAN_TTL_SECONDS") or "86400")
 
 
 # --- key builders (pure; no connection needed) ---
@@ -28,7 +28,7 @@ def agent_key(username: str) -> str: return f"agent:{username}"
 def agent_token_key(token_hash: str) -> str: return f"agent_token:{token_hash}"  # reverse index
 def enroll_token_key(token: str) -> str: return f"enroll:{token}"
 def agentqueue_key(username: str) -> str: return f"agentqueue:{username}"
-def user_jobs_key(username: str) -> str: return f"user_jobs:{username}"
+def org_jobs_key(org_id: str) -> str: return f"org_jobs:{org_id}"
 def login_fail_key(username: str) -> str: return f"login_fail:{username}"
 def login_fail_ip_key(ip: str) -> str: return f"login_fail_ip:{ip}"
 
@@ -111,19 +111,35 @@ def list_pending_approvals() -> list:
     return list(get_redis().smembers(APPROVAL_PENDING_KEY))
 
 
-# --- per-user recent-jobs index (so a jobs table can list without scanning all keys) ---
-USER_JOBS_MAX = 50
+# --- per-organization recent-jobs index (so a jobs table can list without scanning all keys).
+# Staff direct scans belong to no organization and are indexed under the empty org id
+# (dispatch.list_jobs(None) walks "" plus every org to give staff the all-orgs view). ---
+ORG_JOBS_MAX = 50
 
 
-def add_user_job(username: str, job_id: str) -> None:
+def add_org_job(org_id: str | None, job_id: str) -> None:
     r = get_redis()
-    key = user_jobs_key(username)
+    key = org_jobs_key(org_id or "")
     r.lpush(key, job_id)
-    r.ltrim(key, 0, USER_JOBS_MAX - 1)
+    r.ltrim(key, 0, ORG_JOBS_MAX - 1)
 
 
-def list_user_jobs(username: str, limit: int = 20) -> list:
-    return get_redis().lrange(user_jobs_key(username), 0, limit - 1)
+def list_org_jobs(org_id: str | None, limit: int = 20) -> list:
+    return get_redis().lrange(org_jobs_key(org_id or ""), 0, limit - 1)
+
+
+def drop_org_jobs(org_id: str) -> int:
+    """Org disabled: pull its still-queued jobs out of the agent queues, the org index and Redis."""
+    r = get_redis()
+    n = 0
+    for jid in list_org_jobs(org_id, ORG_JOBS_MAX):
+        job = get_job(jid)
+        if job and job.get("status") == "queued":
+            r.lrem(agentqueue_key(job.get("executor") or job["submitter"]), 0, jid)
+            r.lrem(org_jobs_key(org_id), 0, jid)
+            r.delete(job_key(jid))
+            n += 1
+    return n
 
 
 # --- persistent data (no TTL) ---
@@ -177,6 +193,11 @@ def wipe_scan_data() -> dict:
     return counts
 
 
+def wipe_agent_data() -> dict:
+    """Full reset: agent bindings and tokens, agent queues, enrolment tokens, suspended flags, org job indexes."""
+    return {p: _scan_delete(f"{p}:*") for p in ("agent", "agent_token", "agentqueue", "suspended", "enroll", "org_jobs")}
+
+
 def wipe_audit() -> None:
     """Clear the audit log. Only ever called by the deliberate offboarding wipe (DAT-4)."""
     get_redis().delete(AUDIT_KEY)
@@ -191,6 +212,6 @@ if __name__ == "__main__":
     assert account_key("calvin") == "account:calvin"
     assert agent_key("calvin") == "agent:calvin"
     assert login_fail_key("calvin") == "login_fail:calvin"
-    assert user_jobs_key("calvin") == "user_jobs:calvin"
+    assert org_jobs_key("o1") == "org_jobs:o1"
     assert AUDIT_KEY == "audit"
     print("redis_store.py key-builder self-check OK")

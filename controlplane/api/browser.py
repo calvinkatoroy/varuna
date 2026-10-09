@@ -11,12 +11,12 @@ input, full reports) is a separate app bound to the Tailscale interface (NFR-24)
 """
 from __future__ import annotations
 
+import base64
 import asyncio
 import json
 import os
 import sys
 import threading
-import uuid
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "common"))
@@ -25,10 +25,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "report"))
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv()  # repo-root .env, for host-run dev (REDIS_URL, JWT_SECRET, ...)
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response  # noqa: E402
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, StreamingResponse  # noqa: E402
-from pydantic import BaseModel, Field, StrictBool  # noqa: E402
+from pydantic import BaseModel, Field, StrictInt  # noqa: E402
 
 import audit  # noqa: E402
 import auth  # noqa: E402
@@ -36,21 +36,23 @@ import classifier  # noqa: E402
 import cockpit  # noqa: E402
 import db  # noqa: E402
 import dispatch  # noqa: E402
-import generator  # noqa: E402
 import jwt_auth  # noqa: E402
 import mailer  # noqa: E402
-import notify  # noqa: E402
 import models  # noqa: E402
+import pdfpass  # noqa: E402
+import reportdoc  # noqa: E402
 import redis_store  # noqa: E402
 import scanopts  # noqa: E402
 import store as report_store  # noqa: E402
 import tenancy  # noqa: E402
 import tokens  # noqa: E402
-from deps import current_user, require_lead, require_pro  # noqa: E402
-
-DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+import workflow  # noqa: E402
+import deps  # noqa: E402
+import profile_api  # noqa: E402
+from deps import current_user, require_pro  # noqa: E402
 
 app = FastAPI(title="Varuna Browser API (public plane)")
+app.include_router(profile_api.router)
 
 # Explicit CORS: only the configured frontend origin(s) may call the API (C-6 security posture).
 _CORS = os.environ.get("VARUNA_CORS_ORIGINS", "http://localhost:5173").split(",")
@@ -61,14 +63,16 @@ MAX_BODY = 1_000_000   # bytes; every JSON body here is small forms
 async def clients_only(request, call_next):
     """NFR-24: the internet-facing plane serves clients. A valid team token is refused here (it
     works on the private plane), so stolen/phished team credentials gain nothing public."""
-    if request.url.path.startswith("/api/") and os.environ.get("VARUNA_PUBLIC_TEAM_LOGIN") != "1":
+    if request.url.path.startswith("/api/"):
         token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
         try:
             role = jwt_auth.verify(token)["role"] if token else None
         except Exception:
             role = None   # invalid/expired: the endpoint's own auth returns the 401
-        if role and models.is_team(role):
-            return JSONResponse(status_code=403, content={"detail": "security team accounts use the private plane"})
+        # Every non-client role is refused; the dev opt-in lets TEAM roles (never sysadmin) through.
+        dev_team = os.environ.get("VARUNA_PUBLIC_TEAM_LOGIN") == "1" and role != models.ROLE_SYSADMIN
+        if role and role != models.ROLE_CLIENT and not dev_team:
+            return JSONResponse(status_code=403, content={"detail": "staff accounts use the private plane"})
     return await call_next(request)
 
 
@@ -87,7 +91,7 @@ async def limit_body(request, call_next):
 # must carry CORS headers too, or the browser reports a network error instead of the status.
 app.add_middleware(CORSMiddleware, allow_origins=_CORS, allow_methods=["*"], allow_headers=["*"])
 
-FULL_STACK = ["katana", "nuclei", "sqlmap"]
+FULL_STACK = workflow.FULL_STACK
 SSE_POLL_INTERVAL = 1.5   # seconds between checks for a changed job record
 SSE_MAX_SECONDS = 40 * 60  # generous cap so a stuck agent can't leave a connection open forever
 
@@ -98,37 +102,10 @@ class LoginBody(BaseModel):
     password: str
 
 
-class RegisterBody(BaseModel):
-    username: str
-    password: str
-    email: str = ""          # optional, only used to send a password-reset link
-
-
 class ScanBody(BaseModel):
     target: str
     tools: list[str] | None = None       # ignored for Standard (locked to full stack, REQ-5)
     division: str = ""
-    opts: dict = {}
-
-
-class RejectBody(BaseModel):
-    reason: str = Field(default="", max_length=2000)
-
-
-class ProposalBody(BaseModel):
-    target: str = Field(max_length=2048)
-    mode: str = Field(default="standard", pattern="^(standard|advanced)$")
-    scan_mode: str = Field(default="local", pattern="^(local|cloud)$")   # local = my computer, cloud = run by Varuna
-    in_scope: str = Field(default="", max_length=4000)
-    out_of_scope: str = Field(default="", max_length=4000)
-    division: str = Field(default="", max_length=200)
-    purpose: str = Field(default="", max_length=200)   # keperluan
-    environment: str = Field(default="", max_length=200)
-    test_window: str = Field(default="", max_length=200)
-    roe: dict = {}
-    authorization_attested: StrictBool = False
-    emergency_contact: str = Field(default="", max_length=200)
-    tools: list[str] = Field(default=[], max_length=10)
     opts: dict = {}
 
 
@@ -145,45 +122,21 @@ def login(body: LoginBody, x_forwarded_for: str = Header(default="api")):
     # NFR-24: the public (internet-facing) plane is for clients. Security-team accounts sign in
     # on the private plane, so their credentials can't be brute-forced from the internet.
     # Local dev without a private plane can opt in with VARUNA_PUBLIC_TEAM_LOGIN=1.
-    if (models.is_team(jwt_auth.verify(token)["role"])
-            and os.environ.get("VARUNA_PUBLIC_TEAM_LOGIN") != "1"):
+    role = jwt_auth.verify(token)["role"]
+    if models.is_sysadmin(role) or (role != models.ROLE_CLIENT and os.environ.get("VARUNA_PUBLIC_TEAM_LOGIN") != "1"):
         raise HTTPException(status_code=403,
                             detail="security team accounts sign in on the private plane")
     return {"token": token}
 
 
-@app.post("/api/register")
-def register(body: RegisterBody):
-    """Self-service client registration (v2). Client-role only; grants nothing until a proposal
-    is approved, so this being public is inert. Team accounts are seeded, never self-registered."""
-    try:
-        auth.register_client(body.username, body.password, body.email)
-    except auth.UsernameTaken as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except auth.AuthError as e:   # bad username/password shape: a validation error, not a conflict
-        raise HTTPException(status_code=422, detail=str(e))
-    return {"token": jwt_auth.login(body.username, body.password, "api")}
+@app.post("/api/refresh")
+def refresh(user: dict = Depends(current_user)):
+    return {"token": jwt_auth.issue(user["username"])}
 
 
 @app.get("/api/me")
 def me(user: dict = Depends(current_user)):
     return user
-
-
-class EmailBody(BaseModel):
-    email: str
-
-
-@app.put("/api/email")
-def set_email(body: EmailBody, user: dict = Depends(current_user)):
-    """A client adds or changes the address their password-reset link goes to (blank removes it)."""
-    if user["role"] != models.ROLE_CLIENT:
-        raise HTTPException(status_code=403, detail="clients only; the lead pentester resets team passwords")
-    try:
-        auth.set_email(user["username"], body.email)
-    except auth.AuthError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    return {"ok": True}
 
 
 class ResetRequestBody(BaseModel):
@@ -231,132 +184,85 @@ def change_password(body: PasswordBody, user: dict = Depends(current_user)):
     except auth.AuthError as e:
         raise HTTPException(status_code=422, detail=str(e))
     audit.log("password_changed", actor=user["username"])
-    return {"ok": True}
+    return {"ok": True, "token": jwt_auth.issue(user["username"])}
 
 
 @app.get("/api/cockpit")
-def get_cockpit(user: dict = Depends(current_user)):
-    """Client dashboard aggregate: own engagements, posture, trend, latest delivered report."""
+def get_cockpit(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    """Client dashboard aggregate: the organization's engagements, posture, trend, latest delivered report."""
     if not models.is_client(user["role"]):
         raise HTTPException(status_code=403, detail="client role required")
-    return cockpit.build_cockpit(user["username"])
+    return cockpit.build_cockpit(user["username"], scope.org_id)
 
 
-# --- scan proposals (v2): client submits, lead pentester approves ---
-@app.post("/api/proposals")
-def submit_proposal(body: ProposalBody, user: dict = Depends(current_user)):
-    if not body.authorization_attested:
-        raise HTTPException(status_code=422,
-                            detail="authorization-to-test attestation is required")
-    try:
-        classifier.validate_syntax(body.target)
-    except classifier.ClassifyRejected as e:
-        raise HTTPException(status_code=422, detail=f"invalid target: {e}")
-    if body.scan_mode == models.SCAN_CLOUD:
-        try:
-            classifier.require_public_syntax(body.target)
-        except classifier.ClassifyRejected as e:
-            raise HTTPException(status_code=422, detail=str(e))
-    p = {**body.model_dump(), "submitter": user["username"], "status": models.PROPOSAL_PENDING}
-    if models.is_client(user["role"]):
-        # Safe-profile lock (NFR-17/18/19): `mode` for a client only labels the scoping form.
-        # Clients never choose tools or scan options; those are advanced-scan (team) inputs.
-        p["tools"], p["opts"] = [], {}
-    elif any(t not in FULL_STACK for t in p["tools"]):
-        raise HTTPException(status_code=422, detail=f"tools must be a subset of {FULL_STACK}")
-    pid = db.create_proposal(p)
-    notify.notify(f"New scan proposal from {user['username']} awaiting lead approval ({pid[:8]})")
-    return {"proposal_id": pid, "status": models.PROPOSAL_PENDING}
+# --- tasks (step 2): a client asks for a scan inside a time window; a pentester claims it ---
+class TaskBody(BaseModel):
+    target: str = Field(max_length=2048)
+    path: str = Field(default="", max_length=512)
+    port: StrictInt | None = None
+    notes: str = Field(default="", max_length=4000)
+    not_before: str = Field(max_length=64)
+    not_after: str = Field(max_length=64)
+    scan_mode: str = Field(default="local", pattern="^(local|cloud)$")
 
 
-def _client_proposal_view(p: dict) -> dict:
-    """Reshape a raw proposal row into what ClientProposals.tsx actually expects: status in
-    the client vocabulary (not raw pending/approved/rejected - see cockpit.client_status), and
-    `when`/`reason` field names instead of the DB's updated_at/reject_reason."""
+def _client_task_view(t: dict) -> dict:
+    """What a client may see of a task: status words and the decline cause, never staff names or comments."""
     return {
-        "id": p["id"], "target": p["target"], "purpose": p["purpose"], "division": p["division"],
-        "status": cockpit.client_status(p), "when": p["updated_at"], "reason": p.get("reject_reason"),
-        "job_id": p.get("job_id"), "scan_mode": p.get("scan_mode", "local"),
+        "id": t["id"], "target": t["target"], "path": t["path"] or "", "port": t["port"], "notes": t["notes"] or "",
+        "scan_mode": t["scan_mode"], "status": workflow.client_status(t), "when": t["updated_at"],
+        "reason": t["decline_cause"] if t["stage"] == "declined" else None, "job_id": t["job_id"],
+        "not_before": t["not_before"], "not_after": t["not_after"],
+        "scheduled_at": t["scheduled_at"] if t["stage"] == "scan" else None,
     }
 
 
-@app.get("/api/proposals")
-def list_proposals(user: dict = Depends(current_user)):
-    # team sees every client's proposals (raw shape - the team side reads /api/pipeline/board
-    # instead, this is only kept broad in case something else needs the raw rows); a client
-    # sees only their own, reshaped for what the client UI actually renders (v2 tenancy).
-    if models.is_team(user["role"]):
-        return db.list_proposals()
-    return [_client_proposal_view(p) for p in db.list_proposals(submitter=user["username"])]
+def _client_only(user: dict) -> None:
+    if not models.is_client(user["role"]):
+        raise HTTPException(status_code=403, detail="client role required")
 
 
-@app.get("/api/proposals/{pid}")
-def get_proposal(pid: str, user: dict = Depends(current_user)):
-    p = db.get_proposal(pid)
-    if not p:
-        raise HTTPException(status_code=404, detail="no such proposal")
-    if not tenancy.visible_to(user["role"], user["username"], p["submitter"]):
-        raise HTTPException(status_code=403, detail="not your proposal")
-    return p
+def _scoped_task(tid: str, scope: tenancy.Scope) -> dict:
+    t = db.get_proposal(tid, org_id=scope.org_id)
+    if not t:   # out of scope answers exactly like missing
+        raise HTTPException(status_code=404, detail="no such task")
+    return t
 
 
-@app.post("/api/proposals/{pid}/approve")
-def approve_proposal(pid: str, user: dict = Depends(require_lead)):
-    p = db.get_proposal(pid)
-    if not p:
-        raise HTTPException(status_code=404, detail="no such proposal")
-    if p["status"] != models.PROPOSAL_PENDING:
-        raise HTTPException(status_code=409, detail="proposal is not pending")
-    try:
-        target_class = classifier.classify(p["target"])
-    except classifier.ClassifyRejected as e:
-        raise HTTPException(status_code=422, detail=f"target rejected: {e}")
-    cloud = p.get("scan_mode") == models.SCAN_CLOUD
-    own_sites = {h.strip().lower() for h in os.environ.get("VARUNA_CLOUD_ALLOW_HOSTS", "").split(",") if h.strip()}   # owner's explicit exception
-    if cloud and target_class != classifier.CLASS_CLOUD and classifier._extract_host(p["target"]).lower() not in own_sites:
-        raise HTTPException(status_code=422, detail="cloud scan needs a public target; this one resolves to a private or local address. Ask the client to choose a local scan.")
-    # Safe-profile lock, decided by the submitter's ROLE (never by the client-chosen `mode`):
-    # client proposals always run the fixed full stack with no custom opts.
-    submitter = db.get_account(p["submitter"])
-    standard = not submitter or models.is_client(submitter["role"]) or p["mode"] == "standard"
-    tools = FULL_STACK if standard else (p["tools"] or FULL_STACK)
-    opts = {} if standard else p["opts"]
-    job = models.Job(
-        id=str(uuid.uuid4()), target=p["target"], target_class=target_class,
-        submitter=p["submitter"], role=models.ROLE_CLIENT, tools=tools, opts=opts,
-        status=models.STATUS_QUEUED, per_tool_status={},
-        scan_mode=models.SCAN_CLOUD if cloud else models.SCAN_LOCAL, executor=models.CLOUD_AGENT if cloud else None,
-    ).to_dict()
-    # Atomic claim: of N concurrent approvals exactly one flips pending->approved and proceeds.
-    if not db.claim_proposal(pid, models.PROPOSAL_PENDING,
-                             status=models.PROPOSAL_APPROVED, job_id=job["id"]):
-        raise HTTPException(status_code=409, detail="proposal is not pending")
-    redis_store.set_job(job)
-    redis_store.add_user_job(p["submitter"], job["id"])
-    audit.log(audit.APPROVE, approver=user["username"], proposal=pid, job=job["id"])
-    # Proposal is the gate; queue for the client's agent to pick up whenever it polls.
-    dispatch.dispatch_job(job, pre_approved=True)
-    return {"proposal_id": pid, "status": models.PROPOSAL_APPROVED, "job_id": job["id"]}
+@app.post("/api/tasks")
+def create_task(body: TaskBody, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    _client_only(user)
+    t = deps.run_workflow(workflow.create_task, user["username"], scope.org_id, **body.model_dump())
+    return _client_task_view(t)
 
 
-@app.post("/api/proposals/{pid}/reject")
-def reject_proposal(pid: str, body: RejectBody, user: dict = Depends(require_lead)):
-    p = db.get_proposal(pid)
-    if not p:
-        raise HTTPException(status_code=404, detail="no such proposal")
-    if not db.claim_proposal(pid, models.PROPOSAL_PENDING,
-                             status=models.PROPOSAL_REJECTED, reject_reason=body.reason):
-        raise HTTPException(status_code=409, detail="proposal is not pending")
-    audit.log(audit.REJECT, approver=user["username"], proposal=pid, reason=body.reason)
-    return {"proposal_id": pid, "status": models.PROPOSAL_REJECTED}
+@app.get("/api/tasks")
+def list_tasks(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    _client_only(user)
+    return [_client_task_view(t) for t in db.list_proposals(org_id=scope.org_id)]
+
+
+@app.get("/api/tasks/{tid}")
+def get_task(tid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    _client_only(user)
+    return {**_client_task_view(_scoped_task(tid, scope)), "timeline": workflow.client_timeline(tid)}
+
+
+@app.get("/api/tasks/{tid}/events")
+def task_timeline(tid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    _client_only(user)
+    _scoped_task(tid, scope)
+    return workflow.client_timeline(tid)
 
 
 @app.post("/api/scans")
 def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
-    # v2: clients never direct-submit; they file a proposal that the lead pentester approves.
+    # Clients never direct-submit; they create a task that a pentester claims.
     # Direct submit is the security team's advanced path only.
     if models.is_client(user["role"]):
-        raise HTTPException(status_code=403, detail="clients submit a scan proposal for approval")
+        raise HTTPException(status_code=403, detail="clients create a task; a pentester starts the scan")
+    if not models.is_team(user["role"]):   # sysadmin and any other non-team role: no scanning at all
+        raise HTTPException(status_code=403, detail="your role cannot start scans")
     # Standard is locked to the full safe-profile stack; Pro chooses (defaults to full).
     tools = FULL_STACK if models.is_client(user["role"]) else (body.tools or FULL_STACK)
     if any(t not in FULL_STACK for t in tools):
@@ -368,7 +274,9 @@ def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
     if not redis_store.get_agent(user["username"]):   # after validation: bad input gets its own error first
         raise HTTPException(status_code=409, detail="no agent registered; install your agent first")
     try:
-        return dispatch.submit_scan(user["username"], user["role"], body.target,
+        # Direct scans are staff-only and have no task: the job belongs to no organization
+        # (staff-only visibility), never to whatever a request names.
+        return dispatch.submit_scan(user["username"], user["role"], None, body.target,
                                     tools, opts=opts, division=body.division)
     except classifier.ClassifyRejected as e:
         raise HTTPException(status_code=422, detail=f"target rejected: {e}")
@@ -376,18 +284,20 @@ def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
         raise HTTPException(status_code=409, detail=str(e))
 
 
+_CLIENT_JOB_KEYS = ("id", "target", "target_class", "status", "per_tool_status", "scan_mode")
+
+
 @app.get("/api/scans")
-def list_scans(user: dict = Depends(current_user)):
-    return dispatch.list_jobs(user["username"])
+def list_scans(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    # whitelist: job records also carry staff opts (auth cookies), errors, executor, role, submitter
+    return [{k: j.get(k) for k in _CLIENT_JOB_KEYS} for j in dispatch.list_jobs(scope.org_id)]
 
 
 @app.get("/api/scans/{job_id}")
-def scan_status(job_id: str, user: dict = Depends(current_user)):
-    job = redis_store.get_job(job_id)
+def scan_status(job_id: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    job = dispatch.get_job(scope, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="no such job")
-    if not tenancy.visible_to(user["role"], user["username"], job["submitter"]):
-        raise HTTPException(status_code=403, detail="not your scan")
     return {
         "id": job["id"],
         "status": job["status"],
@@ -398,7 +308,8 @@ def scan_status(job_id: str, user: dict = Depends(current_user)):
 
 
 @app.get("/api/scans/{job_id}/events")
-async def scan_events(job_id: str, user: dict = Depends(current_user)):
+async def scan_events(job_id: str, user: dict = Depends(current_user),
+                      scope: tenancy.Scope = Depends(deps.scope)):
     """Live scan progress (v2): a phase-by-phase installer-style feed, not a smooth percentage
     - the agent only reports at tool-phase boundaries (scan.py's checkpoint), it doesn't have
     fractional progress within a single Katana/Nuclei/SQLMap run. Polls the same job record the
@@ -409,11 +320,8 @@ async def scan_events(job_id: str, user: dict = Depends(current_user)):
     Native EventSource can't send an Authorization header, so the frontend uses a fetch-based
     reader instead (see api.ts's streamEvents) - this is a plain authenticated GET either way.
     """
-    job = redis_store.get_job(job_id)
-    if not job:
+    if not dispatch.get_job(scope, job_id):
         raise HTTPException(status_code=404, detail="no such job")
-    if not tenancy.visible_to(user["role"], user["username"], job["submitter"]):
-        raise HTTPException(status_code=403, detail="not your scan")
 
     async def gen():
         last = None
@@ -443,23 +351,31 @@ async def scan_events(job_id: str, user: dict = Depends(current_user)):
 
 
 # --- agent enrollment (REQ-71 to REQ-73) ---
+_CLOSED = ("declined", "expired")
+
+
+def _own_tasks(user: dict, scope: tenancy.Scope) -> list[dict]:
+    """Agents are per user (a job goes to its submitter's agent), so agent questions look at this
+    user's own tasks within their organization."""
+    return [t for t in db.list_proposals(org_id=scope.org_id) if t["submitter"] == user["username"]]
+
+
 @app.get("/api/agent")
-def agent_status(user: dict = Depends(current_user)):
-    mine = [p for p in db.list_proposals(submitter=user["username"]) if p["status"] != models.PROPOSAL_REJECTED]
+def agent_status(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    mine = [t for t in _own_tasks(user, scope) if t["stage"] not in _CLOSED]
     return {"registered": bool(redis_store.get_agent(user["username"])),
             "online": tokens.is_online(user["username"]),
             # a client whose scans are all run by Varuna has no agent of their own to show
-            "cloud_only": bool(mine) and all(p.get("scan_mode") == models.SCAN_CLOUD for p in mine),
+            "cloud_only": bool(mine) and all(t.get("scan_mode") == models.SCAN_CLOUD for t in mine),
             "cloud_online": tokens.is_online(models.CLOUD_AGENT)}
 
 
 @app.post("/api/agent/install-token")
-def install_token(user: dict = Depends(current_user)):
-    # Agents are installed AFTER approval (v2): a client with nothing approved gets no token.
+def install_token(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    # A client gets an agent once a pentester has taken one of their tasks; nothing claimed, no token.
     if models.is_client(user["role"]) and not any(
-            p["status"] == models.PROPOSAL_APPROVED
-            for p in db.list_proposals(submitter=user["username"])):
-        raise HTTPException(status_code=403, detail="agent install unlocks once a proposal is approved")
+            t["stage"] not in ("task", *_CLOSED) for t in _own_tasks(user, scope)):
+        raise HTTPException(status_code=403, detail="agent install unlocks once a pentester accepts a task")
     return {"enrollment_token": tokens.generate_enrollment_token(user["username"])}
 
 
@@ -485,9 +401,10 @@ def _installer_cmd(base: str, token: str) -> str:
 
 
 @app.get("/api/agent/installer")
-def agent_installer(request: Request, user: dict = Depends(current_user)):
-    """Same gate as /api/agent/install-token (approved proposals only); returns Install-Varuna.cmd with a fresh token."""
-    tok = install_token(user)["enrollment_token"]
+def agent_installer(request: Request, user: dict = Depends(current_user),
+                    scope: tenancy.Scope = Depends(deps.scope)):
+    """Same gate as /api/agent/install-token (a claimed task); returns Install-Varuna.cmd with a fresh token."""
+    tok = install_token(user, scope)["enrollment_token"]
     base = (os.environ.get("VARUNA_PUBLIC_URL") or
             f"{request.headers.get('x-forwarded-proto', request.url.scheme)}://{request.headers.get('x-forwarded-host') or request.headers.get('host')}").rstrip("/")
     audit.log("agent_installer_downloaded", actor=user["username"])
@@ -495,136 +412,174 @@ def agent_installer(request: Request, user: dict = Depends(current_user)):
                     headers={"Content-Disposition": 'attachment; filename="Install-Varuna.cmd"', "Cache-Control": "no-store"})
 
 
-# --- legacy v1 approval queue (team only; RejectBody defined above) ---
-@app.get("/api/approvals")
-def list_approvals(user: dict = Depends(require_pro)):
-    return dispatch.pending_approvals()
-
-
-@app.post("/api/approvals/{job_id}/approve")
-def approve(job_id: str, user: dict = Depends(require_pro)):
-    try:
-        dispatch.approve_request(job_id, user["username"])
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except dispatch.OfflineAgent as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    return {"ok": True}
-
-
-@app.post("/api/approvals/{job_id}/reject")
-def reject(job_id: str, body: RejectBody, user: dict = Depends(require_pro)):
-    try:
-        dispatch.reject_request(job_id, user["username"], body.reason or "no reason given")
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    return {"ok": True}
-
-
 # --- reports (v2): a client's own DELIVERED, signed-off, protected-PDF reports from the
-# review pipeline (db.reports) - not the legacy Redis Executive-Summary generator below,
-# which is a separate, older concept (REQ-50a) still used by /api/scans/{id}/report. ---
-def _delivered_report_view(r: dict) -> dict:
-    p = db.get_proposal_by_job(r["job_id"])
-    return {
-        "id": r["id"], "engagement": (p or {}).get("target", r["job_id"]),
-        "delivered": r["updated_at"], "findings": len(db.get_findings(r["job_id"])),
-        "templates": [r["template"]], "signed": True,
-    }
+# review pipeline (db.reports). Nothing unreviewed is ever generated or served on this plane. ---
 
 
 @app.get("/api/reports")
-def list_reports(user: dict = Depends(current_user)):
-    # team sees every client's delivered reports; a client sees only their own (v2 tenancy)
-    owner = None if models.is_team(user["role"]) else user["username"]
-    rows = db.list_reports(owner=owner, stage=models.REPORT_DELIVERED)
+def list_reports(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    # team sees every organization's delivered reports; a client sees only their organization's
+    rows = db.list_reports(stage=models.REPORT_DELIVERED, org_id=scope.org_id)
     return [_delivered_report_view(r) for r in rows]
 
 
 # --- client findings (v2): flat, tenancy-filtered, confirmed (tp) findings across all of a
 # client's own engagements - what ClientFindings.tsx shows. ---
-@app.get("/api/findings")
-def list_findings(user: dict = Depends(current_user)):
+MAX_OFFSET = 10**9   # far past any real result set; keeps SQLite's integer binding in range
+
+
+def _cursor_encode(offset: int) -> str:
+    return base64.urlsafe_b64encode(f"o{offset}".encode()).decode().rstrip("=")
+
+
+def _cursor_decode(cursor: str) -> int:
+    try:
+        raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode("ascii")
+        if raw[:1] == "o" and raw[1:].isascii() and raw[1:].isdigit() and len(raw) <= 11 and int(raw[1:]) <= MAX_OFFSET:
+            return int(raw[1:])
+    except ValueError:   # bad base64 and bad ascii are both ValueErrors
+        pass
+    raise HTTPException(status_code=422, detail="bad cursor")
+
+
+def targets_view(user: dict, scope: tenancy.Scope) -> list[dict]:
+    """Accordion rows: one per target (task) with findings. Clients: own organization, confirmed (tp) only."""
     is_team = models.is_team(user["role"])
-    rows = db.list_findings(owner=None if is_team else user["username"])
+    names = {o["id"]: o["name"] for o in db.list_orgs()} if is_team else {}
+    out = []
+    for r in db.finding_targets(org_id=scope.org_id, tp_only=not is_team):
+        org = r.pop("org_id")
+        if is_team:
+            r["org_name"] = names.get(org, "Internal")
+        else:
+            r.pop("fp")
+        out.append(r)
+    return out
+
+
+def page_view(task_id: str, limit: int, cursor: str | None, upto: str | None, severity: str | None,
+              user: dict, scope: tenancy.Scope) -> dict:
+    if cursor and upto:
+        raise HTTPException(status_code=422, detail="use either cursor or upto")
+    sev = severity.strip().lower() if severity else None
+    if sev and sev not in models.SEVERITY_ORDER:
+        raise HTTPException(status_code=422, detail="unknown severity")
+    start = _cursor_decode(cursor) if cursor else 0
+    res = db.list_finding_page(task_id, org_id=scope.org_id, tp_only=not models.is_team(user["role"]),
+                               severity=sev, limit=limit, offset=start, upto=upto)
+    if res is None:
+        raise HTTPException(status_code=404, detail="no such target")
+    items, total = res
+    end = start + len(items)
+    return {"items": items, "next_cursor": _cursor_encode(end) if end < total else None, "total": total}
+
+
+def one_view(fid: str, user: dict, scope: tenancy.Scope) -> dict:
+    is_team = models.is_team(user["role"])
+    f = db.get_finding_with_task(fid, org_id=scope.org_id)
+    if not f or (not is_team and f["verdict"] != "tp"):
+        raise HTTPException(status_code=404, detail="no such finding")
+    if is_team:
+        f["org_name"] = (db.get_org(f["org_id"]) or {}).get("name", "Internal")
+    return f
+
+
+def findings_list(task_id: str | None, limit: int, cursor: str | None, upto: str | None, severity: str | None,
+                  user: dict, scope: tenancy.Scope):
+    """Shared by both planes. Without `task_id` this is the old flat list; with it, one target's page."""
+    if task_id is None:
+        if cursor or upto or severity:
+            raise HTTPException(status_code=422, detail="task_id is required with paging parameters")
+        return flat_findings(user, scope)
+    return page_view(task_id, limit, cursor, upto, severity, user, scope)
+
+
+@app.get("/api/findings")
+def list_findings(task_id: str | None = None, limit: int = Query(100, ge=1, le=200), cursor: str | None = None,
+                  upto: str | None = None, severity: str | None = None,
+                  user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    return findings_list(task_id, limit, cursor, upto, severity, user, scope)
+
+
+def flat_findings(user: dict, scope: tenancy.Scope):
+    is_team = models.is_team(user["role"])
+    rows = db.list_findings(org_id=scope.org_id)
     # Clients only ever see confirmed (tp) findings; the team also triages false positives
     # via FindingsReview, so they see everything.
-    return rows if is_team else [f for f in rows if f["verdict"] == "tp"]
+    if not is_team:
+        return [f for f in rows if f["verdict"] == "tp"]
+    names = {o["id"]: o["name"] for o in db.list_orgs()}
+    return [{**f, "org_name": names.get(f["org_id"], "Internal")} for f in rows]
 
 
 class FindingStatusBody(BaseModel):
     status: str   # "open" | "fixed"
 
 
+@app.get("/api/findings/targets")
+def findings_targets(user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    return targets_view(user, scope)
+
+
+@app.get("/api/findings/id/{fid}")
+def finding_one(fid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    return one_view(fid, user, scope)
+
+
 @app.post("/api/findings/{fid}/status")
-def set_finding_status(fid: str, body: FindingStatusBody, user: dict = Depends(current_user)):
+def set_finding_status(fid: str, body: FindingStatusBody, user: dict = Depends(current_user),
+                       scope: tenancy.Scope = Depends(deps.scope)):
     if body.status not in ("open", "fixed"):
         raise HTTPException(status_code=422, detail="status must be open or fixed")
-    f = db.get_finding(fid)
+    f = db.get_finding_with_task(fid, org_id=scope.org_id)
     if not f:
         raise HTTPException(status_code=404, detail="no such finding")
-    if not tenancy.visible_to(user["role"], user["username"], f["owner"]):
-        raise HTTPException(status_code=403, detail="not your finding")
+    task = db.get_proposal(f["task_id"], org_id=None)   # a direct scan has no task (task_id is then the job id)
+    if task and task["stage"] != "delivered":
+        raise HTTPException(status_code=409, detail="Marking a finding fixed is available after the report is delivered.")
     db.set_finding(fid, status=body.status)
     return {"ok": True}
 
 
-@app.post("/api/scans/{job_id}/report")
-def generate_report(job_id: str, user: dict = Depends(current_user)):
-    job = redis_store.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="no such job")
-    if not tenancy.visible_to(user["role"], user["username"], job["submitter"]):
-        raise HTTPException(status_code=403, detail="not your scan")
-    # Public plane only serves the sanitized Executive Summary (REQ-49/50a). Pro full
-    # templates are on the private plane.
-    data = generator.generate(job, db.get_findings(job_id), "Executive Summary")
-    return report_store.save_report(user["username"], job_id, "Executive Summary", data)
+def _delivered_report_view(r: dict) -> dict:
+    p = db.get_proposal_by_job(r["job_id"])
+    return {
+        "id": r["id"], "engagement": (p or {}).get("target", r["job_id"]),
+        "delivered": r["updated_at"], "findings": sum(f["verdict"] == "tp" for f in db.get_findings(r["job_id"])),
+        "templates": [r["template"]], "signed": True,
+        "filename": reportdoc.safe_filename(db.pdf_filename_for_stored(r["delivered_pdf"] or "")),
+    }
 
 
 @app.get("/api/reports/{rid}/delivered")
-def download_delivered(rid: str, user: dict = Depends(current_user)):
-    """Client downloads their own DELIVERED report as a password-protected PDF (read-only)."""
-    r = db.get_report(rid)
+def download_delivered(rid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    """Client downloads their organization's DELIVERED report: the password-protected PDF, under its strict name."""
+    r = db.get_report(rid, org_id=scope.org_id)
     if not r:
         raise HTTPException(status_code=404, detail="no such report")
-    if not tenancy.visible_to(user["role"], user["username"], r["owner"]):
-        raise HTTPException(status_code=403, detail="not your report")
     if r["stage"] != models.REPORT_DELIVERED or not r["delivered_pdf"]:
         raise HTTPException(status_code=409, detail="report not delivered yet")
     try:
         data = report_store.read_report(r["delivered_pdf"])
     except OSError:
         raise HTTPException(status_code=404, detail="delivered file missing")
+    name = db.pdf_filename_for_stored(r["delivered_pdf"])
     return Response(content=data, media_type="application/pdf",
-                    headers={"Content-Disposition": f'attachment; filename="{r["delivered_pdf"]}"'})
+                    headers={"Content-Disposition": reportdoc.content_disposition(name), "Cache-Control": "no-store"})
 
 
 @app.get("/api/reports/{rid}/password")
-def view_password(rid: str, user: dict = Depends(current_user)):
-    """View-once PDF password for the owning client. After one view, the client must ask
-    governance to re-issue it."""
-    r = db.get_report(rid)
+def view_password(rid: str, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    """The PDF password of the owning organization's delivered report. It never changes for a report, so the client
+    can read it again whenever they open the file. Every read is logged, without the value."""
+    r = db.get_report(rid, org_id=scope.org_id)
     if not r:
         raise HTTPException(status_code=404, detail="no such report")
-    if not tenancy.visible_to(user["role"], user["username"], r["owner"]):
-        raise HTTPException(status_code=403, detail="not your report")
     if r["stage"] != models.REPORT_DELIVERED or not r["pdf_password"]:
         raise HTTPException(status_code=409, detail="report not delivered yet")
-    if not db.claim_password_view(rid):   # atomic: two simultaneous requests cannot both see it
-        raise HTTPException(status_code=403,
-                            detail="password already viewed; request re-issue from governance")
-    return {"password": r["pdf_password"]}
-
-
-@app.get("/api/reports/{fname}/download")
-def download_report(fname: str, user: dict = Depends(current_user)):
-    owner = report_store.owner_of(fname)
-    if not (models.is_team(user["role"]) or owner == user["username"]):
-        raise HTTPException(status_code=403, detail="not your report")
     try:
-        data = report_store.read_report(fname)
-    except OSError:
-        raise HTTPException(status_code=404, detail="no such report")
-    return Response(content=data, media_type=DOCX_MIME,
-                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+        pw = pdfpass.unseal(r["pdf_password"])
+    except pdfpass.Unavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    audit.log("pdf_password_view", actor=user["username"], report=rid)
+    return JSONResponse(content={"password": pw}, headers={"Cache-Control": "no-store"})

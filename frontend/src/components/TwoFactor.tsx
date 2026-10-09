@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Copy, Check } from 'lucide-react'
-import { api } from '@/api'
+import { api, setToken } from '@/api'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 
 const field = 'w-full rounded-input border border-rule bg-panel px-3.5 py-3 text-[14px] text-ink placeholder:text-ink-faint outline-none transition-colors focus:border-accent'
 const label = 'mb-1.5 block text-[12.5px] font-medium text-ink-muted'
 
-// Two-factor (TOTP) for the signed-in team member: enrol with any authenticator app (Google/
+// Two-factor (TOTP) for the signed-in staff member or system administrator: enrol with any authenticator app (Google/
 // Microsoft Authenticator, Authy, 1Password), or turn it off again. No QR library on purpose:
 // every app accepts the setup key typed in, and the otpauth link opens directly on a phone.
 export function TwoFactor({ onClose, forced }: { onClose: () => void; forced?: boolean }) {
@@ -26,15 +26,17 @@ export function TwoFactor({ onClose, forced }: { onClose: () => void; forced?: b
     try { await fn() } catch (e: any) { setErr(e.message || 'Something went wrong.') }
   }
   const begin = () => run(async () => setSetup(await api.ppost('/api/mfa/setup')))
-  const enable = () => run(async () => { await api.ppost('/api/mfa/enable', { code }); setEnabled(true); setSetup(null); setCode(''); toast('Two-factor is on.'); if (forced) onClose() })
-  const disable = () => run(async () => { await api.ppost('/api/mfa/disable', { password, code }); setEnabled(false); setCode(''); setPassword(''); toast('Two-factor is off.') })
+  // Enabling or disabling ends the old session; the response carries the replacement token.
+  const keep = (r: any) => { if (r?.token) setToken(r.token) }
+  const enable = () => run(async () => { keep(await api.ppost('/api/mfa/enable', { code })); setEnabled(true); setSetup(null); setCode(''); toast('Two-factor is on.'); if (forced) onClose() })
+  const disable = () => run(async () => { keep(await api.ppost('/api/mfa/disable', { password, code })); setEnabled(false); setCode(''); setPassword(''); toast('Two-factor is off.') })
   const copy = async () => { try { await navigator.clipboard.writeText(setup!.secret); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch {} }
 
   return createPortal(
     <div className="fixed inset-0 z-[60] grid place-items-center bg-shell/60 px-4" onKeyDown={(e) => !forced && e.key === 'Escape' && onClose()}>
-      <div className="w-full max-w-[420px] space-y-4 rounded-bento-lg border border-rule bg-card p-7 shadow-[0_30px_80px_-20px_rgba(0,0,0,.6)]" role="dialog" aria-label="Two-factor authentication">
+      <div className="w-full max-w-[420px] space-y-4 rounded-bento-lg border border-rule bg-card p-7 shadow-[0_30px_80px_-20px_rgba(0,0,0,.6)]" role="dialog" aria-modal="true" aria-label="Two-factor authentication">
         <h2 className="text-[18px] font-bold tracking-[-0.02em] text-ink">Two-factor authentication</h2>
-        {forced && <p className="text-[13px] font-semibold text-ink">Required for the security team. Set it up to continue.</p>}
+        {forced && <p className="text-[13px] font-semibold text-ink">Required for staff accounts. Set it up to continue.</p>}
 
         {enabled === null && <div className="text-[13px] text-ink-muted">Loading…</div>}
 
@@ -53,10 +55,11 @@ export function TwoFactor({ onClose, forced }: { onClose: () => void; forced?: b
             </ol>
             <div className="flex items-center gap-2 rounded-input border border-rule bg-panel px-3 py-2.5">
               <code className="min-w-0 flex-1 break-all font-mono text-[13px] tracking-wider text-ink" data-testid="mfa-secret">{setup.secret}</code>
-              <button type="button" onClick={copy} aria-label="Copy key" className="text-ink-muted hover:text-ink">{copied ? <Check size={15} /> : <Copy size={15} />}</button>
+              <button type="button" onClick={copy} aria-label="Copy key" className="grid h-11 w-11 flex-none place-items-center rounded-full text-ink-muted hover:text-ink">{copied ? <Check size={15} /> : <Copy size={15} />}</button>
             </div>
-            <a href={setup.uri} className="block text-[12px] font-semibold text-accent-ink">Open in authenticator app (on a phone)</a>
-            <input className={field} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="123456" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
+            <a href={setup.uri} className="flex min-h-[44px] items-center text-[12.5px] font-semibold text-accent-ink">Open in authenticator app (on a phone)</a>
+            <label htmlFor="twofa-0" className={label}>Code from the app</label>
+            <input id="twofa-0" className={field} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="123456" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
             <Button className="w-full" disabled={code.length !== 6} onClick={enable}>Turn on</Button>
           </>
         )}

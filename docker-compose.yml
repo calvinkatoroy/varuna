@@ -35,6 +35,8 @@ services:
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
       - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -hex 32)}
+      - VARUNA_SECRET_KEY=${VARUNA_SECRET_KEY:-}
+      - VARUNA_SECRET_KEY_OLD=${VARUNA_SECRET_KEY_OLD:-}
       - VARUNA_CORS_ORIGINS=${VARUNA_CORS_ORIGINS:-https://localhost}
       - VARUNA_PUBLIC_URL=${VARUNA_PUBLIC_URL:-}
       - VARUNA_CLOUD_ALLOW_HOSTS=${VARUNA_CLOUD_ALLOW_HOSTS:-}
@@ -76,12 +78,24 @@ services:
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
       - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -hex 32)}
+      - VARUNA_SECRET_KEY=${VARUNA_SECRET_KEY:-}
+      - VARUNA_SECRET_KEY_OLD=${VARUNA_SECRET_KEY_OLD:-}
       - VARUNA_CORS_ORIGINS=${VARUNA_CORS_ORIGINS:-https://localhost}
       - VARUNA_REQUIRE_MFA=${VARUNA_REQUIRE_MFA:-}
       - VARUNA_CLOUD_ALLOW_HOSTS=${VARUNA_CLOUD_ALLOW_HOSTS:-}
       - SCAN_TTL_SECONDS=${SCAN_TTL_SECONDS:-86400}
       - REPORTS_DIR=/data/reports
       - VARUNA_DB=/dbdata/varuna.db
+      # The scheduler and workflow notices run here; staff email links (confirm email) need the team URL + SMTP.
+      - NOTIFY_WEBHOOK_URL=${NOTIFY_WEBHOOK_URL:-}
+      - VARUNA_PUBLIC_URL=${VARUNA_PUBLIC_URL:-}
+      - VARUNA_TEAM_URL=${VARUNA_TEAM_URL:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+      - SMTP_SECURITY=${SMTP_SECURITY:-starttls}
     volumes: [report_output:/data/reports, varuna_db:/dbdata]
 
   # Serves the React SPA and reverse-proxies /api -> api-public, /agent -> api-agent.

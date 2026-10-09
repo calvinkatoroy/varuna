@@ -55,6 +55,9 @@ class FakeRedis:
         lst = self.lists.get(k) or []
         return lst.pop() if lst else None
 
+    def lrem(self, k, count, v):
+        self.lists[k] = [x for x in self.lists.get(k, []) if x != v]
+
     def lrange(self, k, a, b):
         lst = self.lists.get(k, [])
         return lst[a:] if b == -1 else lst[a: b + 1]

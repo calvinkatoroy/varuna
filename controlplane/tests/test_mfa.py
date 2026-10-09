@@ -25,7 +25,7 @@ priv = TestClient(private_api.app)
 
 
 def _account(name, role="pentester", pw="password1"):
-    auth.create_account(name, pw, role)
+    auth.create_account(name, pw, role, org_id=db.create_org("org-" + name) if role == "client" else None)
     return {"Authorization": "Bearer " + jwt_auth.login(name, pw, "ip")}
 
 
@@ -38,8 +38,9 @@ def _enrol(name):
     H = _account(name)
     secret = priv.post("/api/mfa/setup", headers=H).json()["secret"]
     step_code = totp.code_at(secret)
-    assert priv.post("/api/mfa/enable", json={"code": step_code}, headers=H).json() == {"enabled": True}
-    return H, secret, step_code
+    r = priv.post("/api/mfa/enable", json={"code": step_code}, headers=H).json()
+    assert r["enabled"] is True
+    return {"Authorization": "Bearer " + r["token"]}, secret, step_code    # enabling bumps token_version
 
 
 def test_rfc_vectors():
@@ -54,7 +55,9 @@ def test_enrolment_needs_a_correct_code_and_only_then_enforces_login():
     secret = priv.post("/api/mfa/setup", headers=H).json()["secret"]
     assert _login("mfa1").status_code == 200                       # set up but not confirmed: not enforced yet
     assert priv.post("/api/mfa/enable", json={"code": "000000"}, headers=H).status_code == 422
-    assert priv.post("/api/mfa/enable", json={"code": totp.code_at(secret)}, headers=H).status_code == 200
+    r = priv.post("/api/mfa/enable", json={"code": totp.code_at(secret)}, headers=H)
+    assert r.status_code == 200
+    H = {"Authorization": "Bearer " + r.json()["token"]}
     assert priv.get("/api/mfa", headers=H).json()["enabled"] is True
     r = _login("mfa1")
     assert r.status_code == 401 and r.json()["detail"] == "mfa_required"      # password alone is no longer enough
@@ -64,15 +67,17 @@ def test_required_policy_locks_unenrolled_team_out_of_everything_but_enrolment(m
     redis_store._client = FakeRedis()
     monkeypatch.setenv("VARUNA_REQUIRE_MFA", "1")
     H = _account("mfa_req")
-    r = priv.get("/api/pipeline/board", headers=H)
+    r = priv.get("/api/board", headers=H)
     assert r.status_code == 403 and r.json()["detail"] == "mfa_enrolment_required"
     assert priv.get("/api/mfa", headers=H).json() == {"enabled": False, "required": True}
     secret = priv.post("/api/mfa/setup", headers=H).json()["secret"]
-    assert priv.get("/api/pipeline/board", headers=H).status_code == 403     # set up but not confirmed
-    assert priv.post("/api/mfa/enable", json={"code": totp.code_at(secret)}, headers=H).status_code == 200
-    assert priv.get("/api/pipeline/board", headers=H).status_code == 200     # enrolled: unlocked
+    assert priv.get("/api/board", headers=H).status_code == 403     # set up but not confirmed
+    r = priv.post("/api/mfa/enable", json={"code": totp.code_at(secret)}, headers=H)
+    assert r.status_code == 200
+    H = {"Authorization": "Bearer " + r.json()["token"]}
+    assert priv.get("/api/board", headers=H).status_code == 200     # enrolled: unlocked
     monkeypatch.delenv("VARUNA_REQUIRE_MFA")
-    assert priv.get("/api/pipeline/board", headers=_account("mfa_off")).status_code == 200   # policy off: unchanged
+    assert priv.get("/api/board", headers=_account("mfa_off")).status_code == 200   # policy off: unchanged
 
 
 def test_login_with_code_and_replay_protection():
@@ -95,23 +100,23 @@ def test_bad_codes_count_toward_lockout():
     assert _login("mfa3", "000000").status_code == 429
 
 
-def test_disable_needs_password_and_code_and_lead_can_reset_lost_phone():
+def test_disable_needs_password_and_code_and_sysadmin_can_reset_lost_phone():
     redis_store._client = FakeRedis()
     H, secret, used = _enrol("mfa4")
     fresh = totp.code_at(secret, time.time() + totp.STEP)
     assert priv.post("/api/mfa/disable", json={"password": "nope", "code": fresh}, headers=H).status_code == 403
     assert priv.post("/api/mfa/disable", json={"password": "password1", "code": "111111"}, headers=H).status_code == 403
-    Hl = _account("boss2", "lead_pentester")
-    assert priv.post("/api/admin/accounts/mfa4/reset-mfa", headers=_account("pen5")).status_code == 403   # lead only
-    assert priv.post("/api/admin/accounts/mfa4/reset-mfa", headers=Hl).status_code == 200
+    Hl = _account("boss2", "sysadmin")
+    assert priv.post("/api/sysadmin/accounts/mfa4/reset-mfa", headers=_account("pen5")).status_code == 403   # sysadmin only
+    assert priv.post("/api/sysadmin/accounts/mfa4/reset-mfa", headers=Hl).status_code == 200
     assert _login("mfa4").status_code == 200                       # lost phone recovered: password alone works again
-    assert priv.post("/api/admin/accounts/ghost/reset-mfa", headers=Hl).status_code == 404
+    assert priv.post("/api/sysadmin/accounts/ghost/reset-mfa", headers=Hl).status_code == 404
 
 
 def test_admin_roster_shows_mfa_state_without_secrets():
     redis_store._client = FakeRedis()
     _enrol("mfa5")
-    rows = priv.get("/api/admin/accounts", headers=_account("boss3", "lead_pentester")).json()
+    rows = priv.get("/api/sysadmin/accounts", headers=_account("boss3", "sysadmin")).json()
     row = next(r for r in rows if r["username"] == "mfa5")
     assert row["totp_enabled"] == 1 and "totp_secret" not in row and "password_hash" not in row
 

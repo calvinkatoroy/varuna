@@ -221,7 +221,6 @@ def cover(doc, title: str, subtitle: str, job: dict, ctx: dict) -> None:
     doc.add_paragraph()
     _kv_table(doc, [
         ("Client", ctx.get("client")), ("Target", job.get("target", "")),
-        ("Engagement purpose", ctx.get("purpose")), ("Division", ctx.get("division")),
         ("Report date", datetime.date.today().isoformat()),
         ("Reference ID", job.get("id", "")), ("Classification", "CONFIDENTIAL"),
     ])
@@ -286,15 +285,14 @@ def executive_overview(doc, findings, counts, job, ctx, with_actions=True) -> No
 def scope_methodology(doc, job, ctx, with_tools=True) -> None:
     h1(doc, "Scope and Methodology")
     doc.add_heading("Engagement Details", level=2)
-    roe = ctx.get("roe") or {}
-    roe_txt = ", ".join(k.replace("_", " ") for k, v in roe.items() if v) or "Standard safe profile"
-    _kv_table(doc, [
-        ("Target", job.get("target", "")), ("In scope", ctx.get("in_scope") or job.get("target", "")),
-        ("Out of scope", ctx.get("out_of_scope") or "None declared"),
-        ("Environment", ctx.get("environment")), ("Test window", ctx.get("test_window")),
-        ("Rules of engagement", roe_txt), ("Testing approach", "Automated, non-destructive (safe profile)"),
-        ("Authorization", "Client attested ownership / authorization to test; approved by the lead pentester."),
-    ])
+    rows = [
+        ("Target", job.get("target", "")), ("Path", ctx.get("path")), ("Port", ctx.get("port")),
+        ("Scan mode", ctx.get("scan_mode")), ("Test window", ctx.get("test_window")),
+        ("Client notes", ctx.get("notes")),
+        ("Testing approach", "Automated, non-destructive (safe profile)"),
+        ("Scope", "Target, path and port as requested by the client"),
+    ]
+    _kv_table(doc, [(k, v) for k, v in rows if v])
     doc.add_heading("Approach", level=2)
     for step in (
         "Discovery: the application was crawled to enumerate pages, parameters and forms.",
@@ -350,13 +348,11 @@ def findings_register(doc, findings, show_verdict=False) -> None:
 def finding_detail(doc, f, evidence=True, show_verdict=False) -> None:
     sev = (f.get("severity") or "info").lower()
     doc.add_heading(f"{f['_id']}  {_nm(f)}", level=2)
-    t = doc.add_table(rows=1, cols=4)
+    t = doc.add_table(rows=1, cols=2)
     t.style = "Table Grid"
     _cell(t.rows[0].cells[0], "Severity", bold=True, fill="E8EEF3")
     _cell(t.rows[0].cells[1], sev.capitalize(), bold=True, fill=SEV_FILL.get(sev),
           color="000000" if sev in SEV_TEXT_DARK else "FFFFFF", align=WD_ALIGN_PARAGRAPH.CENTER)
-    _cell(t.rows[0].cells[2], "Status", bold=True, fill="E8EEF3")
-    _cell(t.rows[0].cells[3], (f.get("status") or "open").capitalize())
     doc.add_paragraph()
     pairs = [("Affected asset", f.get("host")), ("URL / parameter", f.get("url")),
              ("CVSS", f.get("cvss")), ("CWE", f.get("cwe")), ("CVE", f.get("cve")),

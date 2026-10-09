@@ -16,13 +16,14 @@ from typing import Optional
 
 # Roles (SRS §4.11 v2): one client role + five security-team roles.
 ROLE_CLIENT = "client"
+ROLE_SYSADMIN = "sysadmin"
 ROLE_PENTESTER = "pentester"
 ROLE_LEAD = "lead_pentester"
-ROLE_REPORTER = "reporter"
+ROLE_LEAD_CYBER = "lead_cyber"
 ROLE_GOVERNANCE = "governance"
-ROLE_SOC = "soc"
-ROLES = (ROLE_CLIENT, ROLE_PENTESTER, ROLE_LEAD, ROLE_REPORTER, ROLE_GOVERNANCE, ROLE_SOC)
-SECURITY_TEAM = frozenset({ROLE_PENTESTER, ROLE_LEAD, ROLE_REPORTER, ROLE_GOVERNANCE, ROLE_SOC})
+ROLE_MANAGER = "manager"
+ROLES = (ROLE_CLIENT, ROLE_SYSADMIN, ROLE_PENTESTER, ROLE_LEAD, ROLE_LEAD_CYBER, ROLE_GOVERNANCE, ROLE_MANAGER)
+SECURITY_TEAM = frozenset({ROLE_PENTESTER, ROLE_LEAD, ROLE_LEAD_CYBER, ROLE_GOVERNANCE, ROLE_MANAGER})
 
 # Back-compat aliases (v1 used standard/pro); keep imports resolving during migration.
 ROLE_STANDARD = ROLE_CLIENT
@@ -37,44 +38,22 @@ def is_client(role: str) -> bool:
     return role == ROLE_CLIENT
 
 
-def can_approve(role: str) -> bool:
-    return role == ROLE_LEAD
+def is_sysadmin(role: str) -> bool:
+    return role == ROLE_SYSADMIN
 
-
-def can_review(role: str) -> bool:
-    return role in (ROLE_REPORTER, ROLE_LEAD, ROLE_GOVERNANCE)
 
 # Target classification (REQ-14).
 CLASS_LOCAL = "local"
 CLASS_CLOUD = "cloud"
 
-# Proposal status (v2): a scan proposal awaits lead-pentester approval before any scan runs.
 # Where a scan runs: on the client's own computer (their agent) or by Varuna (the cloud scanner on the host).
 SCAN_LOCAL, SCAN_CLOUD = "local", "cloud"
 # The cloud scanner is an ordinary agent enrolled under this reserved name (clients cannot register it).
 CLOUD_AGENT = "varuna-cloud"
 
-PROPOSAL_PENDING = "pending"
-PROPOSAL_APPROVED = "approved"
-PROPOSAL_REJECTED = "rejected"
-PROPOSAL_STATUSES = (PROPOSAL_PENDING, PROPOSAL_APPROVED, PROPOSAL_REJECTED)
-
-# Report review pipeline stages (v2): reporter -> lead -> governance -> delivered.
-REPORT_REPORTER = "in_review_reporter"
-REPORT_LEAD = "in_review_lead"
-REPORT_GOVERNANCE = "in_review_governance"
+# Report rows (step 2): the task's stage drives review; a report is a draft until delivery stamps it.
+REPORT_DRAFT = "draft"
 REPORT_DELIVERED = "delivered"
-REPORT_STAGES = (REPORT_REPORTER, REPORT_LEAD, REPORT_GOVERNANCE, REPORT_DELIVERED)
-
-
-def report_stage_owner(stage: str) -> frozenset:
-    """Roles allowed to edit/forward at a stage. Lead can also act at the reporter stage
-    (sees all, may edit). Governance forwarding delivers to the client."""
-    return {
-        REPORT_REPORTER: frozenset({ROLE_REPORTER, ROLE_LEAD}),
-        REPORT_LEAD: frozenset({ROLE_LEAD}),
-        REPORT_GOVERNANCE: frozenset({ROLE_GOVERNANCE}),
-    }.get(stage, frozenset())
 
 
 # Overall job status (REQ-23).
@@ -139,6 +118,7 @@ class Job:
     error: Optional[str] = None
     scan_mode: str = "local"           # local = the client's agent runs it; cloud = the cloud scanner does
     executor: Optional[str] = None     # agent username allowed to run this job when it is not the submitter
+    org_id: Optional[str] = None       # owning organization, copied from the account/proposal (never request input)
 
     def to_dict(self) -> dict:
         return asdict(self)

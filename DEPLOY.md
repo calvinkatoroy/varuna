@@ -24,6 +24,7 @@ cp .env.example .env
 Edit `.env`:
 
 - `JWT_SECRET` : `openssl rand -hex 32` (REQUIRED; the stack refuses to start without it)
+- `VARUNA_SECRET_KEY` : `python -c "import secrets;print(secrets.token_urlsafe(32))"`. It seals the PDF passwords stored in the database. Back it up together with the database: without it every stored password is unreadable (clients get "contact your administrator" and new PDFs fail; the private API logs a warning at startup). To rotate, set the new value here and move the old one into `VARUNA_SECRET_KEY_OLD` (comma separated list); old values keep opening and new ones use the new key. If left empty, a key derived from `JWT_SECRET` is used and still opens, so set `VARUNA_SECRET_KEY` before ever changing `JWT_SECRET`. Without any real key the stack refuses to create passwords (the public dev default is only accepted when `VARUNA_ALLOW_DEV_KEY=1`, for host-run development).
 - `VARUNA_DOMAIN` : your domain, e.g. `varuna.example.com`
 - `CADDY_EMAIL` : your email (Let's Encrypt)
 - `VARUNA_CORS_ORIGINS` : `https://varuna.example.com`
@@ -88,26 +89,32 @@ Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Varuna"
   **private** plane (`POST http://<tailscale-host>:8010/api/login`); the public API refuses team
   logins and team tokens (NFR-24). For local dev with no private plane only, set
   `VARUNA_PUBLIC_TEAM_LOGIN=1`.
+- `seed_account.py <user> <pw> <role>` and `--team-defaults` overwrite an existing account's password, role and org.
 - `seed_account.py --team-defaults` gives each team account a random password (shown once). The
   dev-only `--dev` flag uses `changeme`; `--rotate-defaults` replaces any that remain. The private
   API prints a startup warning while any remain; change them at once (account menu > Change password, or the
-  lead pentester's admin API below).
+  system administrator's API below).
 
-### Team account administration (lead pentester, private plane)
+### Organizations and accounts (system administrator, private plane)
+The only provisioning path is the system administrator (there is no self-registration). Create the first one with
+`seed_account.py --bootstrap` (random password, written to `.admin-credentials.txt`). The console is at
+`/team/sysadmin`; the API is `/api/sysadmin/*`:
 ```
-GET  /api/admin/accounts
-POST /api/admin/accounts                       {username, password, role}
-POST /api/admin/accounts/{user}/reset-password {password}
-POST /api/admin/accounts/{user}/disable | enable
+GET  /api/sysadmin/orgs            POST /api/sysadmin/orgs {name}            POST /api/sysadmin/orgs/{id}/disable | enable
+GET  /api/sysadmin/accounts        POST /api/sysadmin/accounts {username, role, org_id?, display_name?, email?}
+POST /api/sysadmin/accounts/{user}/reset-password | reset-mfa | disable | enable
+PUT  /api/sysadmin/accounts/{user}/email | role
 ```
-A disabled account cannot log in and its live tokens stop working immediately.
+Clients need an `org_id`, staff must not have one. Create and reset return a temporary password once; the account
+must change it at first sign in. A disabled account or organization cannot log in, its live tokens and agents stop
+working at once. The last active administrator cannot be disabled or demoted.
 
 ### Demo data and two-factor for the team
-- Demo clients (globex, initech, umbrella, acme, stark, wayne) sit at every stage: reporter, lead, governance, delivered,
-  pending and rejected. Seed with `docker compose exec api-public python /app/controlplane/seed_demo.py`; it prints
+- Demo data: three client organizations (PT Samudera Logistik Nusantara, PT Pelabuhan Bahari Sejahtera, CV Mitra Kargo
+  Jaya) with tasks at several stages, plus the five demo staff if missing. Seed with `docker compose exec api-public python /app/controlplane/seed_demo.py`; it prints
   `CRED user password` lines, so redirect those into the gitignored `.demo-credentials.txt`. Passwords are random per
   account, never a shared default. It skips itself if the demo clients already exist.
-- All four team accounts have two-factor. Secrets are in `.team-credentials.txt` (gitignored): add each to an
+- Demo staff accounts can have two-factor. Secrets are in `.team-credentials.txt` (gitignored): add each to an
   authenticator app with "Enter a setup key" (time based), or on this laptop run `python team-code.py <user>` for the
   current code during a demo.
 
@@ -133,6 +140,7 @@ CGNAT and opens no inbound port. You need a domain whose DNS is on Cloudflare (f
    VARUNA_CORS_ORIGINS=https://varuna.<your-domain>
    VARUNA_PUBLIC_URL=https://varuna.<your-domain>
    ```
+   Staff and sysadmin email links use `VARUNA_TEAM_URL` (the team plane address; falls back to `VARUNA_PUBLIC_URL`).
 4. `docker compose --profile tunnel up -d --build`
 
 Trial without a domain: `docker compose --profile quicktunnel up -d`, then
@@ -154,8 +162,8 @@ Team members turn it on from the account menu (Two-factor authentication): paste
 any authenticator app (Google/Microsoft Authenticator, Authy, 1Password) and confirm with a code.
 From then on a password alone cannot sign in: the login asks for the 6-digit code. Codes are
 standard RFC 6238 (30 s, 6 digits), tolerate one step of clock drift, cannot be replayed, and wrong
-codes count toward the same lockout as wrong passwords. A lost phone is recovered by the lead
-pentester (`POST /api/admin/accounts/{user}/reset-mfa`, or "Reset 2FA" on `/team/accounts`). The
+codes count toward the same lockout as wrong passwords. A lost phone is recovered by the system
+administrator (`POST /api/sysadmin/accounts/{user}/reset-mfa`, or "Reset 2FA" in the console). The
 private API prints which team accounts still lack two-factor at startup. Clients do not use it.
 
 ### Backups
@@ -163,28 +171,67 @@ private API prints which team accounts still lack two-factor at startup. Clients
 docker compose exec api-public python /app/controlplane/backup_db.py           # SQLite -> /data/backups (keeps 14)
 docker compose cp api-public:/dbdata/backups ./backups                          # copy off the host
 ```
-Also back up the reports volume (`report_output`, generated `.docx` versions and delivered PDFs).
+Also back up the reports volume (`report_output`: every generated PDF, `pdf-<id>.pdf`; `backup-host.ps1` copies `/data/reports` with the database snapshot)
+and keep `VARUNA_SECRET_KEY` (in `.env`, which the backup does not copy) with it: without the key the stored PDF passwords cannot be read.
 Schedule the first command daily (Windows Task Scheduler / cron) and copy the files off the machine.
 
 ### Notifications (optional)
 Set `NOTIFY_WEBHOOK_URL` (a Slack/Teams/Discord incoming webhook) in `.env` and the team is
-messaged when a proposal arrives or a report reaches a stage. Only event names and short ids are
-sent, never finding detail. Unset = off.
+messaged when a task arrives, a scheduled scan is suspended, or a task reaches a review stage. Only event names and
+short ids are sent, never finding detail. Unset = off. Compose passes it to `api-agent` and `api-private`.
 
 ### After a scan finishes
-Findings are enriched and the report is created automatically at the reporter stage for every
-approved proposal. Scans started directly by the team (advanced scan) have no proposal; start
-their review with `POST /api/pipeline/reports {job_id, template}`.
+A task's scan reports back through the agent: `done` moves the task to Completed and the report content v1 is
+built automatically (no document yet: the pentester generates the PDF on the audit page); `failed` suspends the task with the agent's error. Scans started directly by the team
+(advanced scan) have no task and no audit page; generate their documents with `POST /api/reports/generate {job_id, template}`.
 Templates: Full Technical, Formal Handover, Executive Summary, Raw Findings (plus the older
 OWASP Web App and ILCS Internal layouts).
+
+### Scheduler
+The private API runs a scheduler every 30 seconds (one runner at a time, Redis lock `scheduler:lock`, so extra
+`api-private` replicas are harmless). It starts scheduled scans, waits up to 15 minutes for an offline agent or
+unreachable target and then suspends the task with that reason (and posts to `NOTIFY_WEBHOOK_URL`), expires tasks
+whose client time limit passed, and suspends running scans past the time limit or their maximum duration. It also
+fails scans whose agent has been silent for 15 minutes, and recovers a task stuck in `delivering` for over 10 minutes (finished if its report was already delivered, else back to manager review). Set `VARUNA_SCHEDULER=0` to turn it off (tests do).
+
+### Step 2 settings and upgrade
+| Env | Default | Meaning |
+|---|---|---|
+| `VARUNA_SCHEDULER` | `1` | `0` disables the scheduler thread in the private API |
+| `VARUNA_TEAM_URL` | `VARUNA_PUBLIC_URL` | team plane address in staff and sysadmin email links |
+| `BCRYPT_ROUNDS` | `12` | password hash cost; tests set 4 |
+
+The step 2 schema adds task columns and a `task_events` table on first start. Old proposals and review stages do
+not map onto the new states, so wipe and reseed instead of migrating:
+`docker compose exec api-public python /app/controlplane/wipe_data.py --all --confirm`, then
+`seed_account.py --bootstrap` and optionally `seed_demo.py`.
+
+Known limits: the agent has no cancel, so a scan that is paused and then closed (expired) stays paused on the agent
+until the agent restarts. Cloud scans need DNS and an online cloud scanner at the moment of start; a hostname that
+does not resolve refuses the start.
+
+### Audit page and PDF report
+A finished scan is audited at `/team/audit/<task id>` (stage Completed; opened from the task drawer). The assignee or a lead
+pentester marks findings, edits them, adds findings found by hand and presses Generate. The PDF is built in the background by the
+private API (one at a time, LibreOffice, already in the image, up to 180 s), named `{Client}_{Target}_Pentest_Report_{N}.pdf`, and
+encrypted with AES-256. Each task report has ONE password, created with its first PDF and never changed; the client reads it in
+Reports whenever needed. Submit for review is refused without a current PDF; the manager's approval only publishes the latest
+current PDF, so delivery does not wait for LibreOffice.
+
+| Env | Default | Meaning |
+|---|---|---|
+| `VARUNA_SECRET_KEY` | derived from `JWT_SECRET` | seals the stored PDF passwords; identical on `api-public` and `api-private`; rotate via `VARUNA_SECRET_KEY_OLD` |
+| `VARUNA_PDF_PER_10MIN` | `5` | PDF generations per pentester per 10 minutes |
+
+Upgrade: the schema adds its tables and `reports.task_id` on first start (old reports are linked to their tasks); `cryptography` is a
+new dependency (rebuild the image). Passwords of reports delivered before this step are plaintext in the database and keep working.
+The AI editing chat is planned and not part of this release; the `ai_turns` table exists as schema only.
 
 ### Advanced scan options (team only; clients can never set these)
 The advanced-scan drawer sends a flat options object that the server validates and clamps
 (`controlplane/common/scanopts.py`: unknown keys dropped, ranges enforced). SQLMap level above 2,
 risk above 1, `--dump` and `--os-shell` are refused unless the caller is the lead pentester and
-has opted in to aggressive mode (safe-profile lock). Reviewers can also upload an edited .docx
-as the next report version and regenerate a report in another template from the review drawer;
-the lead manages team accounts at `/team/accounts`.
+has opted in to aggressive mode (safe-profile lock). The system administrator manages accounts at `/team/sysadmin`.
 `opts.deep` adds CVE/vuln Nuclei templates (slow); `opts.rate` overrides the Nuclei rate;
 `opts.auth` logs in first for an authenticated scan:
 `{login_url, username, password, username_field, password_field, json, token_path}`. The login URL

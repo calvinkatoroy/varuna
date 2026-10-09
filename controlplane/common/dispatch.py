@@ -14,6 +14,7 @@ import uuid
 
 import audit
 import classifier
+import db
 import models
 import redis_store
 import tokens
@@ -40,9 +41,10 @@ def _is_gated(role: str, target_class: str) -> bool:
     return role == models.ROLE_STANDARD and target_class == classifier.CLASS_CLOUD
 
 
-def submit_scan(submitter: str, role: str, target: str, tools: list,
+def submit_scan(submitter: str, role: str, org_id: str | None, target: str, tools: list,
                 opts: dict | None = None, division: str = "") -> dict:
     """Create + route a scan. Raises ClassifyRejected (fail closed) or OfflineAgent.
+    org_id comes from the submitting account (None for staff), never from request input.
 
     Returns {"job_id", "state": "pending_approval" | "dispatched"}.
     """
@@ -50,10 +52,10 @@ def submit_scan(submitter: str, role: str, target: str, tools: list,
     job = models.Job(
         id=str(uuid.uuid4()), target=target, target_class=target_class,
         submitter=submitter, role=role, tools=tools, opts=opts or {},
-        status=models.STATUS_QUEUED, per_tool_status={},
+        status=models.STATUS_QUEUED, per_tool_status={}, org_id=org_id,
     ).to_dict()
     redis_store.set_job(job)
-    redis_store.add_user_job(submitter, job["id"])
+    redis_store.add_org_job(org_id, job["id"])
     audit.log(audit.SUBMIT, submitter=submitter, target=target,
               target_class=target_class, role=role, job=job["id"])
 
@@ -72,11 +74,17 @@ def submit_scan(submitter: str, role: str, target: str, tools: list,
 def dispatch_job(job: dict, pre_approved: bool = False) -> None:
     """THE choke point. Re-check the gate + agent liveness, then enqueue. REQ-19a, REQ-76.
 
-    pre_approved (v2): a lead-pentester-approved proposal already gated this job. Skip the
+    pre_approved (v2): a claimed task already gated this job (a pentester started it). Skip the
     legacy standard+cloud redis-approval check AND the online refusal, and queue it for the
-    client's agent to pick up whenever it next polls (the client installs the agent AFTER
-    approval, so it is normally offline at approve-time).
+    client's agent to pick up whenever it next polls.
+    A job whose organization differs from the receiving agent's is never enqueued: it is failed.
     """
+    if _org_mismatch(job):
+        job.update(status=models.STATUS_FAILED, error="scan refused: agent belongs to another organization")
+        redis_store.set_job(job)
+        audit.log("dispatch_refused_org", job=job["id"], agent=job.get("executor") or job["submitter"])
+        print(f"WARNING: refused job {job['id']}: organization differs from the agent's", flush=True)
+        return
     if pre_approved:
         redis_store.enqueue_job(job.get("executor") or job["submitter"], job["id"])   # cloud jobs go to the cloud scanner
         return
@@ -89,48 +97,40 @@ def dispatch_job(job: dict, pre_approved: bool = False) -> None:
     redis_store.enqueue_job(job["submitter"], job["id"])
 
 
-def approve_request(job_id: str, approver: str) -> None:
-    """Approve a queued Standard cloud request and dispatch it through the choke point."""
-    appr = redis_store.get_approval(job_id)
-    if not appr or appr.get("status") != PENDING:
-        raise ValueError("no pending request for this job")
-    appr["status"] = APPROVED
-    redis_store.set_approval(job_id, appr)
-    redis_store.remove_pending_approval(job_id)
-    audit.log(audit.APPROVE, approver=approver, job=job_id)
-    dispatch_job(redis_store.get_job(job_id))   # may raise OfflineAgent (REQ-18)
+def _org_mismatch(job: dict) -> bool:
+    """True when the agent that would run this job belongs to another organization. Agents are
+    per user: the org is the account's (DB) and, once enrolled, the one recorded at enrolment.
+    Varuna's own cloud scanner serves every organization."""
+    owner = job.get("executor") or job["submitter"]
+    if owner == models.CLOUD_AGENT:
+        return False
+    orgs = {(db.get_account(owner) or {}).get("org_id") or None}
+    agent = redis_store.get_agent(owner)
+    if agent:
+        if "org_id" not in agent:
+            return True   # fail closed: an agent record that never recorded its org
+        orgs.add(agent["org_id"] or None)
+    return orgs != {job.get("org_id") or None}
 
 
-def reject_request(job_id: str, approver: str, reason: str) -> None:
-    """Reject a queued request: discard, notify, never dispatch (REQ-19)."""
-    appr = redis_store.get_approval(job_id)
-    if not appr or appr.get("status") != PENDING:
-        raise ValueError("no pending request for this job")
-    appr["status"] = REJECTED
-    appr["reason"] = reason
-    redis_store.set_approval(job_id, appr)
-    redis_store.remove_pending_approval(job_id)
-    audit.log(audit.REJECT, approver=approver, job=job_id, reason=reason)
+def get_job(scope, job_id: str) -> dict | None:
+    """A Redis job as seen through a tenancy Scope: None when missing or outside the scope."""
+    job = redis_store.get_job(job_id)
+    if not job or (scope.org_id is not None and job.get("org_id") != scope.org_id):
+        return None
+    return job
 
 
-def list_jobs(username: str, limit: int = 20) -> list[dict]:
-    """Recent jobs submitted by this user, newest first (for a jobs table, REQ-24 context).
+def list_jobs(org_id: str | None, limit: int = 20) -> list[dict]:
+    """Recent jobs of this organization, newest first (for a jobs table, REQ-24 context).
+    org_id None is the staff scope (tenancy.Scope(None)): every organization's jobs plus staff direct scans.
 
     Skips job ids whose 24h TTL has already expired (redis_store.get_job returns None).
     """
     out = []
-    for jid in redis_store.list_user_jobs(username, limit):
-        job = redis_store.get_job(jid)
-        if job:
-            out.append(job)
-    return out
-
-
-def pending_approvals() -> list[dict]:
-    """The Approval Queue: pending Standard cloud requests for a Pro user to act on (REQ-16)."""
-    out = []
-    for jid in redis_store.list_pending_approvals():
-        appr = redis_store.get_approval(jid)
-        if appr and appr.get("status") == PENDING:
-            out.append({**appr, "job_id": jid})
-    return out
+    for oid in ([""] + [o["id"] for o in db.list_orgs()]) if org_id is None else [org_id]:
+        for jid in redis_store.list_org_jobs(oid, limit):
+            job = redis_store.get_job(jid)
+            if job and (org_id is None or job.get("org_id") == org_id):
+                out.append(job)
+    return out[:limit]

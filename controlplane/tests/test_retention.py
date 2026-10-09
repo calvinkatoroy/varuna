@@ -22,7 +22,7 @@ store.REPORTS_DIR = tempfile.mkdtemp()
 
 def test_retention_purges_old_keeps_recent():
     redis_store._client = FakeRedis()
-    meta = store.save_report("alice", "j1", "Executive Summary", b"data")
+    meta = store.save_report("alice", "j1", "Executive Summary", b"data", org_id="org-a")
     assert len(store.list_all_reports()) == 1
 
     # A generous window keeps it; a negative window treats everything as expired.
@@ -40,9 +40,9 @@ def test_wipe_all_clears_data_but_keeps_accounts():
     # seed data across every store (accounts now live in SQLite via db, reset per-test by conftest)
     db.upsert_account("ihsan", "x", "pentester")
     redis_store.set_job({"id": "j1", "target": "http://t", "submitter": "ihsan", "status": "done"})
-    db.save_findings("j1", "ihsan", [{"name": "SQLi", "severity": "critical", "host": "h"}])
+    db.save_findings("j1", "ihsan", "", [{"name": "SQLi", "severity": "critical", "host": "h"}])
     audit.log(audit.SUBMIT, submitter="ihsan", target="http://t")
-    store.save_report("ihsan", "j1", "Full Technical", b"bytes")
+    store.save_report("ihsan", "j1", "Full Technical", b"bytes", org_id=None)
 
     counts = store.wipe_all()
 
