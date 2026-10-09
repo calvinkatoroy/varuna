@@ -47,6 +47,13 @@ export const pdfStep = (s: PdfStatus): number => ({ queued: 0, rendering: 1, con
 /** Poll gap in ms: 1.5 s at first, easing to 4 s. */
 export const nextDelay = (attempt: number): number => Math.min(4000, 1500 + attempt * 500)
 export const PROMPT_MAX = 1000
+/** Hard stop for watching one PDF job. The server gives up on a silent job after 300 s, so this is a little longer. */
+export const PDF_POLL_MAX_MS = 360_000
+export const pollExpired = (startedAt: number, now: number, maxMs: number): boolean => now - startedAt >= maxMs
+/** The report changed after the newest ready PDF was built (the server says `current: false`). Submit is blocked until a new one. */
+export const pdfStale = (p: PdfSummary): boolean => !!p.latest && !p.current && !p.active
+/** Passwords are masked until the person asks. The mask has a fixed length so it does not leak the real one. */
+export const maskPw = (pw: string, shown: boolean): string => (shown ? pw : '•'.repeat(12))
 
 /** Why the Generate button is disabled, or null. `busy` covers the moment between the click and the answer. */
 export function generateBlockedReason(sum: AuditSummary | null, busy: boolean): string | null {

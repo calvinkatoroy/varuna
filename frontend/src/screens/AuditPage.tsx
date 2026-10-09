@@ -5,6 +5,7 @@ import { ErrorRetry } from '@/components/ErrorRetry'
 import { ShellActions, ShellTitle } from '@/components/ShellSlots'
 import { FindingDrawer } from '@/components/audit/FindingDrawer'
 import { ManualDrawer } from '@/components/audit/ManualDrawer'
+import { PdfPanel } from '@/components/audit/PdfPanel'
 import { ReportPreview } from '@/components/audit/ReportPreview'
 import { Trail } from '@/components/audit/Trail'
 import { TargetFindings } from '@/components/findings/TargetFindings'
@@ -80,7 +81,7 @@ function AuditPage({ tid }: { tid: string }) {
           </section>
         </div>
         <aside className="space-y-3.5">
-          {/* Task 7 mounts the PDF panel here (above the trail). */}
+          <PdfPanel tid={tid} summary={sum} onChanged={refresh} />
           <Trail tid={tid} rev={rev} />
         </aside>
       </div>

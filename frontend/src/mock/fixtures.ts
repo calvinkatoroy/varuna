@@ -54,10 +54,10 @@ export const tasks = [
   { id: 't5', target: 'https://legacy.samudera.co.id', path: '', port: null, notes: '', scan_mode: 'cloud', status: 'declined', when: '3d ago', reason: 'Bukti kepemilikan domain belum kami terima. Mohon kirim ulang dengan surat kuasa.', job_id: null, scheduled_at: null, ...win('2026-10-01T01:00:00Z', '2026-10-05T10:00:00Z') },
 ]
 
-// Client's delivered reports (download + view-once password).
+// Client's delivered reports (download + permanent password).
 export const reports = [
-  { id: 'rep1', engagement: 'acme.io, Standard VA', delivered: 'Jun 18, 2026', findings: 39, templates: ['Formal handover', 'Full technical', 'Executive summary', 'Raw (FP/TP)'], signed: true },
-  { id: 'rep2', engagement: 'admin.acme.io, Advanced VA', delivered: 'Jun 2, 2026', findings: 6, templates: ['Formal handover', 'Full technical', 'Executive summary'], signed: true },
+  { id: 'rep1', engagement: 'acme.io, Standard VA', delivered: 'Jun 18, 2026', findings: 39, templates: ['Pentest report'], signed: true, filename: 'PT_Samudera_Logistik_acme_io_Pentest_Report_1.pdf' },
+  { id: 'rep2', engagement: 'admin.acme.io, Advanced VA', delivered: 'Jun 2, 2026', findings: 6, templates: ['Pentest report'], signed: true, filename: 'PT_Samudera_Logistik_admin_acme_io_Pentest_Report_2.pdf' },
   { id: 'rep3', engagement: 'mail.acme.io, Standard VA', delivered: 'May 22, 2026', findings: 4, templates: ['Formal handover', 'Executive summary'], signed: true },
   { id: 'rep4', engagement: 'shop.acme.io, Standard VA', delivered: 'May 30, 2026', findings: 12, templates: ['Formal handover', 'Executive summary'], signed: true },
   { id: 'rep5', engagement: 'status.acme.io, Standard VA', delivered: 'May 8, 2026', findings: 3, templates: ['Formal handover', 'Executive summary'], signed: true },

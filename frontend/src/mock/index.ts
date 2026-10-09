@@ -164,6 +164,8 @@ export async function mockRequest(method: string, path: string, body?: any): Pro
     return { id: move[1], stage: body.to, scan_state: null, version: (body.version ?? 0) + 1 }
   }
 
+  if (m === 'GET' && /^\/api\/reports\/[^/]+\/password$/.test(path)) return { password: 'Kp7-mock-ZQ3x' }
+
   const key = `${m} ${path}`
   if (key in staticRoutes) return staticRoutes[key]
   // Remaining POST actions succeed optimistically in the prototype.
