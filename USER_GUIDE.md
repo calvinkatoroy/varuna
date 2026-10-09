@@ -38,7 +38,7 @@ Prefer PowerShell? Open "I'd rather use PowerShell" on the same screen for the o
 ### Follow your scan and read the result
 - **Overview** shows agent status, the latest scan and your latest report.
 - **Tasks** lists every request, its status (waiting, accepted, scheduled, scanning, paused, in review, delivered, declined, expired) and a timeline. A declined task shows the reason. A scan that stops (for example the agent went offline) shows as paused until the pentester resumes it. A task that was not started before your time limit ended shows as expired: send a new task.
-- **Findings** lists the issues found in your scans.
+- **Findings** groups the confirmed issues by target. Open a target to see its findings, 100 at a time ("Load more" shows the rest). The address of the page remembers the open target and finding, so a link you copy opens at the same place for people in your account. Tabs switch instantly, and Back and Forward work as usual.
 - **Reports** holds your delivered reports. A report only appears after the security team has reviewed and
   delivered it.
 
@@ -93,7 +93,7 @@ If the client lost the password, governance uses **Re-issue password**. It is sh
 who passes it to the client by a different channel than the file.
 
 ### Findings
-**Findings** lists raw findings for review. Mark each as true or false positive and open or fixed before the
+**Findings** groups raw findings by client target. Open a target, then mark each finding as true or false positive and open or fixed before the
 report is finalised.
 
 ### Advanced scan
