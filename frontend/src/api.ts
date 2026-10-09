@@ -4,6 +4,7 @@
 
 import { isMock, mockRequest } from './mock'
 import { toast } from './lib/toast'
+import { clearCache } from './lib/swr'
 
 // Fired on any 401 so something outside this module can react (auth.tsx clears the stale
 // user/session instead of leaving the app looking logged-in while every request quietly 401s
@@ -23,6 +24,8 @@ const PRIVATE = _priv === 'same' ? '' : _priv || 'http://localhost:8010'
 let token: string | null = localStorage.getItem('varuna_jwt')
 
 export function setToken(t: string | null) {
+  // A different person (or nobody) must never see the previous person's cached screens.
+  if (tokenUser(t) !== tokenUser(token)) clearCache()
   token = t
   if (t) localStorage.setItem('varuna_jwt', t)
   else localStorage.removeItem('varuna_jwt')
@@ -119,6 +122,9 @@ export const api = {
   post: (p: string, body?: any) => req(PUBLIC, p, send('POST', body)),
   put: (p: string, body?: any) => req(PUBLIC, p, send('PUT', body)),
   pget: (p: string) => req(PRIVATE, p),
+  // Quiet reads (no error toast): background warm-up, and panels that show their own error state.
+  qget: (p: string) => req(PUBLIC, p, {}, true),
+  qpget: (p: string) => req(PRIVATE, p, {}, true),
   ppost: (p: string, body?: any) => req(PRIVATE, p, send('POST', body)),
   pput: (p: string, body?: any) => req(PRIVATE, p, send('PUT', body)),
   publicBase: PUBLIC,

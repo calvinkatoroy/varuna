@@ -6,10 +6,10 @@
 // task) actually persist for the session instead of reverting the moment a screen remounts
 // and refetches - a real gap the static-fixture-only version had.
 import * as fx from './fixtures'
+import { findingsRoute } from './findings'
 import type { ClientTask } from '@/api'
 
 let boardState = structuredClone(fx.taskBoard)
-let findingsState = structuredClone(fx.findings)
 let tasksState = structuredClone(fx.tasks) as ClientTask[]
 
 // Accounts are provisioned by an administrator (no self-registration).
@@ -134,7 +134,10 @@ export async function mockRequest(method: string, path: string, body?: any): Pro
   }
   if (m === 'POST' && path.startsWith('/api/password-reset/')) return { ok: true }
   if (m === 'GET' && path === '/api/templates') return ['Full Technical', 'Formal Handover', 'Executive Summary', 'Raw Findings']
-  if (m === 'GET' && path === '/api/findings') return findingsState
+  if (path.startsWith('/api/findings')) {
+    const r = findingsRoute(m, path, body, currentUser.role !== 'client')
+    if (r !== undefined) return r
+  }
   if (m === 'GET' && path === '/api/tasks') return tasksState
   if (m === 'POST' && path === '/api/tasks') {
     const t: ClientTask = { id: 't-' + Math.random().toString(36).slice(2, 7), target: body.target, path: body.path ?? '', port: body.port ?? null,
@@ -155,16 +158,6 @@ export async function mockRequest(method: string, path: string, body?: any): Pro
   if (move) {
     boardState = boardState.map((c) => ({ ...c, cards: c.cards.filter((k) => k.id !== move[1]) }))
     return { id: move[1], stage: body.to, scan_state: null, version: (body.version ?? 0) + 1 }
-  }
-  if (m === 'POST' && path === '/api/findings/verdict') {
-    const { id, verdict } = body
-    findingsState = findingsState.map((f) => (f.id === id ? { ...f, verdict } : f))
-    return { ok: true }
-  }
-  if (m === 'POST' && path === '/api/findings/status') {
-    const { id, status } = body
-    findingsState = findingsState.map((f) => (f.id === id ? { ...f, status } : f))
-    return { ok: true }
   }
 
   const key = `${m} ${path}`
