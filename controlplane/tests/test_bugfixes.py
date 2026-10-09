@@ -262,6 +262,34 @@ def test_finished_scan_starts_review_automatically(tmp_path):
     assert len([r for r in db.list_reports(org_id=None) if r["job_id"] == jid]) == 1
 
 
+def test_findings_are_saved_before_ai_enrichment_and_edits_win(tmp_path):
+    import json
+    import ingest
+    import ollama
+    import store as report_store
+    report_store.REPORTS_DIR = str(tmp_path)
+    redis_store._client = FakeRedis()
+    from conftest import start_task
+    jid = start_task(_prop(_h("yan", "client")).json()["id"], "pen8")
+    nuclei = {"info": {"name": "Exposed metrics", "severity": "medium", "tags": ["exposure"]},
+              "host": "8.8.8.8", "matched-at": "http://8.8.8.8/metrics"}
+    seen = []
+
+    def fake(f):
+        seen.append(len(db.get_findings(jid)))             # already visible while the AI works
+        return {**f, "impact": "AI impact", "remediation": "AI fix", "risk_rating": "Medium"}
+    real, ollama.enrich = ollama.enrich, fake
+    try:
+        ingest.process_job(jid, {"nuclei": json.dumps(nuclei)})
+        assert seen == [1] and db.get_findings(jid)[0]["impact"] == "AI impact"
+        fid = db.get_findings(jid)[0]["id"]
+        db.set_finding(fid, impact="Edited by pentester")
+        assert db.fill_enrichment(fid, "AI again", "AI fix", "Low") is False   # an edit is never overwritten
+        assert db.get_findings(jid)[0]["impact"] == "Edited by pentester"
+    finally:
+        ollama.enrich = real
+
+
 
 
 def test_refusals_from_middleware_still_carry_cors_headers():

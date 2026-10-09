@@ -55,7 +55,6 @@ def process_job(job_id: str, raw: dict) -> None:
         return  # job expired between upload and processing (24h TTL)
     findings = parse.parse_all(raw, job)
     findings = correlate.correlate(findings)   # dedup + OWASP/CWE tag + priority
-    findings = ollama.enrich_all(findings)     # graceful fallback per finding (REQ-36)
     # Findings are durable (SQLite), unlike the job record they came from - they must outlive
     # the job's 24h Redis TTL to survive the (possibly multi-day) review pipeline.
     db.save_findings(job_id, job["submitter"], job_org(job), findings)
@@ -66,6 +65,12 @@ def process_job(job_id: str, raw: dict) -> None:
             start_review(job)
         except Exception as e:   # a report-generation failure must not lose the findings
             print(f"WARNING: could not start review for job {job_id}: {e}", flush=True)
+    # AI text comes last: the findings and the report are usable at once, enrichment fills in behind them
+    # (ponytail: sequential, ~20 s a finding on a 7B; only empty fields are written, so a pentester's edit wins).
+    for f in findings:
+        e = ollama.enrich(dict(f))
+        if e.get("impact") and e.get("remediation"):   # enrich() returns the finding unchanged on failure (REQ-36)
+            db.fill_enrichment(db._finding_id(job_id, f), e["impact"], e["remediation"], e.get("risk_rating"))
     # ponytail: findings-ready is signalled by get_findings() being non-empty, not by job
     # status (the agent owns status). If the tiny status=done-before-findings race ever
     # matters to a UI, have ingest flip a findings_ready flag here.

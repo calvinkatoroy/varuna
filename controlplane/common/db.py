@@ -765,6 +765,16 @@ def set_finding(fid: str, **fields) -> None:
     get_conn().commit()
 
 
+def fill_enrichment(fid: str, impact: str, remediation: str, risk_rating: Optional[str]) -> bool:
+    """AI text for a finding that has none yet; never overwrites an edit (the check and write are one statement)."""
+    conn = get_conn()
+    cur = conn.execute("UPDATE findings SET impact=?, remediation=?, risk_rating=? "
+                       "WHERE id=? AND COALESCE(impact,'')='' AND COALESCE(remediation,'')=''",
+                       (impact, remediation, risk_rating, fid))
+    conn.commit()
+    return cur.rowcount == 1
+
+
 def wipe_findings() -> int:
     conn = get_conn()
     n = conn.execute("SELECT COUNT(*) AS c FROM findings").fetchone()["c"]
