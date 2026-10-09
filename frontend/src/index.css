@@ -411,3 +411,7 @@ input[type='checkbox'] {
 html[data-navigating] .hero-sticky,
 html[data-navigating] .hero-bg-fade,
 html[data-navigating] .fade-collapse { transition: none; }
+
+/* Findings rows: off-screen rows skip layout and paint, so a target with 500+ loaded findings costs little.
+   76px is close to a one-line row; `auto` makes the browser remember the real size once a row has been seen. */
+.row-defer { content-visibility: auto; contain-intrinsic-size: auto 76px; }
