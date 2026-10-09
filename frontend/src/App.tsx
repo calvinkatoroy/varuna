@@ -17,6 +17,7 @@ import { AdminShell } from './components/AdminShell'
 import { api } from './api'
 import TeamBoard from './screens/TeamBoard'
 import FindingsReview from './screens/FindingsReview'
+import AuditRoute from './screens/AuditPage'
 import SysAdmin from './screens/SysAdmin'
 import Profile, { ConfirmEmail, SignedInRoute, RETURN_KEY } from './screens/Profile'
 import { Splash } from './components/Splash'
@@ -113,6 +114,7 @@ export default function App() {
           <Route element={<RoleRoute><TeamShell /></RoleRoute>}>
             <Route path="/team" element={<TeamBoard />} />
             <Route path="/team/findings" element={<FindingsReview />} />
+            <Route path="/team/audit/:tid" element={<AuditRoute />} />
           </Route>
           <Route element={<RoleRoute sysadmin><AdminShell /></RoleRoute>}>
             <Route path="/team/sysadmin" element={<SysAdmin />} />
