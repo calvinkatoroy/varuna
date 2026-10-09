@@ -159,29 +159,6 @@ input[type='checkbox'] {
   }
 }
 
-/* Page transition on route change (the View Transitions API, driven by react-router).
-   Browsers without support just navigate instantly. Reduced-motion opts out. */
-/* Scoped page transition: only the content BELOW the hero slides (view-transition-name:
-   page-body). The hero morphs gently (default), the active nav pill (view-transition-name:
-   nav-pill) slides between tabs, and everything else (root) is frozen. */
-@media (prefers-reduced-motion: no-preference) {
-  ::view-transition-old(page-body) {
-    animation: vt-out 240ms var(--ease-out) both;
-  }
-  ::view-transition-new(page-body) {
-    animation: vt-in 380ms var(--ease-out) 170ms both;
-  }
-  ::view-transition-old(root),
-  ::view-transition-new(root) {
-    animation: none;
-  }
-}
-@keyframes vt-out {
-  to { opacity: 0; transform: translateY(-14px); }
-}
-@keyframes vt-in {
-  from { opacity: 0; transform: translateY(20px); }
-}
 
 /* Hero shrink/fade: a threshold class toggle (useScrollThreshold) driving a `position: fixed`
    card, not `position: sticky`. Sticky was the problem: whenever the sticky element's own
@@ -239,13 +216,6 @@ input[type='checkbox'] {
   .hero-sticky, .hero-bg-fade, .fade-collapse { transition: none; }
 }
 
-@keyframes bubIn {
-  from { opacity: 0; transform: translateY(10px); }
-}
-.bub-enter { animation: bubIn 0.55s var(--ease-out) both; }
-@media (prefers-reduced-motion: reduce) {
-  .bub-enter { animation: none; }
-}
 
 @keyframes status-pulse {
   0%,
@@ -435,3 +405,9 @@ input[type='checkbox'] {
   /* Text floor: nothing readable below 12px on a phone (the dense desktop sizes stay on desktop). */
   .text-\[10px\], .text-\[10\.5px\], .text-\[11px\], .text-\[11\.5px\] { font-size: 12px; }
 }
+
+/* A route change must not replay the hero's scroll-linked shrink/expand: it is switched off for the few
+   frames around the scroll reset (useScrollRestore sets html[data-navigating]). */
+html[data-navigating] .hero-sticky,
+html[data-navigating] .hero-bg-fade,
+html[data-navigating] .fade-collapse { transition: none; }

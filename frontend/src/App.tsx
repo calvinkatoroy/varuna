@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { flushSync } from 'react-dom'
-import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from './auth'
 import { isMock } from './mock'
 import ClientCockpit from './screens/ClientCockpit'
@@ -12,6 +11,7 @@ import { TeamLogin } from './screens/TeamLogin'
 import ResetPassword from './screens/ResetPassword'
 import { TwoFactor } from './components/TwoFactor'
 import { ChangePassword } from './components/ChangePassword'
+import { ClientShell } from './components/ClientShell'
 import { api } from './api'
 import TeamBoard from './screens/TeamBoard'
 import FindingsReview from './screens/FindingsReview'
@@ -19,6 +19,7 @@ import SysAdmin from './screens/SysAdmin'
 import Profile, { ConfirmEmail, SignedInRoute, RETURN_KEY } from './screens/Profile'
 import { Splash } from './components/Splash'
 import { Toaster } from './lib/toast'
+import { useScrollRestore } from './lib/useScrollRestore'
 
 const ACTIVATED = 'varuna-activated'
 
@@ -28,16 +29,17 @@ const ACTIVATED = 'varuna-activated'
 // flag: without it, a team account that happens to share a browser with a previously-activated
 // client session would see the client dashboard rendered as themselves.
 // Activation persists (localStorage) so the unlock survives navigation and reloads.
-function ClientRoute({ children }: { children: React.ReactNode }) {
+// It is a layout route: once activated it renders ONE ClientShell and the tab pages fill its outlet.
+function ClientGate() {
   const { user } = useAuth()
   // Activation is remembered per account, so a second user on this browser goes through onboarding.
   const [activated, setActivated] = useState(() => localStorage.getItem(ACTIVATED))
   if (user && user.role !== 'client') return <Navigate to="/team" replace />
-  if (user?.role === 'client' && activated === user.username) return <>{children}</>
+  if (user?.role === 'client' && activated === user.username) return <ClientShell />
   return (
     <>
       <div aria-hidden className="pointer-events-none select-none saturate-[.85]" style={{ filter: 'blur(7px)' }}>
-        <ClientCockpit />
+        <ClientShell><ClientCockpit /></ClientShell>
       </div>
       <AuthGate onActivate={(name) => { localStorage.setItem(ACTIVATED, name); setActivated(name) }} />
     </>
@@ -81,8 +83,8 @@ function RoleRoute({ children, sysadmin }: { children: React.ReactNode; sysadmin
 
 export default function App() {
   const { ready, user, reloadMe } = useAuth()
-  const location = useLocation()
   const navigate = useNavigate()
+  useScrollRestore()
 
   // Back to the page that asked for a sign-in (SignInFirst), e.g. an email confirmation link.
   useEffect(() => {
@@ -92,36 +94,20 @@ export default function App() {
     if (to && to.startsWith('/')) navigate(to, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.username])
-  const [displayed, setDisplayed] = useState(location)
-
-  // Page transition: drive the View Transitions API manually so it fires on every route change
-  // (react-router's viewTransition prop silently no-ops with <BrowserRouter>). Old + new pages
-  // are captured and cross-animated via the ::view-transition-* rules in index.css.
-  useEffect(() => {
-    if (location.pathname === displayed.pathname) return
-    // Snap scroll to top BEFORE the old-page snapshot is taken. Otherwise the old snapshot is
-    // captured at the current scroll position while the new page always renders at scroll 0,
-    // so any named element (e.g. the nav pill) jumps between two different viewport positions.
-    window.scrollTo(0, 0)
-    const doc = document as any
-    if (!doc.startViewTransition || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setDisplayed(location)
-      return
-    }
-    doc.startViewTransition(() => flushSync(() => setDisplayed(location)))
-  }, [location, displayed])
 
   return (
     <>
       <Splash />
       {ready && (
-        <Routes location={displayed}>
+        <Routes>
           <Route path="/reset" element={<ResetPassword />} />
-          <Route path="/" element={<ClientRoute><ClientCockpit /></ClientRoute>} />
-          <Route path="/tasks" element={<ClientRoute><ClientTasks /></ClientRoute>} />
+          <Route element={<ClientGate />}>
+            <Route path="/" element={<ClientCockpit />} />
+            <Route path="/tasks" element={<ClientTasks />} />
+            <Route path="/findings" element={<ClientFindings />} />
+            <Route path="/reports" element={<ClientReports />} />
+          </Route>
           <Route path="/proposals" element={<Navigate to="/tasks" replace />} />
-          <Route path="/findings" element={<ClientRoute><ClientFindings /></ClientRoute>} />
-          <Route path="/reports" element={<ClientRoute><ClientReports /></ClientRoute>} />
           <Route path="/team" element={<RoleRoute><TeamBoard /></RoleRoute>} />
           <Route path="/team/findings" element={<RoleRoute><FindingsReview /></RoleRoute>} />
           <Route path="/team/sysadmin" element={<RoleRoute sysadmin><SysAdmin /></RoleRoute>} />

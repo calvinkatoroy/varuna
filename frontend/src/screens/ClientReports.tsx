@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Check, Download, Lock, ShieldCheck } from 'lucide-react'
 import { api, download as downloadFile } from '@/api'
 import { Button } from '@/components/ui/button'
-import { ClientShell } from '@/components/ClientShell'
+import { ClientPage } from '@/components/ClientPage'
 import { ErrorRetry } from '@/components/ErrorRetry'
 import { useApiData } from '@/lib/useApiData'
-import { rise } from '@/lib/motion'
+import { FEEDS } from '@/lib/feeds'
 import { bare, when } from '@/lib/format'
 
 type Report = { id: string; engagement: string; delivered: string; findings: number; templates: string[]; signed: boolean }
@@ -41,8 +41,7 @@ function Password({ id }: { id: string }) {
 }
 
 export default function ClientReports() {
-  const { data: rows, error, reload } = useApiData<Report[]>(() => api.get('/api/reports'))
-  useEffect(() => { if (rows) rise('.entry', 60) }, [rows])
+  const { data: rows, error, reload } = useApiData<Report[]>(FEEDS.reports.load, FEEDS.reports.key)
 
   const [got, setGot] = useState<Record<string, boolean>>({})
   // Only marks "Downloaded" once the file actually came back - downloadFile() throws on
@@ -57,7 +56,7 @@ export default function ClientReports() {
   const rest = rows?.slice(1) ?? []
 
   return (
-    <ClientShell title="Reports" sub="Signed deliverables. Each PDF is read only, its password is shown once.">
+    <ClientPage title="Reports" sub="Signed deliverables. Each PDF is read only, its password is shown once.">
       {error ? (
         <ErrorRetry message={error} onRetry={reload} />
       ) : !rows ? (
@@ -65,7 +64,7 @@ export default function ClientReports() {
       ) : (
         <div className="flex flex-col gap-3">
           {featured && (
-            <section className="entry grid grid-cols-1 gap-6 rounded-bento border border-rule bg-card p-6 lg:grid-cols-[1.5fr_1fr]" style={{ opacity: 0 }}>
+            <section className="grid grid-cols-1 gap-6 rounded-bento border border-rule bg-card p-6 lg:grid-cols-[1.5fr_1fr]">
               <div className="min-w-0">
                 <span className="text-[11.5px] font-medium uppercase tracking-[0.12em] text-accent-ink">Latest report</span>
                 <h2 className="mt-2 text-[clamp(22px,3vw,30px)] font-bold leading-tight tracking-[-0.02em] text-ink">{bare(featured.engagement)}</h2>
@@ -87,7 +86,7 @@ export default function ClientReports() {
           )}
 
           {rest.length > 0 && (
-            <section className="entry rounded-bento border border-rule bg-card" style={{ opacity: 0 }}>
+            <section className="rounded-bento border border-rule bg-card">
               <ul>
                 {rest.map((r) => (
                   <li key={r.id}>
@@ -106,6 +105,6 @@ export default function ClientReports() {
           )}
         </div>
       )}
-    </ClientShell>
+    </ClientPage>
   )
 }

@@ -46,13 +46,13 @@ export function PostureBubbles({ posture }: { posture: Record<string, number> })
           const on = hover === s.key
           const count = posture[s.key] ?? 0
           return (
-            <g key={s.key} className="bub-enter" style={{ animationDelay: `${i * 80}ms` }}>
+            <g key={s.key}>
               <g
                 className="cursor-pointer"
                 style={{ transformBox: 'fill-box', transformOrigin: 'center', transform: on ? 'scale(1.07)' : 'scale(1)', transition: 'transform .2s var(--ease-out)' }}
                 onMouseEnter={() => setHover(s.key)}
                 onMouseLeave={() => setHover(null)}
-                onClick={() => nav('/findings', { viewTransition: true })}
+                onClick={() => nav('/findings')}
               >
                 <circle cx={n.x} cy={n.y} r={n.r} fill={`var(--color-${s.tone})`} opacity={on ? 1 : 0.92} />
                 <text x={n.x} y={n.y} textAnchor="middle" dominantBaseline="central" className="font-display" fill={s.dark ? '#12140F' : '#fff'} style={{ fontSize: Math.min(n.r * 0.7, 30), fontWeight: 700 }}>{count}</text>

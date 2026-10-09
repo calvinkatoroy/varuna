@@ -1,15 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowUpRight, Plus } from 'lucide-react'
 import { tasks, type ClientTask, type TimelineItem } from '@/api'
 import { Button } from '@/components/ui/button'
-import { ClientShell } from '@/components/ClientShell'
+import { ClientPage } from '@/components/ClientPage'
 import { ErrorRetry } from '@/components/ErrorRetry'
 import { ScanProgress } from '@/components/ScanProgress'
 import { SegBar } from '@/components/viz/SegBar'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
 import { useApiData } from '@/lib/useApiData'
-import { rise } from '@/lib/motion'
+import { FEEDS } from '@/lib/feeds'
 import { bare, localTime, when } from '@/lib/format'
 import { CLIENT_HINT, CLIENT_LABEL, CLIENT_ORDER, CLIENT_TONE, isClosed } from '@/lib/workflow'
 import { NewTaskDrawer } from './NewTaskDrawer'
@@ -18,14 +18,10 @@ const dotStyle = (s: ClientTask['status']) => ({ background: `var(--color-${CLIE
 
 export default function ClientTasks() {
   const nav = useNavigate()
-  const { data: rows, error, reload } = useApiData<ClientTask[]>(() => tasks.list())
+  const { data: rows, error, reload } = useApiData<ClientTask[]>(FEEDS.tasks.load, FEEDS.tasks.key)
   const [open, setOpen] = useState(false)
   const [sel, setSel] = useState<ClientTask | null>(null)
   const [timeline, setTimeline] = useState<TimelineItem[]>([])
-  const revealed = useRef(false)
-  useEffect(() => {
-    if (rows && !revealed.current) { rise('.entry', 45); revealed.current = true }
-  }, [rows])
   // Poll while anything is still moving; stop once everything has settled.
   useEffect(() => {
     if (!rows?.some((t) => !isClosed(t.status) && t.status !== 'delivered')) return
@@ -42,7 +38,7 @@ export default function ClientTasks() {
   const max = Math.max(1, ...CLIENT_ORDER.map(count))
 
   return (
-    <ClientShell
+    <ClientPage
       title="Tasks"
       sub="Every scan starts here. A pentester plans it inside your time limit."
       action={<Button variant="glass" size="pill" onClick={() => setOpen(true)}><Plus size={16} /> New task</Button>}
@@ -69,7 +65,7 @@ export default function ClientTasks() {
             {list.length === 0 && <p className="p-6 text-[13.5px] text-ink-muted">No tasks yet. Choose New task to ask for a scan.</p>}
             <ul>
               {list.map((t) => (
-                <li key={t.id} className="entry" style={{ opacity: 0 }}>
+                <li key={t.id}>
                   <button onClick={() => setSel(t)} className="group flex min-h-[44px] w-full items-center gap-4 border-b border-rule px-5 py-4 text-left transition-colors last:border-b-0 hover:bg-panel">
                     <span className="flex w-[150px] flex-none items-center gap-2">
                       <span className="h-2.5 w-2.5 flex-none rounded-full" style={dotStyle(t.status)} />
@@ -138,6 +134,6 @@ export default function ClientTasks() {
           </DrawerContent>
         )}
       </Drawer>
-    </ClientShell>
+    </ClientPage>
   )
 }

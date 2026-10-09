@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Bell, CheckCircle2, FileText, KeyRound, LogOut, Moon, UserRound, XCircle } from 'lucide-react'
-import { tasks } from '@/api'
+import type { ClientTask } from '@/api'
 import { useAuth } from '@/auth'
 import { ThemeToggle } from './ThemeToggle'
 import { ClientNav } from './ClientNav'
 import { BrandMark } from './BrandMark'
 import { ChangePassword } from './ChangePassword'
+import { FEEDS } from '@/lib/feeds'
+import { useApiData } from '@/lib/useApiData'
 import { useScrollThreshold } from '@/lib/useScrollThreshold'
 import { toggleTheme } from '@/lib/theme'
 import { roleLabel } from '@/lib/roles'
@@ -18,24 +20,23 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 // other's rendering - not fixable by tuning, only by not having that many at once.
 const ctrl = 'relative grid h-11 w-11 flex-none place-items-center rounded-full border border-rule bg-card text-ink shadow-[0_4px_14px_rgba(0,0,0,.16)] transition-colors hover:bg-panel'
 
-// Derived from the actual tasks list (not a couple of hardcoded demo lines), so it reflects
-// whatever really happened last: a delivered report, a declined task, or a scan that got scheduled. No push/real-time layer here (this is the mock) - it's read fresh
-// whenever the menu is opened, same as everything else in the prototype.
-function useNotifications() {
-  const [items, setItems] = useState<{ icon: React.ReactNode; text: string; when: string }[]>([])
-  useEffect(() => {
-    tasks.list().then((rows) => {
-      const list: { icon: React.ReactNode; text: string; when: string }[] = []
-      const delivered = rows.find((t) => t.status === 'delivered')
-      if (delivered) list.push({ icon: <FileText size={15} />, text: `Report delivered for ${delivered.target}`, when: delivered.when })
-      const declined = rows.find((t) => t.status === 'declined')
-      if (declined) list.push({ icon: <XCircle size={15} className="text-crit" />, text: `Task declined: ${declined.target}`, when: declined.when })
-      const scheduled = rows.find((t) => t.status === 'scheduled')
-      if (scheduled) list.push({ icon: <CheckCircle2 size={15} />, text: `Scan scheduled: ${scheduled.target}`, when: scheduled.when })
-      setItems(list)
-    }).catch(() => {})
-  }, [])
-  return items
+type Note = { icon: React.ReactNode; text: string; when: string }
+
+// Derived from the real tasks list: a delivered report, a declined task, a scan that got scheduled. The shell
+// is mounted once, so it reads the shared cached tasks feed (one request, and it follows every newer answer
+// from the Tasks page poll) instead of fetching on every page.
+function useNotifications(): Note[] {
+  const { data: rows } = useApiData<ClientTask[]>(FEEDS.tasks.load, FEEDS.tasks.key)
+  return useMemo(() => {
+    const list: Note[] = []
+    const delivered = rows?.find((t) => t.status === 'delivered')
+    if (delivered) list.push({ icon: <FileText size={15} />, text: `Report delivered for ${delivered.target}`, when: delivered.when })
+    const declined = rows?.find((t) => t.status === 'declined')
+    if (declined) list.push({ icon: <XCircle size={15} className="text-crit" />, text: `Task declined: ${declined.target}`, when: declined.when })
+    const scheduled = rows?.find((t) => t.status === 'scheduled')
+    if (scheduled) list.push({ icon: <CheckCircle2 size={15} />, text: `Scan scheduled: ${scheduled.target}`, when: scheduled.when })
+    return list
+  }, [rows])
 }
 
 function Notifications() {
@@ -104,11 +105,9 @@ function Account() {
   )
 }
 
-// The client header: brand + centered nav + working controls. Shared by the cockpit hero and
-// the sub-page shell so every page has the same, functional top bar. The brand fades out fast on
-// scroll (it doesn't need to survive into the shrunk state); the nav pill and every control use
-// a plain frosted-glass material and stay opaque throughout - they're what's left once the hero
-// has fully shrunk.
+// The client header: brand + centered nav + working controls. Mounted once inside ClientShell. The brand fades
+// out fast on scroll (it doesn't need to survive into the shrunk state); the nav pill and every control stay
+// opaque throughout - they're what's left once the hero has fully shrunk.
 export function ClientTopbar() {
   const brandFade = useScrollThreshold<HTMLAnchorElement>(50, 'is-faded')
   return (

@@ -1,15 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ArrowUpRight, ChevronDown, Filter } from 'lucide-react'
 import { api } from '@/api'
 import { Button } from '@/components/ui/button'
-import { ClientShell } from '@/components/ClientShell'
+import { ClientPage } from '@/components/ClientPage'
 import { ErrorRetry } from '@/components/ErrorRetry'
 import { Gauge } from '@/components/viz/Gauge'
 import { SegBar } from '@/components/viz/SegBar'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { useApiData } from '@/lib/useApiData'
-import { rise } from '@/lib/motion'
 
 type F = {
   id: string; name: string; severity: string; host: string; url: string; tool: string
@@ -47,10 +46,9 @@ export default function ClientFindings() {
   const maxCount = Math.max(1, count('critical'), count('high'), count('medium'), count('low'), count('info'))
   const resolvedPct = list.length ? Math.round((fixed / list.length) * 100) : 0
 
-  useEffect(() => { if (rows) rise('.entry', 45) }, [rows])
 
   return (
-    <ClientShell
+    <ClientPage
       title="Findings"
       sub="Confirmed issues from your latest scan."
       action={
@@ -99,7 +97,7 @@ export default function ClientFindings() {
               {filteredList.map((f) => {
                 const resolved = f.status === 'fixed'
                 return (
-                  <li key={f.id} className="entry" style={{ opacity: 0 }}>
+                  <li key={f.id}>
                     <button
                       onClick={() => { setSel(f); setOpen(true) }}
                       className="group grid min-h-[68px] w-full grid-cols-[1fr_auto] items-start gap-x-3 gap-y-1.5 border-b border-rule px-4 py-4 text-left transition-colors last:border-b-0 hover:bg-panel focus-visible:bg-panel focus-visible:outline-none sm:flex sm:items-center sm:gap-4 sm:px-5"
@@ -179,6 +177,6 @@ export default function ClientFindings() {
           </DrawerContent>
         )}
       </Drawer>
-    </ClientShell>
+    </ClientPage>
   )
 }

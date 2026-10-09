@@ -1,26 +1,20 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, ArrowUpRight, Play } from 'lucide-react'
-import { api } from '@/api'
 import { Button } from '@/components/ui/button'
-import { ClientTopbar } from '@/components/ClientTopbar'
-import { ClientDock } from '@/components/ClientDock'
+import { ShellActions, ShellTitle } from '@/components/ShellSlots'
 import { bare, when } from '@/lib/format'
 import { AgentStatus } from '@/components/AgentStatus'
 import { ErrorRetry } from '@/components/ErrorRetry'
 import { PostureBubbles } from '@/components/viz/PostureBubbles'
 import { useApiData } from '@/lib/useApiData'
-import { useScrollThreshold } from '@/lib/useScrollThreshold'
-import { useScrambleText } from '@/lib/useScrambleText'
+import { FEEDS } from '@/lib/feeds'
+import { invalidate } from '@/lib/swr'
 import { NewTaskDrawer } from './NewTaskDrawer'
 import { CLIENT_LABEL } from '@/lib/workflow'
-import { revealTiles, press } from '@/lib/motion'
+import { press } from '@/lib/motion'
 
 const TrendChart = lazy(() => import('@/components/viz/TrendChart'))
-
-const HERO_BG =
-  'radial-gradient(130% 120% at 84% -10%, rgba(34,211,197,.30), transparent 45%),' +
-  'linear-gradient(158deg,#0B5FA5 0%,#0A2A43 46%,#060F18 100%)'
 
 const statusPill: Record<string, string> = {
   waiting: 'bg-med-bg text-med', accepted: 'bg-accent-soft text-accent-ink', scheduled: 'bg-accent-soft text-accent-ink',
@@ -34,7 +28,7 @@ const mono = (host: string) => bare(host).split(/[.:/]/)[0].slice(0, 2).toUpperC
 function Drill({ label, to }: { label: string; to?: string }) {
   const nav = useNavigate()
   return (
-    <button aria-label={label} onClick={(e) => { press(e.currentTarget); if (to) nav(to, { viewTransition: true }) }}
+    <button aria-label={label} onClick={(e) => { press(e.currentTarget); if (to) nav(to) }}
       className="grid h-11 w-11 flex-none place-items-center rounded-full border border-rule bg-panel text-ink transition-colors hover:border-ink hover:bg-ink hover:text-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:h-9 md:w-9">
       <ArrowUpRight size={15} />
     </button>
@@ -71,65 +65,30 @@ const inProgress = (es: { status: string }[]) => {
 
 export default function ClientCockpit() {
   const nav = useNavigate()
-  const shrink = useScrollThreshold<HTMLElement>(65, 'is-shrunk')
-  const fade = useScrollThreshold<HTMLDivElement>(55, 'is-faded')
-  const { data: d, error, reload } = useApiData<any>(() => api.get('/api/cockpit'))
+  const { data: d, error, reload } = useApiData<any>(FEEDS.cockpit.load, FEEDS.cockpit.key)
   const [taskOpen, setTaskOpen] = useState(false)
-  useEffect(() => { if (d) revealTiles('.tile') }, [d])
-  const name = useScrambleText(d?.me.name ?? 'there', !!d)
   const p = d?.posture
   // A fresh account has no findings yet, so `trend` can be empty - not just "unlikely", it's the
   // default state on day one, and indexing trend[0] on an empty array used to crash this page.
   const drop = d && d.trend.length ? Math.round(((sum(d.trend[0]) - sum(d.trend[d.trend.length - 1])) / sum(d.trend[0])) * 100) : 0
   function sum(r: any) { return r.critical + r.high + r.medium + r.low }
 
-  // The outer skeleton (hero + main#page-body) always renders, even before data arrives - a page
-  // that returns an entirely different tree while loading has no page-body-named element yet,
-  // so a page transition landing here has nothing to cross-fade to and flashes instead.
   return (
-    <div className="mx-auto max-w-[1380px] p-[clamp(10px,2vw,28px)] pb-[92px] md:pb-[clamp(10px,2vw,28px)]">
-      {/* HERO: one merged card, position: fixed - out of document flow entirely, so its own
-          size changes (shrink on scroll) can never move anything below it. It shrinks its own
-          padding on scroll; the content row (greeting/subtitle/actions) fades out fast, well
-          before the card finishes shrinking. The nav pill + controls (inside ClientTopbar) don't
-          fade - they're what's left once the card is fully compact. `main` below reserves a
-          constant gap sized to the hero's COLLAPSED height; at rest the taller expanded hero
-          simply overlaps the top of the cards (opaque bg, higher z-index) and recedes on scroll
-          to reveal them - the cards themselves never move. */}
-      <a href="#main" className="sr-only rounded-pill bg-cta-bg px-4 py-2 text-[13px] font-semibold text-cta-fg focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[70] focus:px-5 focus:py-3 focus:shadow-lg">Skip to content</a>
-      <header
-        ref={shrink}
-        className="hero-sticky relative isolate flex flex-col overflow-hidden rounded-bento-lg px-[clamp(18px,2.6vw,34px)] text-[#F2F5EF]"
-        style={{ borderRadius: '32px 32px 26px 26px', ['--hero-pb' as any]: '38px', ['--hero-pt' as any]: '20px' }}
-      >
-        {/* Background is its own layer so it can fade to fully transparent as the hero shrinks -
-            at rest it reads as one card; once collapsed, only the individually-glassed nav pill
-            and controls remain floating, no leftover dark bar behind them. */}
-        <div className="hero-bg-fade absolute inset-0 rounded-[inherit]" style={{ background: HERO_BG }} />
-        <ClientTopbar />
-        <div ref={fade} className="fade-collapse relative z-10 flex flex-wrap items-end justify-between gap-5" style={{ ['--collapse' as any]: '200px' }}>
-          <div>
-            <h1 className="text-[clamp(30px,4.4vw,52px)] font-bold leading-none tracking-[-0.02em]">Hello, {name}</h1>
-            <p className="mt-3.5 text-[14px] text-[#F2F5EF]/72">{d ? `${inProgress(d.engagements)} in progress · ${p.open} open findings` : 'Loading your workspace…'}</p>
-          </div>
-          <div className="flex items-center gap-[11px]">
-            <AgentStatus />
-            <Button variant="glass" size="pill" onClick={() => setTaskOpen(true)}>
-              <span className="-my-1.5 -ml-2 mr-0.5 grid h-[26px] w-[26px] place-items-center rounded-full bg-[#F2F5EF] text-[#12140F]"><Play size={12} className="fill-current" /></span>
-              New task
-            </Button>
-          </div>
-        </div>
-      </header>
+    <>
+      <ShellTitle
+        title={`Hello, ${d?.me.name ?? 'there'}`}
+        announce="Overview"
+        sub={d ? `${inProgress(d.engagements)} in progress · ${p.open} open findings` : 'Loading your workspace…'}
+      />
+      <ShellActions>
+        <AgentStatus />
+        <Button variant="glass" size="pill" onClick={() => setTaskOpen(true)}>
+          <span className="-my-1.5 -ml-2 mr-0.5 grid h-[26px] w-[26px] place-items-center rounded-full bg-[#F2F5EF] text-[#12140F]"><Play size={12} className="fill-current" /></span>
+          New task
+        </Button>
+      </ShellActions>
 
-      {/* Invisible spacer reserving room for the hero at its EXPANDED size - fixed height, never
-          toggles a class, never transitions. Since the hero is position: fixed (out of flow),
-          nothing here pushes on it; this just stops the (also fixed) hero from overlapping the
-          cards while expanded. Because its own height never changes, it can't cause a snap. */}
-      <div aria-hidden className="hero-spacer pointer-events-none" style={{ height: 202 }} />
-
-      {/* BENTO */}
-      <main id="main" tabIndex={-1} className="mt-3.5 grid grid-cols-1 gap-3 focus:outline-none lg:grid-cols-3 lg:grid-rows-[auto_1fr]" style={{ viewTransitionName: 'page-body' }}>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3 lg:grid-rows-[auto_1fr]">
         {error ? (
           <ErrorRetry message={error} onRetry={reload} />
         ) : !d ? (
@@ -140,7 +99,7 @@ export default function ClientCockpit() {
                 marking findings fixed - surface that ahead of the read-only posture tiles below,
                 rather than making them dig for it. */}
             {p.critical > 0 && (
-              <section className="tile col-span-full flex flex-wrap items-center justify-between gap-3 rounded-bento border border-crit-bg bg-crit-bg px-5 py-4" style={{ opacity: 0 }}>
+              <section className="col-span-full flex flex-wrap items-center justify-between gap-3 rounded-bento border border-crit-bg bg-crit-bg px-5 py-4">
                 <div className="flex items-center gap-3.5">
                   <span className="grid h-10 w-10 flex-none place-items-center rounded-full bg-crit text-white"><AlertTriangle size={18} /></span>
                   <div>
@@ -148,16 +107,16 @@ export default function ClientCockpit() {
                     <div className="text-[12.5px] text-ink-muted">These need remediation first - review them and mark fixed once resolved.</div>
                   </div>
                 </div>
-                <Button size="sm" className="min-h-[44px] lg:min-h-0" onClick={() => nav('/findings', { viewTransition: true })}>Review findings <ArrowUpRight size={15} /></Button>
+                <Button size="sm" className="min-h-[44px] lg:min-h-0" onClick={() => nav('/findings')}>Review findings <ArrowUpRight size={15} /></Button>
               </section>
             )}
 
             {/* Engagements (merged navigator, tall) */}
-            <section className="tile glass-card liquid flex min-w-0 flex-col overflow-hidden rounded-bento p-5 lg:row-span-2" style={{ opacity: 0 }}>
+            <section className="glass-card liquid flex min-w-0 flex-col overflow-hidden rounded-bento p-5 lg:row-span-2">
               <TileHead title="Engagements" sub={`${d.engagements.length} active`} to="/tasks" />
               <div className="flex flex-col">
                 {d.engagements.map((e: any, i: number) => (
-                  <button key={e.id} onClick={() => nav('/findings', { viewTransition: true })}
+                  <button key={e.id} onClick={() => nav('/findings')}
                     className={`group flex items-center gap-3.5 py-3.5 text-left ${i ? 'border-t border-rule' : ''}`}>
                     <span className="grid h-9 w-9 flex-none place-items-center rounded-[9px] bg-panel font-display text-[12px] font-bold text-ink">{mono(e.target)}</span>
                     <div className="min-w-0 flex-1">
@@ -177,14 +136,14 @@ export default function ClientCockpit() {
             </section>
 
             {/* Posture bubbles */}
-            <section className="tile glass-card liquid flex min-w-0 flex-col overflow-hidden rounded-bento p-5" style={{ opacity: 0 }}>
+            <section className="glass-card liquid flex min-w-0 flex-col overflow-hidden rounded-bento p-5">
               <TileHead title="Posture Overview" sub="Severity across all engagements" to="/findings" />
               <PostureBubbles posture={p} />
             </section>
 
             {/* Latest Report - no delivered report yet is a real, reachable state (a brand
                 new account, or one still mid-review), not just a mock gap. */}
-            <section className="tile glass-card liquid flex min-w-0 flex-col overflow-hidden rounded-bento p-5" style={{ opacity: 0 }}>
+            <section className="glass-card liquid flex min-w-0 flex-col overflow-hidden rounded-bento p-5">
               {d.latestReport ? (
                 <>
                   <TileHead title="Latest Report" sub={`${d.latestReport.findings} findings · governance signed`} to="/reports" />
@@ -196,7 +155,7 @@ export default function ClientCockpit() {
                       </div>
                     ))}
                   </div>
-                  <div className="mt-auto"><Button size="lg" className="w-full" onClick={() => nav('/reports', { viewTransition: true })}>View report <ArrowUpRight size={17} /></Button></div>
+                  <div className="mt-auto"><Button size="lg" className="w-full" onClick={() => nav('/reports')}>View report <ArrowUpRight size={17} /></Button></div>
                 </>
               ) : (
                 <>
@@ -207,16 +166,15 @@ export default function ClientCockpit() {
             </section>
 
             {/* Findings Trend (wide) */}
-            <section className="tile glass-card liquid flex min-w-0 flex-col overflow-hidden rounded-bento p-5 lg:col-span-2" style={{ opacity: 0 }}>
+            <section className="glass-card liquid flex min-w-0 flex-col overflow-hidden rounded-bento p-5 lg:col-span-2">
               <TileHead title="Findings Trend" sub="Open findings by severity · 6 mo" to="/findings" />
               <div className="mb-1 text-[13px] text-ink-muted">{p.open} open now, <span className="font-semibold text-low">down {drop}%</span> over 6 months</div>
               <Suspense fallback={<div className="h-[214px]" />}><TrendChart data={d.trend} /></Suspense>
             </section>
           </>
         )}
-      </main>
-      <NewTaskDrawer open={taskOpen} onOpenChange={setTaskOpen} onCreated={reload} />
-      <ClientDock />
-    </div>
+      </div>
+      <NewTaskDrawer open={taskOpen} onOpenChange={setTaskOpen} onCreated={() => { invalidate(FEEDS.tasks.key); reload() }} />
+    </>
   )
 }

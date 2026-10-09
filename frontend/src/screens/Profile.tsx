@@ -10,6 +10,7 @@ import { roleLabel } from '@/lib/roles'
 import { Button } from '@/components/ui/button'
 import { BrandMark } from '@/components/BrandMark'
 import { ClientShell } from '@/components/ClientShell'
+import { ClientPage } from '@/components/ClientPage'
 import { TeamAccount } from '@/components/TeamAccount'
 import { ChangePassword } from '@/components/ChangePassword'
 import { TwoFactor } from '@/components/TwoFactor'
@@ -47,7 +48,7 @@ export function SignInFirst({ why }: { why: string }) {
 // administrator get the plain private-plane header with their account menu.
 function Frame({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
-  if (user?.role === 'client') return <ClientShell title="Profile" sub="Your account details and sign-in security.">{children}</ClientShell>
+  if (user?.role === 'client') return <ClientShell><ClientPage title="Profile" sub="Your account details and sign-in security.">{children}</ClientPage></ClientShell>
   const home = user?.role === 'sysadmin' ? '/team/sysadmin' : '/team'
   const homeName = user?.role === 'sysadmin' ? 'administration' : 'board'
   return (

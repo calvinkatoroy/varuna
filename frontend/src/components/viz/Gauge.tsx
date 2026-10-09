@@ -1,31 +1,8 @@
-import { useEffect, useRef } from 'react'
-import anime from 'animejs'
-
-const reduced = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
-// Semicircular resolution gauge (the CyberGuard speedometer idea): a ticked scanner arc that
-// fills to `value`, with the figure counting up. The one signature data-viz on the page.
+// Semicircular resolution gauge (the CyberGuard speedometer idea): a ticked scanner arc filled to `value`,
+// with the figure. Drawn at its final value at once - a page that is revisited often should not replay it.
 export function Gauge({ value, label, tone = 'low', size = 208 }: { value: number; label: string; tone?: string; size?: number }) {
-  const arcRef = useRef<SVGPathElement>(null)
-  const numRef = useRef<SVGTextElement>(null)
   const cx = 100, cy = 104, r = 82, ticks = 44
   const arc = `M ${cx - r},${cy} A ${r},${r} 0 0 1 ${cx + r},${cy}`
-
-  useEffect(() => {
-    if (reduced()) {
-      arcRef.current?.setAttribute('stroke-dasharray', `${value} 100`)
-      if (numRef.current) numRef.current.textContent = `${value}%`
-      return
-    }
-    const o = { v: 0 }
-    anime({
-      targets: o, v: value, duration: 1150, easing: 'easeOutExpo',
-      update: () => {
-        arcRef.current?.setAttribute('stroke-dasharray', `${o.v} 100`)
-        if (numRef.current) numRef.current.textContent = `${Math.round(o.v)}%`
-      },
-    })
-  }, [value])
 
   return (
     <svg viewBox="0 0 200 118" width={size} height={size * 0.59} className="overflow-visible">
@@ -45,8 +22,8 @@ export function Gauge({ value, label, tone = 'low', size = 208 }: { value: numbe
         )
       })}
       <path d={arc} pathLength={100} fill="none" stroke="var(--color-rule)" strokeWidth="9" strokeLinecap="round" />
-      <path ref={arcRef} d={arc} pathLength={100} fill="none" stroke={`var(--color-${tone})`} strokeWidth="9" strokeLinecap="round" strokeDasharray="0 100" />
-      <text ref={numRef} x={cx} y={cy - 12} textAnchor="middle" className="fill-ink font-display" style={{ fontSize: 36, fontWeight: 700, letterSpacing: '-0.02em' }}>0%</text>
+      <path d={arc} pathLength={100} fill="none" stroke={`var(--color-${tone})`} strokeWidth="9" strokeLinecap="round" strokeDasharray={`${value} 100`} />
+      <text x={cx} y={cy - 12} textAnchor="middle" className="fill-ink font-display" style={{ fontSize: 36, fontWeight: 700, letterSpacing: '-0.02em' }}>{value}%</text>
       <text x={cx} y={cy + 6} textAnchor="middle" className="font-display" style={{ fontSize: 10.5, letterSpacing: '0.14em', fill: 'var(--color-ink-muted)' }}>{label.toUpperCase()}</text>
     </svg>
   )

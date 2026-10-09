@@ -11,7 +11,7 @@ export default function TrendChart({ data }: { data: Row[] }) {
   const light = document.documentElement.getAttribute('data-theme') === 'light'
 
   const options: ApexOptions = {
-    chart: { type: 'area', stacked: true, toolbar: { show: false }, parentHeightOffset: 0, animations: { enabled: true, speed: 700, easing: 'easeout' } },
+    chart: { type: 'area', stacked: true, toolbar: { show: false }, parentHeightOffset: 0, animations: { enabled: false } },
     colors: [col('--color-crit'), col('--color-high'), col('--color-med'), col('--color-low')],
     stroke: { curve: 'smooth', width: 1.5 },
     fill: { type: 'gradient', gradient: { opacityFrom: 0.55, opacityTo: 0.12 } },
