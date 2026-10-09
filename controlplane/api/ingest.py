@@ -57,7 +57,7 @@ def process_job(job_id: str, raw: dict) -> None:
     findings = correlate.correlate(findings)   # dedup + OWASP/CWE tag + priority
     # Findings are durable (SQLite), unlike the job record they came from - they must outlive
     # the job's 24h Redis TTL to survive the (possibly multi-day) review pipeline.
-    db.save_findings(job_id, job["submitter"], job_org(job), findings)
+    db.save_findings(job_id, job["submitter"], job_org(job), findings, quick=bool(job.get("quick")))
     # A task's scan gets its report automatically (direct team scans have none; use /api/reports/generate).
     task = db.get_proposal_by_job(job_id)
     if task and not db.report_for_task(task["id"]):

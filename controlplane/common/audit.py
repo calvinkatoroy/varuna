@@ -19,6 +19,7 @@ REJECT = "reject"
 ENROLL = "enroll"
 REVOKE = "revoke"
 WIPE = "wipe"
+QUICK_SCAN = "quick_scan"
 
 
 def log(event_type: str, **fields) -> dict:

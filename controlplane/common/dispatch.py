@@ -42,7 +42,7 @@ def _is_gated(role: str, target_class: str) -> bool:
 
 
 def submit_scan(submitter: str, role: str, org_id: str | None, target: str, tools: list,
-                opts: dict | None = None, division: str = "") -> dict:
+                opts: dict | None = None, division: str = "", quick: bool = False) -> dict:
     """Create + route a scan. Raises ClassifyRejected (fail closed) or OfflineAgent.
     org_id comes from the submitting account (None for staff), never from request input.
 
@@ -52,7 +52,7 @@ def submit_scan(submitter: str, role: str, org_id: str | None, target: str, tool
     job = models.Job(
         id=str(uuid.uuid4()), target=target, target_class=target_class,
         submitter=submitter, role=role, tools=tools, opts=opts or {},
-        status=models.STATUS_QUEUED, per_tool_status={}, org_id=org_id,
+        status=models.STATUS_QUEUED, per_tool_status={}, org_id=org_id, quick=quick,
     ).to_dict()
     redis_store.set_job(job)
     redis_store.add_org_job(org_id, job["id"])

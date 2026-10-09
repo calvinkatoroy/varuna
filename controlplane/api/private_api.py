@@ -222,7 +222,23 @@ def set_finding_status(fid: str, body: browser.FindingStatusBody, user: dict = D
 
 @app.get("/api/findings/{job_id}")
 def findings(job_id: str, user: dict = Depends(require_pro)):
-    return db.get_findings(job_id)
+    return [] if db.quick_job(job_id) else db.get_findings(job_id)   # a client's quick scan is theirs alone
+
+
+@app.get("/api/quick-scans")
+def quick_scans(user: dict = Depends(require_team)):
+    """Who ran a client quick scan, on what, when, and how it ended. Never the findings."""
+    out = []
+    for e in reversed(audit.read_all()):
+        if e.get("type") != audit.QUICK_SCAN:
+            continue
+        job = redis_store.get_job(e.get("job") or "") or {}
+        org = db.get_org(e.get("org") or "")
+        out.append({"at": e["ts"], "org": (org or {}).get("name") or e.get("org"), "user": e.get("submitter"),
+                    "target": e.get("target"), "status": job.get("status", "expired")})
+        if len(out) >= 100:
+            break
+    return out
 
 
 class VerdictBody(BaseModel):

@@ -119,6 +119,7 @@ class Job:
     scan_mode: str = "local"           # local = the client's agent runs it; cloud = the cloud scanner does
     executor: Optional[str] = None     # agent username allowed to run this job when it is not the submitter
     org_id: Optional[str] = None       # owning organization, copied from the account/proposal (never request input)
+    quick: bool = False                # a client's own quick scan: no task, never part of the team's report flow
 
     def to_dict(self) -> dict:
         return asdict(self)

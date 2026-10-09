@@ -45,7 +45,7 @@ def test_targets_count_severity_fixed_and_hide_false_positives_from_clients(api)
     assert r.status_code == 200
     (t,) = r.json()
     assert t.pop("scanned_at")
-    assert t == {"task_id": pid, "target": "https://a.co.id", "total": 5, "fixed": 1,
+    assert t == {"task_id": pid, "target": "https://a.co.id", "total": 5, "fixed": 1, "quick": False,
                  "counts": {"critical": 2, "high": 1, "medium": 0, "low": 1, "info": 1}}
 
 

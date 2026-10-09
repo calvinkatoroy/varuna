@@ -121,6 +121,9 @@ def update_status(job_id: str, body: StatusBody, username: str = Depends(current
 def _job_finished(job: dict) -> None:
     """A task's scan ended: done -> completed, failed -> suspended with the agent's error. Staff direct
     scans have no task. A task already moved (suspended by hand, repeat report) is left as it is."""
+    if job.get("quick"):   # a client's quick scan: free the organization's one-at-a-time lock, no task to move
+        redis_store.get_redis().delete(f"quick:active:{job.get('org_id')}")
+        return
     t = db.get_proposal_by_job(job["id"])
     if not t:
         return

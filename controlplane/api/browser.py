@@ -49,6 +49,7 @@ import tokens  # noqa: E402
 import workflow  # noqa: E402
 import deps  # noqa: E402
 import profile_api  # noqa: E402
+import ratelimit  # noqa: E402
 from deps import current_user, require_pro  # noqa: E402
 
 app = FastAPI(title="Varuna Browser API (public plane)")
@@ -284,7 +285,61 @@ def submit_scan(body: ScanBody, user: dict = Depends(current_user)):
         raise HTTPException(status_code=409, detail=str(e))
 
 
-_CLIENT_JOB_KEYS = ("id", "target", "target_class", "status", "per_tool_status", "scan_mode")
+# --- quick scan: a client scans their own private target, no pentester, no report. The team sees that it happened
+# (audit log, private plane), never the findings; "request a verified report" turns it into an ordinary task. ---
+def quick_scan_enabled() -> bool:
+    return os.environ.get("VARUNA_QUICK_SCAN", "1") != "0"
+
+
+QUICK_PER_DAY = int(os.environ.get("VARUNA_QUICK_SCAN_PER_DAY") or "5")
+QUICK_LOCK_S = 2 * 3600   # one active quick scan per organization; the lock expires, so a stuck job cannot hold it
+
+
+def quick_lock_key(org_id: str) -> str:
+    return f"quick:active:{org_id}"
+
+
+class QuickScanBody(BaseModel):
+    target: str = Field(max_length=2048)
+    consent: bool = False
+
+
+@app.post("/api/quick-scans")
+def quick_scan(body: QuickScanBody, user: dict = Depends(current_user), scope: tenancy.Scope = Depends(deps.scope)):
+    if not quick_scan_enabled():
+        raise HTTPException(status_code=503, detail="quick scans are switched off")
+    if not models.is_client(user["role"]) or not scope.org_id:
+        raise HTTPException(status_code=403, detail="quick scans are for client accounts")
+    if body.consent is not True:
+        raise HTTPException(status_code=422, detail="confirm that you are allowed to test this system")
+    try:
+        target_class = classifier.classify(body.target)
+    except classifier.ClassifyRejected as e:
+        raise HTTPException(status_code=422, detail=f"target rejected: {e}")
+    if target_class != models.CLASS_LOCAL:
+        raise HTTPException(status_code=422, detail="quick scans only work for internal systems. For a website open on "
+                                                    "the internet, send a task so that a pentester can check ownership")
+    if not redis_store.get_agent(user["username"]):
+        raise HTTPException(status_code=409, detail="no agent registered; install your agent first")
+    if not redis_store.get_redis().set(quick_lock_key(scope.org_id), "1", ex=QUICK_LOCK_S, nx=True):
+        raise HTTPException(status_code=409, detail="a quick scan is already running for your organization")
+    try:
+        ratelimit.hit(f"quick:{scope.org_id}", QUICK_PER_DAY, 86400)
+        res = dispatch.submit_scan(user["username"], user["role"], scope.org_id, body.target,
+                                   FULL_STACK, opts={}, quick=True)
+    except Exception as e:   # nothing was started: free the lock whatever went wrong
+        redis_store.get_redis().delete(quick_lock_key(scope.org_id))
+        if isinstance(e, ratelimit.RateLimited):
+            raise HTTPException(status_code=429, detail=f"quick scan limit reached ({QUICK_PER_DAY} per day)")
+        if isinstance(e, dispatch.OfflineAgent):
+            raise HTTPException(status_code=409, detail=str(e))
+        raise
+    audit.log(audit.QUICK_SCAN, org=scope.org_id, submitter=user["username"], target=body.target,
+              job=res["job_id"], consent=True)
+    return res
+
+
+_CLIENT_JOB_KEYS = ("id", "target", "target_class", "status", "per_tool_status", "scan_mode", "quick")
 
 
 @app.get("/api/scans")

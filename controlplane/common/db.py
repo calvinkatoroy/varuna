@@ -128,6 +128,7 @@ CREATE TABLE IF NOT EXISTS findings (
     risk_rating   TEXT,
     verdict       TEXT NOT NULL DEFAULT 'tp',
     status        TEXT NOT NULL DEFAULT 'open',
+    quick         INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_findings_job ON findings(job_id);
@@ -269,6 +270,8 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE proposals SET stage='expired' WHERE not_after IS NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_proposals_stage ON proposals(stage, scan_state)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_proposals_job ON proposals(job_id)")
+    if "quick" not in {r[1] for r in conn.execute("PRAGMA table_info(findings)")}:
+        conn.execute("ALTER TABLE findings ADD COLUMN quick INTEGER NOT NULL DEFAULT 0")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_findings_org ON findings(org_id)")
     for col, ddl in (("org_id", "TEXT"), ("display_name", "TEXT"), ("phone", "TEXT"),
                      ("token_version", "INTEGER NOT NULL DEFAULT 0"),
@@ -634,17 +637,17 @@ def _finding_id(job_id: str, f: dict) -> str:
     return hashlib.sha1(key.encode()).hexdigest()[:16]
 
 
-def save_findings(job_id: str, owner: str, org_id: str, findings: list[dict]) -> None:
+def save_findings(job_id: str, owner: str, org_id: str, findings: list[dict], quick: bool = False) -> None:
     """Replace-all per job, upserting by stable id so verdict/status survive re-correlation."""
     conn = get_conn()
     ids = [_finding_id(job_id, f) for f in findings]
     for fid, f in zip(ids, findings):
         conn.execute(
-            "INSERT INTO findings (id, job_id, owner, org_id, " + ", ".join(_FINDING_COLS) + ") "
-            "VALUES (?,?,?,?," + ",".join("?" for _ in _FINDING_COLS) + ") "
+            "INSERT INTO findings (id, job_id, owner, org_id, quick, " + ", ".join(_FINDING_COLS) + ") "
+            "VALUES (?,?,?,?,?," + ",".join("?" for _ in _FINDING_COLS) + ") "
             "ON CONFLICT(id) DO UPDATE SET " +
             ", ".join(f"{c}=excluded.{c}" for c in _FINDING_COLS),
-            (fid, job_id, owner, org_id, *(f.get(c) for c in _FINDING_COLS)),
+            (fid, job_id, owner, org_id, int(quick), *(f.get(c) for c in _FINDING_COLS)),
         )
     if ids:
         conn.execute(
@@ -664,19 +667,23 @@ def get_findings(job_id: str) -> list[dict]:
 
 
 def get_finding(fid: str, *, org_id: Optional[str]) -> Optional[dict]:
-    q, args = "SELECT * FROM findings WHERE id=?", [fid]
+    q, args = "SELECT f.* FROM findings f WHERE f.id=?", [fid]
     if org_id is not None:
-        q += " AND org_id=?"; args.append(org_id)
+        q += " AND f.org_id=?"; args.append(org_id)
+    else:
+        q += " AND NOT " + _QUICK
     row = get_conn().execute(q, args).fetchone()
     return dict(row) if row else None
 
 
 def list_findings(*, org_id: Optional[str]) -> list[dict]:
-    q, args, where = "SELECT * FROM findings", [], []
+    q, args, where = "SELECT f.* FROM findings f", [], []
     _org_where(org_id, where, args)
+    if org_id is None:
+        where.append("NOT " + _QUICK)
     if where:
         q += " WHERE " + " AND ".join(where)
-    q += " ORDER BY created_at DESC"
+    q += " ORDER BY f.created_at DESC"
     return [dict(r) for r in get_conn().execute(q, args).fetchall()]
 
 
@@ -690,10 +697,21 @@ _TARGET = "COALESCE(p.id, f.job_id)"
 _LIST_COLS = "f.id, f.name, f.severity, f.host, f.url, f.tool, f.cve, f.cwe, f.verdict, f.status"
 
 
+# A client's quick scan (findings.quick=1): the team sees that it happened (audit log), never its findings.
+_QUICK = "f.quick = 1"
+
+
+def quick_job(job_id: str) -> bool:
+    return get_conn().execute(
+        "SELECT 1 FROM findings f WHERE f.job_id=? AND " + _QUICK + " LIMIT 1", (job_id,)).fetchone() is not None
+
+
 def _finding_where(org_id: Optional[str], tp_only: bool, args: list) -> list:
     where = []
     if org_id is not None:
         where.append("f.org_id=?"); args.append(org_id)
+    else:
+        where.append("NOT " + _QUICK)
     if tp_only:
         where.append("f.verdict='tp'")
     return where
@@ -707,7 +725,7 @@ def finding_targets(*, org_id: Optional[str], tp_only: bool) -> list[dict]:
     sums = ", ".join(f"SUM(LOWER(f.severity)='{s}') AS {s}" for s in _SEVS)
     q = (f"SELECT {_TARGET} AS task_id, COALESCE(p.target, MIN(f.host)) AS target, MIN(f.org_id) AS org_id, "
          f"COUNT(*) AS total, SUM(f.status='fixed') AS fixed, SUM(f.verdict='fp') AS fp, "
-         f"MAX(f.created_at) AS scanned_at, {sums} {_FROM}"
+         f"MAX(f.created_at) AS scanned_at, MAX(f.quick) AS quick, {sums} {_FROM}"
          + (" WHERE " + " AND ".join(where) if where else "")
          + f" GROUP BY {_TARGET} ORDER BY scanned_at DESC, task_id")
     out = []
@@ -715,7 +733,8 @@ def finding_targets(*, org_id: Optional[str], tp_only: bool) -> list[dict]:
         d = dict(r)
         counts = {s: d.pop(s) or 0 for s in _SEVS}
         counts["info"] = d["total"] - sum(counts.values())
-        out.append({**d, "fixed": d["fixed"] or 0, "fp": d["fp"] or 0, "counts": counts})
+        out.append({**d, "fixed": d["fixed"] or 0, "fp": d["fp"] or 0, "counts": counts,
+                    "quick": bool(d.pop("quick"))})
     return out
 
 
@@ -751,6 +770,8 @@ def get_finding_with_task(fid: str, *, org_id: Optional[str]) -> Optional[dict]:
     q, args = f"SELECT f.*, {_TARGET} AS task_id {_FROM} WHERE f.id=?", [fid]
     if org_id is not None:
         q += " AND f.org_id=?"; args.append(org_id)
+    else:
+        q += " AND NOT " + _QUICK
     row = get_conn().execute(q, args).fetchone()
     return dict(row) if row else None
 
